@@ -4,30 +4,32 @@ Last updated: 2026-07-06
 
 ## Current phase
 
-Handoff pack prepared. App implementation has not started unless the actual repo shows otherwise.
+Phase 0 complete: repository/docs baseline verified. App implementation has not started.
 
 ## Active task
 
-Start with Phase 0 from `docs/16_BEST_IMPLEMENTATION_ORDER.md`: repository foundation, docs import, ADR verification, and initial baseline commit.
+No active implementation phase. Await explicit user approval before Phase 1.
 
-## Suggested first branch
+## Current branch
 
 ```bash
-make new-work TYPE=feature SLUG=repo-foundation
+feature/repo-foundation
 ```
 
 ## Next actions
 
-1. Import this pack into the empty repo.
-2. Run `make session` and `make context`.
-3. Create/use `local` as developer-only integration branch.
-4. Create `feature/repo-foundation` from `local`.
-5. Commit documentation baseline and operational scripts.
-6. Scaffold Next.js + TypeScript only after Phase 0 is clean.
-7. Update this file after each meaningful session.
+1. Review and commit Phase 0 changes.
+2. Merge the completed branch into `local` when approved.
+3. Await explicit approval before Phase 1.
+4. After approval, create `feature/app-scaffold` from `local`.
 
 ## Completed
 
+- Phase 0 repository/docs baseline verified.
+- `main`, `local`, and `feature/repo-foundation` branch roles confirmed.
+- Canonical 13-file ADR baseline verified; conflicting legacy duplicate-number ADRs removed.
+- Root docs, full docs pack, examples, operational scripts, and state files verified.
+- `make check`, whitespace, inventory, ADR uniqueness, and example JSON syntax checks passed.
 - Product requirements documented.
 - Architecture/system design documented.
 - Data model and API/GPT payload contracts documented.
