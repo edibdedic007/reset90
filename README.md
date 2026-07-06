@@ -42,12 +42,18 @@ Start from a clean clone:
 cp .env.local.example .env.local
 # Review developer-only placeholders in .env.local.
 make setup-local
+make db-migrate
+make db-seed
 make dev
 ```
 
 `make setup-local` installs locked pnpm dependencies, starts PostgreSQL, and
 waits for database readiness. The app runs at `http://localhost:3000`.
 PostgreSQL binds only to `127.0.0.1:5432` by default.
+
+`make db-migrate` applies committed Prisma migrations. `make db-seed` safely
+upserts one local user, one active 90-day cycle, three phases, and 90 day logs.
+Use `make db-reset` only when intentionally replacing all local database data.
 
 Local dependency commands:
 

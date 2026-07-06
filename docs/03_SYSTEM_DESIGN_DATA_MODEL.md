@@ -271,3 +271,14 @@ Optional MVP decision: create the table later if vector retrieval is implemented
 - Migrations must be safe for production data.
 - Before production migrations, run backup.
 - Destructive migrations require explicit note in PR and deploy plan.
+
+## Phase 3 implementation baseline
+
+The first Prisma migration implements `users`, `reset_cycles`, `reset_phases`,
+`day_logs`, and `imported_payloads`. UUID primary keys, foreign keys, unique day
+date/number constraints, cycle date ordering, phase/day range checks, and raw
+JSON payload storage are enforced in PostgreSQL.
+
+Local seed data is idempotent. It creates one local user, one active cycle,
+three canonical phases, and exactly 90 unique day logs. Later phases extend
+these tables; Phase 3 does not normalize imported payloads.

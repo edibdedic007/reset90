@@ -1,0 +1,137 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum CycleStatus {
+  ACTIVE
+  COMPLETED
+  ARCHIVED
+
+  @@map("cycle_status")
+}
+
+enum EnergyLevel {
+  BURNED_OUT
+  LOW
+  NORMAL
+  HIGH
+  RESTLESS_CHAOTIC
+
+  @@map("energy_level")
+}
+
+enum DayStatus {
+  GREEN
+  YELLOW
+  BLUE
+  RED
+  GOLD
+  UNSET
+
+  @@map("day_status")
+}
+
+enum PayloadKind {
+  DAILY_PLAN
+  DAILY_REFLECTION
+  WEEKLY_REVIEW
+  CONTEXT_SUMMARY
+
+  @@map("payload_kind")
+}
+
+enum ValidationStatus {
+  PENDING
+  VALID
+  INVALID
+
+  @@map("validation_status")
+}
+
+model User {
+  id               String       @id @default(uuid()) @db.Uuid
+  authentikSubject String       @unique @map("authentik_subject")
+  email            String?      @unique
+  displayName      String?      @map("display_name")
+  createdAt        DateTime     @default(now()) @map("created_at")
+  updatedAt        DateTime     @updatedAt @map("updated_at")
+  resetCycles      ResetCycle[]
+
+  @@map("users")
+}
+
+model ResetCycle {
+  id                  String       @id @default(uuid()) @db.Uuid
+  userId              String       @map("user_id") @db.Uuid
+  name                String
+  startDate           DateTime     @map("start_date") @db.Date
+  endDate             DateTime     @map("end_date") @db.Date
+  status              CycleStatus  @default(ACTIVE)
+  recoveryCreditLimit Int          @default(6) @map("recovery_credit_limit")
+  createdAt           DateTime     @default(now()) @map("created_at")
+  updatedAt           DateTime     @updatedAt @map("updated_at")
+  user                User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  phases              ResetPhase[]
+  dayLogs             DayLog[]
+
+  @@unique([userId, name])
+  @@index([userId, status])
+  @@map("reset_cycles")
+}
+
+model ResetPhase {
+  id          String     @id @default(uuid()) @db.Uuid
+  cycleId     String     @map("cycle_id") @db.Uuid
+  name        String
+  dayStart    Int        @map("day_start")
+  dayEnd      Int        @map("day_end")
+  description String?
+  cycle       ResetCycle @relation(fields: [cycleId], references: [id], onDelete: Cascade)
+  dayLogs     DayLog[]
+
+  @@unique([cycleId, dayStart])
+  @@map("reset_phases")
+}
+
+model DayLog {
+  id                String       @id @default(uuid()) @db.Uuid
+  cycleId           String       @map("cycle_id") @db.Uuid
+  phaseId           String       @map("phase_id") @db.Uuid
+  date              DateTime     @db.Date
+  dayNumber         Int          @map("day_number")
+  energyLevel       EnergyLevel? @map("energy_level")
+  status            DayStatus    @default(UNSET)
+  mission           String?
+  supportiveMessage String?      @map("supportive_message")
+  notes             String?
+  createdAt         DateTime     @default(now()) @map("created_at")
+  updatedAt         DateTime     @updatedAt @map("updated_at")
+  cycle             ResetCycle   @relation(fields: [cycleId], references: [id], onDelete: Cascade)
+  phase             ResetPhase   @relation(fields: [phaseId], references: [id], onDelete: Restrict)
+
+  @@unique([cycleId, date])
+  @@unique([cycleId, dayNumber])
+  @@index([phaseId])
+  @@map("day_logs")
+}
+
+model ImportedPayload {
+  id                     String           @id @default(uuid()) @db.Uuid
+  kind                   PayloadKind
+  schemaVersion          String           @map("schema_version")
+  idempotencyKey         String           @unique @map("idempotency_key")
+  source                 String
+  externalConversationId String?          @map("external_conversation_id")
+  rawJson                Json             @map("raw_json")
+  validationStatus       ValidationStatus @default(PENDING) @map("validation_status")
+  processedAt            DateTime?        @map("processed_at")
+  createdAt              DateTime         @default(now()) @map("created_at")
+
+  @@index([kind, createdAt])
+  @@map("imported_payloads")
+}

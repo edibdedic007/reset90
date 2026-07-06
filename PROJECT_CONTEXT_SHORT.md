@@ -41,15 +41,15 @@ Reset90 is a private self-hosted 90-day reset command center. It receives struct
 
 ## Current implementation status
 
-Phase 2 local development environment complete. Next.js 16 App Router,
-TypeScript, Tailwind CSS, ESLint, Prettier, Vitest, and pnpm tooling are
-present. Local PostgreSQL runs through Docker Compose with loopback-only port
-binding. Prisma runtime wiring remains deferred to Phase 3.
+Phase 3 database foundation complete. Prisma 7.8 uses PostgreSQL through the
+node-postgres driver adapter. The first migration creates users, reset cycles,
+reset phases, day logs, and raw imported payload storage. Idempotent seed data
+creates one active cycle, three canonical phases, and 90 unique day logs.
 
 ## Current branch/task
 
-`chore/local-development-env` — Phase 2 local environment complete. Await
-explicit approval before Phase 3 database foundation work.
+`feature/database-foundation` — Phase 3 database foundation complete. Await
+explicit approval before Phase 4 GPT payload validation.
 
 ## Important decisions
 
@@ -64,17 +64,16 @@ explicit approval before Phase 3 database foundation work.
 - Recovery-aware statuses replace harsh streaks.
 - Export/backup must be available early.
 - Health endpoint: `GET /api/health` returns `200` with minimal JSON.
-- Readiness endpoint: `GET /api/ready` returns `503` until database wiring is
-  implemented.
+- Readiness endpoint: `GET /api/ready` returns `200` only when a safe database
+  query succeeds; database failure returns `503` without internal details.
 
 ## Next recommended tasks
 
-1. Review and commit Phase 2.
-2. Merge `chore/local-development-env` into `local` when approved.
-3. Await explicit approval before Phase 3.
-4. Phase 3: database/Prisma migrations and seed data.
-5. Phase 4: canonical GPT import schemas and validators.
-6. Phase 5: raw import storage and idempotency.
+1. Review and commit Phase 3.
+2. Merge `feature/database-foundation` into `local` when approved.
+3. Await explicit approval before Phase 4.
+4. Phase 4: canonical GPT import schemas and validators.
+5. Phase 5: raw import storage and idempotency.
 
 Use `docs/16_BEST_IMPLEMENTATION_ORDER.md` as the source of truth.
 
@@ -123,3 +122,5 @@ Accepted ADR baseline:
 2026-07-07 - feature/app-scaffold - added Phase 1 Next.js/TypeScript/Tailwind app shell, pnpm tooling, tests, and `/api/health` plus placeholder `/api/ready` routes - format, lint, typecheck, tests, build, and live endpoint smoke checks passed - next step: review/commit and await Phase 2 approval
 
 2026-07-07 - chore/local-development-env - completed Phase 2 local PostgreSQL Compose workflow, pnpm setup, Make lifecycle targets, and clean-start docs - Compose validation, local setup/readiness, lifecycle targets, and `make check` passed - next step: review/commit and await Phase 3 approval
+
+2026-07-07 - feature/database-foundation - added Prisma/PostgreSQL schema, first migration, idempotent 90-day seed, cycle logic tests, and database readiness - migration, repeated seed, row-count checks, route smoke test, and app quality gates passed - next step: review/commit and await Phase 4 approval

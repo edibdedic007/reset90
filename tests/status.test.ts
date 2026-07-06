@@ -7,10 +7,17 @@ describe("status payloads", () => {
     expect(getHealthStatus()).toEqual({ status: "ok" });
   });
 
-  it("reports database readiness as not configured", () => {
-    expect(getReadinessStatus()).toEqual({
+  it("reports database readiness", () => {
+    expect(getReadinessStatus(true)).toEqual({
+      status: "ready",
+      checks: { database: "ready" },
+    });
+  });
+
+  it("reports database unavailability without details", () => {
+    expect(getReadinessStatus(false)).toEqual({
       status: "not_ready",
-      checks: { database: "not_configured" },
+      checks: { database: "unavailable" },
     });
   });
 });

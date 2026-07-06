@@ -4,28 +4,36 @@ Last updated: 2026-07-07
 
 ## Current phase
 
-Phase 2 complete: reproducible local development environment implemented and
-verified.
+Phase 3 complete: Prisma/PostgreSQL database foundation, migration, seed data,
+cycle logic, and readiness check implemented and verified.
 
 ## Active task
 
-No active implementation phase. Await explicit user approval before Phase 3.
+No active implementation phase. Await explicit user approval before Phase 4.
 
 ## Current branch
 
 ```bash
-chore/local-development-env
+feature/database-foundation
 ```
 
 ## Next actions
 
-1. Review and commit Phase 2 changes.
+1. Review and commit Phase 3 changes.
 2. Merge the completed branch into `local` when approved.
-3. Await explicit approval before Phase 3.
-4. After approval, create `feature/database-foundation` from `local`.
+3. Await explicit approval before Phase 4.
+4. After approval, create `feature/gpt-payload-validation` from `local`.
 
 ## Completed
 
+- Prisma 7.8 and the PostgreSQL driver adapter provide typed database access.
+- Initial migration creates `users`, `reset_cycles`, `reset_phases`,
+  `day_logs`, and `imported_payloads` with relational/uniqueness constraints.
+- Idempotent seed creates one active cycle, 3 canonical phases, and 90 unique
+  day logs; two consecutive seed runs preserve those counts.
+- UTC day-number, phase selection, active-cycle lookup, and unique seed logic
+  have unit coverage.
+- `GET /api/ready` performs a safe database query and returns HTTP 200/503.
 - Local PostgreSQL starts through Docker Compose from root configuration.
 - PostgreSQL host port binds only to `127.0.0.1:5432`.
 - `make setup-local` installs locked pnpm dependencies and waits for database
