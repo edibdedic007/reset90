@@ -41,11 +41,14 @@ Reset90 is a private self-hosted 90-day reset command center. It receives struct
 
 ## Current implementation status
 
-Documentation handoff pack created. App source code may not yet be implemented. Codex must inspect the repository before making assumptions.
+Phase 0 repository/docs baseline verified. Canonical documentation, examples,
+operational scripts, and ADR set are present. App source code has not been
+scaffolded.
 
 ## Current branch/task
 
-Not started. Use `local` as the persistent developer-only branch and short-lived task branches from `local`.
+`feature/repo-foundation` — Phase 0 completion. `main` and `local` exist;
+normal work continues on short-lived branches from `local`.
 
 ## Important decisions
 
@@ -62,7 +65,7 @@ Not started. Use `local` as the persistent developer-only branch and short-lived
 
 ## Next recommended tasks
 
-1. Phase 0: repo foundation and docs import.
+1. Await explicit approval before Phase 1.
 2. Phase 1: stack scaffold.
 3. Phase 2: local development environment.
 4. Phase 3: database/Prisma migrations and seed data.
@@ -108,3 +111,7 @@ Accepted ADR baseline:
 0012 Docker Compose + Traefik deployment
 0013 docs-as-code Codex memory
 ```
+
+## Recent changes
+
+2026-07-06 - feature/repo-foundation - verified Phase 0 repository/docs baseline and removed conflicting legacy ADR duplicates - `make check`, whitespace, inventory, ADR uniqueness, and JSON syntax checks passed - next step: await Phase 1 approval
