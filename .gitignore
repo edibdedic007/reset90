@@ -1,0 +1,45 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Next.js / builds
+.next/
+out/
+dist/
+build/
+coverage/
+
+# Env files
+.env
+.env.*
+!.env.local.example
+!.env.production.example
+
+# Local generated files
+.DS_Store
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Runtime data
+backups/
+exports/
+uploads/
+*.sqlite
+*.sqlite3
+
+# Codex generated context
+.codex/generated/session_context.md
+.codex/generated/*.tmp
+
+# Secrets and private data
+*.pem
+*.key
+*.p12
+*.sql
+*.sql.gz
+production-db-export*
+journal-dump*
+private-export*

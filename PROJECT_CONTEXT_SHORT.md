@@ -41,19 +41,11 @@ Reset90 is a private self-hosted 90-day reset command center. It receives struct
 
 ## Current implementation status
 
-Documentation-only foundation is present. Every path listed in `PACK_TREE.txt` exists, including root handoff docs, `docs/00` through `docs/17`, examples, schemas, scripts, CI examples, and the indexed ADR baseline `0001` through `0013`.
-
-No application source or app scaffold exists.
-
-Documentation reconciliation is pending: ten additional accepted ADR files reuse IDs `0001` through `0010` outside the indexed baseline. Treat ADR numbering as ambiguous until those legacy files are reviewed and reconciled; do not create more ADRs with reused IDs.
-
-Phase 0 guidance also conflicts: `CODEX_START_HERE.md` defines it as documentation-only, while `USER_RUNBOOK_CODEX_CLI.md` tells Codex to scaffold the app, database, ORM, health endpoint, and CI during Phase 0. Follow `docs/16_BEST_IMPLEMENTATION_ORDER.md` until the runbook is corrected.
+Documentation handoff pack created. App source code may not yet be implemented. Codex must inspect the repository before making assumptions.
 
 ## Current branch/task
 
-Documentation foundation review completed on 2026-07-06. Git has no commits yet, `HEAD` is unborn `main`, and the current documentation pack is untracked. The documented `main`/`local` branch model is not initialized yet.
-
-No application scaffolding was performed. After the initial documentation baseline is reconciled and committed, establish `local` and create short-lived task branches from it.
+Not started. Use `local` as the persistent developer-only branch and short-lived task branches from `local`.
 
 ## Important decisions
 
@@ -70,13 +62,12 @@ No application scaffolding was performed. After the initial documentation baseli
 
 ## Next recommended tasks
 
-1. Reconcile duplicate ADR IDs and align the ADR index, pack inventories, root README, and Phase 0 runbooks.
-2. Complete Phase 0 with the initial documentation baseline commit and establish `local`.
-3. Phase 1: stack scaffold.
-4. Phase 2: local development environment.
-5. Phase 3: database/Prisma migrations and seed data.
-6. Phase 4: canonical GPT import schemas and validators.
-7. Phase 5: raw import storage and idempotency.
+1. Phase 0: repo foundation and docs import.
+2. Phase 1: stack scaffold.
+3. Phase 2: local development environment.
+4. Phase 3: database/Prisma migrations and seed data.
+5. Phase 4: canonical GPT import schemas and validators.
+6. Phase 5: raw import storage and idempotency.
 
 Use `docs/16_BEST_IMPLEMENTATION_ORDER.md` as the source of truth.
 
@@ -87,8 +78,6 @@ After meaningful work, append a short entry:
 ```text
 YYYY-MM-DD - branch-name - summary of what changed - checks run - next step
 ```
-
-2026-07-06 - main (unborn) - reviewed documentation foundation; all expected pack files exist; duplicate accepted ADR IDs and stale inventory references remain - checked Git state, pack file existence, full file inventory, and ADR IDs/statuses - reconcile documentation before initial baseline commit
 
 
 ## ADR context

@@ -123,3 +123,32 @@ Use `docs/16_BEST_IMPLEMENTATION_ORDER.md` as the primary phase-by-phase build o
 - `examples/schemas/` contains starter JSON Schema contracts for GPT imports.
 - `examples/traefik/README.md` documents the expected production Traefik assumptions.
 - `docs/17_CODEX_EXECUTION_RUNBOOK.md` is the repeatable non-beginner Codex work loop.
+
+## Operational overlay added
+
+This version keeps the v5 planning/ADR pack as the source of truth, but promotes repeatable operations to repo-root so an empty repo can be used directly by Codex CLI.
+
+New root-level operational files include:
+
+```text
+Makefile
+.env.local.example
+.env.production.example
+docker-compose.local.yml
+docker-compose.production.yml
+.github/
+scripts/
+.codex/
+docs/state/
+docs/18_OPERATIONAL_OVERLAY.md
+```
+
+Recommended Codex start:
+
+```bash
+make session
+make context
+make new-work TYPE=feature SLUG=repo-foundation
+```
+
+`docs/18_OPERATIONAL_OVERLAY.md` explains how the operational layer works and how it should be used without bloating normal Codex context.

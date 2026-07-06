@@ -64,3 +64,18 @@ Read AGENTS.md, PROJECT_CONTEXT_SHORT.md, and only [specific docs]. Do not load 
 - `docs/16_BEST_IMPLEMENTATION_ORDER.md` — primary Codex CLI build order from documentation baseline to production.
 
 - `17_CODEX_EXECUTION_RUNBOOK.md` - repeatable Codex execution loop for branch/task/review/commit workflow.
+
+## Operational overlay files
+
+| Task | Prefer these files/commands |
+|---|---|
+| Start any Codex session | `make session`, `make context`, `.codex/generated/session_context.md` |
+| Create branch | `make new-work TYPE=feature SLUG=<slug>` |
+| Track current task state | `docs/state/TASK_STATE.md`, `docs/state/SESSION_LOG.md` |
+| Find accepted decisions quickly | `docs/state/DECISIONS_INDEX.md`, then relevant `docs/adr/*` |
+| Run quality gates | `make check` / `scripts/quality-check.sh` |
+| Validate env | `make env-check`, `make prod-check` |
+| Backup/restore DB | `make db-backup`, `make db-restore FILE=<file>` |
+| Understand overlay | `docs/18_OPERATIONAL_OVERLAY.md` |
+
+Root operational files are meant for execution. `examples/` remains reference material.

@@ -1,87 +1,83 @@
 # AGENTS.md
 
-    ## Purpose
-    Give Codex CLI stable project instructions that remain short enough to read before every implementation task.
+## Purpose
 
-    ## Scope
-    - Applies to all Codex-driven work on Reset90.
-- Defines product boundaries, engineering rules, context rules, and safety rules.
-- Does not replace detailed docs; it points Codex to them.
+Standing instructions for all Codex CLI work on Reset90. Read this file at the start of every session.
 
-    ## Assumptions
-    - Codex can read files in the repo and edit code when run with appropriate sandbox permissions.
-- The user wants a persistent `local` branch even though many teams avoid long-lived dev branches.
-- The app remains single-user/private unless the user explicitly changes scope.
+## Minimal session flow
 
-    ## Success Criteria
-    - Codex does not overbuild SaaS features.
-- Codex keeps changes small, testable, and documented.
-- Codex preserves the main/local branch model and Conventional Commits.
-- Codex stores context summaries and decision logs, not raw internal reasoning.
+1. Run `make session` if available.
+2. Run `make context` to refresh `.codex/generated/session_context.md`.
+3. Read `CODEX_START_HERE.md`, `PROJECT_CONTEXT_SHORT.md`, `docs/state/TASK_STATE.md`, and the generated context.
+4. Read only task-relevant docs and ADRs.
+5. Make a short plan before editing.
+6. Keep changes small, tested, documented, and commit-ready.
 
-    ## Deliverables
-    - Short standing instructions for Codex.
-- Task reading order.
-- Non-negotiable product and engineering constraints.
+Never read `ALL_FILES_READY_TO_SAVE.md` during normal implementation. It is for human backup/export only.
 
-    ## Before every task
+## Product non-negotiables
 
-1. Read `PROJECT_CONTEXT_SHORT.md` first.
-2. Read only task-relevant docs from `docs/`.
-3. Inspect the current Git branch and working tree.
-4. Read relevant ADRs before changing architecture, auth, database/storage, deployment, AI/GPT integration, context memory, Git workflow, or core product behavior.
-5. Make a short plan before editing files.
-6. Keep changes small enough to review.
-7. Run available checks before declaring completion.
-8. Update `PROJECT_CONTEXT_SHORT.md` when a meaningful decision or implementation status changes.
-9. Create or update ADRs for durable architecture/product/process decisions.
-
-## Product rules
-
-- Build Reset90 as a private self-hosted single-user app.
-- Do not add SaaS, payments, public signup, teams, leaderboards, marketing pages, or public sharing.
-- Fixed 90-day skeleton, adaptive daily execution.
+- Build Reset90 as a private, self-hosted, single-user 90-day reset command center.
+- Do not add SaaS, payments, public signup, teams, leaderboards, public sharing, or marketing pages.
+- Fixed 90-day skeleton with adaptive daily execution.
 - Every day supports minimum, standard, and ideal task tiers.
 - Recovery days are tracked and limited, but never treated as moral failure.
-- User-facing copy must avoid: “you failed,” “you wasted the day,” “start over,” or similar shame language.
-- Custom GPT is the coach/planner/interpreter/analyst.
-- Webapp is the dashboard/storage/tracker/export layer.
+- User-facing copy must avoid shame language such as “you failed,” “you wasted the day,” “start over,” or similar.
+- Custom GPT is the coach, planner, interpreter, and analyst.
+- Webapp is the dashboard, storage, tracker, analytics, validation, and export layer.
+- Eye/health features may track exercises, appointments, and symptoms only; do not make medical claims.
 
-## Engineering rules
+## Engineering defaults
+
+- Recommended stack: Next.js App Router, TypeScript, PostgreSQL, Prisma, Zod/JSON Schema, Tailwind CSS, Docker Compose, Authentik OIDC in production.
+- Validate all API inputs and GPT payload imports before writing normalized data.
+- Store raw GPT import payloads before normalized processing.
+- Keep business logic outside React components where practical.
+- Use migrations for schema changes.
+- Add tests for meaningful logic.
+- Keep docs live: behavior changes require relevant doc updates in the same branch.
+- No secrets, real tokens, production database exports, or private journal dumps in Git.
+
+## Git rules
 
 - `main` is production.
-- `local` is persistent developer-only integration/WIP branch unless the user says otherwise.
-- Short-lived branches use: `feature/<slug>`, `cleanup/<slug>`, `fix/<slug>`, `refactor/<slug>`, `chore/<slug>`, `docs/<slug>`.
+- `local` is persistent developer-only integration/WIP branch.
+- Normal work branches come from `local`.
+- Release and hotfix branches may come from `main`.
+- Branch names: `feature/<slug>`, `fix/<slug>`, `cleanup/<slug>`, `refactor/<slug>`, `chore/<slug>`, `docs/<slug>`, `test/<slug>`, `security/<slug>`, `release/<version>`, `hotfix/<slug>`, `experiment/<slug>`.
 - Use Conventional Commits.
-- No secrets in Git.
-- Validate all API inputs with schemas.
-- Store raw GPT import payloads before normalized processing.
-- Add tests for meaningful logic.
-- Use migrations for schema changes.
-- Keep production deployable and backup-aware.
-
-## Context memory rules
-
-Store concrete application context, not hidden model reasoning:
-
-- conversation history imported or written by the user;
-- task summaries;
-- decision logs;
-- daily/weekly summaries;
-- context snapshots;
-- optional embeddings for retrieval.
-
-Never require raw internal chain-of-thought logs. If the app includes a field called `reasoning_summary`, it must mean a user-visible explanation or summarized rationale, not hidden chain-of-thought.
-
+- Keep commits small and meaningful.
+- Run `make check` or the closest available checks before declaring completion.
+- Update `docs/state/TASK_STATE.md` and `docs/state/SESSION_LOG.md` after meaningful work.
 
 ## ADR rules
 
 - Accepted ADRs in `docs/adr/` are implementation constraints.
 - Do not contradict an accepted ADR without asking the user first.
 - If a new durable decision is made, create a new ADR from `docs/adr/TEMPLATE.md`.
-- ADR reasoning must be a concise user-visible rationale, not hidden chain-of-thought.
+- ADR reasoning must be concise user-visible rationale, not hidden chain-of-thought.
 - Link significant implementation work back to relevant ADR numbers in commit bodies or PR notes when practical.
 
+## Context memory rules
 
-## Implementation Order
-Use `docs/16_BEST_IMPLEMENTATION_ORDER.md` as the primary phase-by-phase build order for Codex CLI. It supersedes generic implementation-order notes.
+Store concrete application context, not hidden model reasoning:
+
+- task summaries;
+- decision logs and ADRs;
+- daily/weekly summaries;
+- user-visible rationale summaries;
+- context snapshots;
+- optional embeddings for retrieval.
+
+Never require raw internal chain-of-thought logs. A field named `reasoning_summary` must mean a user-visible explanation or summarized rationale.
+
+## Session-end checklist
+
+Before ending a Codex session, provide or commit:
+
+- changed files summary;
+- checks run and results;
+- skipped checks and why;
+- updated `docs/state/TASK_STATE.md` and session notes;
+- docs/ADR updates if behavior changed;
+- clear next step.
