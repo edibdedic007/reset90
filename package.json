@@ -10,26 +10,40 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
+    "postinstall": "prisma generate",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "format": "prettier --write package.json pnpm-workspace.yaml eslint.config.mjs next.config.ts postcss.config.mjs tsconfig.json \"src/**/*.{ts,tsx,css}\" \"tests/**/*.ts\"",
-    "format:check": "prettier --check package.json pnpm-workspace.yaml eslint.config.mjs next.config.ts postcss.config.mjs tsconfig.json \"src/**/*.{ts,tsx,css}\" \"tests/**/*.ts\""
+    "db:generate": "prisma generate",
+    "db:migrate": "prisma migrate deploy",
+    "db:migrate:dev": "prisma migrate dev",
+    "db:seed": "prisma db seed",
+    "db:reset": "prisma migrate reset --force",
+    "db:validate": "prisma validate",
+    "format": "prettier --write package.json pnpm-workspace.yaml eslint.config.mjs next.config.ts postcss.config.mjs prisma.config.ts tsconfig.json \"prisma/**/*.ts\" \"src/**/*.{ts,tsx,css}\" \"tests/**/*.ts\"",
+    "format:check": "prettier --check package.json pnpm-workspace.yaml eslint.config.mjs next.config.ts postcss.config.mjs prisma.config.ts tsconfig.json \"prisma/**/*.ts\" \"src/**/*.{ts,tsx,css}\" \"tests/**/*.ts\""
   },
   "dependencies": {
+    "@prisma/adapter-pg": "7.8.0",
+    "@prisma/client": "7.8.0",
+    "dotenv": "17.4.2",
     "next": "16.2.10",
+    "pg": "8.22.0",
     "react": "19.2.7",
     "react-dom": "19.2.7"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "4.3.2",
     "@types/node": "26.1.0",
+    "@types/pg": "8.15.6",
     "@types/react": "19.2.17",
     "@types/react-dom": "19.2.3",
     "eslint": "^9.39.1",
     "eslint-config-next": "16.2.10",
     "prettier": "3.9.4",
+    "prisma": "7.8.0",
     "tailwindcss": "4.3.2",
+    "tsx": "4.23.0",
     "typescript": "6.0.3",
     "vitest": "4.1.10"
   }
