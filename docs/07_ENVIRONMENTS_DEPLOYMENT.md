@@ -68,17 +68,29 @@ Expected files:
 Recommended commands:
 
 ```bash
-cp examples/.env.local.example .env.local
+cp .env.local.example .env.local
 make setup-local
 make dev
+```
+
+Local dependency lifecycle:
+
+```bash
+make dev-up
+make logs
+make dev-down
 ```
 
 Local URLs:
 
 ```text
 App: http://localhost:3000
-Database: localhost:5432
+Database: 127.0.0.1:5432
 ```
+
+PostgreSQL binds to loopback only. `make setup-local` installs dependencies
+from the committed pnpm lockfile, starts PostgreSQL, and waits for readiness.
+Database migrations and seed data begin in Phase 3.
 
 Local auth:
 

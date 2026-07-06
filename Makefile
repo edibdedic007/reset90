@@ -1,6 +1,8 @@
 SHELL := /usr/bin/env bash
 
-.PHONY: help session context new-work update-task-state setup-local bootstrap install dev check quality-check lint format format-check typecheck test build db-migrate db-seed db-reset db-backup db-restore validate-payloads env-check prod-check prod-build prod-up prod-down prod-logs prod-health deploy-production export-full docs-bundle healthcheck
+.PHONY: help session context new-work update-task-state setup-local bootstrap install dev dev-up dev-down logs check quality-check lint format format-check typecheck test build db-migrate db-seed db-reset db-backup db-restore validate-payloads env-check prod-check prod-build prod-up prod-down prod-logs prod-health deploy-production export-full docs-bundle healthcheck
+
+LOCAL_COMPOSE := docker compose --env-file .env.local -f docker-compose.local.yml
 
 help:
 	@echo "Reset90 commands"
@@ -8,7 +10,10 @@ help:
 	@echo "  make context                 Generate compact .codex context packet"
 	@echo "  make new-work TYPE=feature SLUG=repo-foundation"
 	@echo "  make setup-local             Setup local developer environment"
-	@echo "  make dev                     Start local development"
+	@echo "  make dev                     Start PostgreSQL and Next.js"
+	@echo "  make dev-up                  Start local PostgreSQL"
+	@echo "  make dev-down                Stop local PostgreSQL"
+	@echo "  make logs                    Follow local PostgreSQL logs"
 	@echo "  make check                   Run available quality gates"
 	@echo "  make env-check               Validate .env.local baseline keys"
 	@echo "  make prod-check              Validate .env.production baseline keys/placeholders"
@@ -38,8 +43,20 @@ install:
 	@if [ -f pnpm-lock.yaml ]; then pnpm install --frozen-lockfile; elif [ -f yarn.lock ]; then yarn install --frozen-lockfile; elif [ -f bun.lockb ] || [ -f bun.lock ]; then bun install --frozen-lockfile; elif [ -f package-lock.json ]; then npm ci; elif [ -f package.json ]; then npm install; else echo "No package.json yet."; fi
 
 dev:
-	@if [ -f docker-compose.local.yml ]; then docker compose -f docker-compose.local.yml up -d db || docker compose -f docker-compose.local.yml up -d; fi
-	@if [ -f package.json ]; then pnpm dev; else echo "No package.json yet. Scaffold app first."; fi
+	@$(MAKE) dev-up
+	pnpm dev
+
+dev-up:
+	@test -f .env.local || { echo ".env.local missing. Run: make setup-local"; exit 1; }
+	$(LOCAL_COMPOSE) up -d db
+
+dev-down:
+	@test -f .env.local || { echo ".env.local missing. Run: make setup-local"; exit 1; }
+	$(LOCAL_COMPOSE) down
+
+logs:
+	@test -f .env.local || { echo ".env.local missing. Run: make setup-local"; exit 1; }
+	$(LOCAL_COMPOSE) logs -f --tail=200 db
 
 check quality-check:
 	./scripts/quality-check.sh

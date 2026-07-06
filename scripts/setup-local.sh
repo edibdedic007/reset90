@@ -4,37 +4,30 @@ set -euo pipefail
 echo "Setting up Reset90 local developer-only environment"
 
 command -v docker >/dev/null || { echo "docker not found"; exit 1; }
-if ! command -v node >/dev/null; then
-  echo "node not found. Install Node before scaffolding/running the app."
-fi
+docker compose version >/dev/null || { echo "docker compose not found"; exit 1; }
+command -v node >/dev/null || { echo "node not found"; exit 1; }
+command -v pnpm >/dev/null || { echo "pnpm not found"; exit 1; }
 
 if [[ ! -f .env.local && -f .env.local.example ]]; then
   cp .env.local.example .env.local
   echo "Created .env.local from .env.local.example. Review it before running the app."
 fi
 
-if [[ -f package.json ]]; then
-  if [[ -f pnpm-lock.yaml ]]; then pnpm install
-  elif [[ -f yarn.lock ]]; then yarn install
-  elif [[ -f bun.lockb || -f bun.lock ]]; then bun install
-  elif [[ -f package-lock.json ]]; then npm ci
-  else npm install
+pnpm install --frozen-lockfile
+
+compose=(docker compose --env-file .env.local -f docker-compose.local.yml)
+"${compose[@]}" up -d db
+
+echo "Waiting for PostgreSQL..."
+for _ in {1..30}; do
+  if "${compose[@]}" exec -T db sh -c 'pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB"' >/dev/null 2>&1; then
+    echo "PostgreSQL is ready."
+    echo "Local setup complete. Run: make dev"
+    exit 0
   fi
-else
-  echo "No package.json yet. Codex should scaffold the app in Phase 1."
-fi
+  sleep 1
+done
 
-if [[ -f docker-compose.local.yml ]]; then
-  docker compose -f docker-compose.local.yml up -d db || docker compose -f docker-compose.local.yml up -d postgres || docker compose -f docker-compose.local.yml up -d
-elif [[ -f compose.local.yml ]]; then
-  docker compose -f compose.local.yml up -d
-else
-  echo "No local compose file found yet. Codex should add/adapt one in the environment phase."
-fi
-
-if [[ -f package.json ]]; then
-  npm run db:migrate --if-present || true
-  npm run db:seed --if-present || true
-fi
-
-echo "Local setup complete."
+echo "PostgreSQL did not become ready within 30 seconds."
+"${compose[@]}" logs --tail=50 db
+exit 1

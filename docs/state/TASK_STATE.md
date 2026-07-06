@@ -4,27 +4,37 @@ Last updated: 2026-07-07
 
 ## Current phase
 
-Phase 1 complete: application stack scaffold implemented and verified.
+Phase 2 complete: reproducible local development environment implemented and
+verified.
 
 ## Active task
 
-No active implementation phase. Await explicit user approval before Phase 2.
+No active implementation phase. Await explicit user approval before Phase 3.
 
 ## Current branch
 
 ```bash
-feature/app-scaffold
+chore/local-development-env
 ```
 
 ## Next actions
 
-1. Review and commit Phase 1 changes.
+1. Review and commit Phase 2 changes.
 2. Merge the completed branch into `local` when approved.
-3. Await explicit approval before Phase 2.
-4. After approval, create `chore/local-development-env` from `local`.
+3. Await explicit approval before Phase 3.
+4. After approval, create `feature/database-foundation` from `local`.
 
 ## Completed
 
+- Local PostgreSQL starts through Docker Compose from root configuration.
+- PostgreSQL host port binds only to `127.0.0.1:5432`.
+- `make setup-local` installs locked pnpm dependencies and waits for database
+  readiness.
+- `make dev`, `make dev-up`, `make dev-down`, and `make logs` provide local
+  lifecycle commands.
+- Root README and environment docs describe clean-clone setup.
+- Local Compose validation, setup/readiness, dependency lifecycle targets, and
+  `make check` passed.
 - Phase 1 Next.js 16 App Router, TypeScript, Tailwind CSS, pnpm, ESLint,
   Prettier, and Vitest scaffold created.
 - Placeholder home page added without business features.
