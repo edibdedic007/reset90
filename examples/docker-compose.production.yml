@@ -1,0 +1,64 @@
+services:
+  app:
+    image: reset90:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: reset90-app
+    restart: unless-stopped
+    env_file:
+      - .env.production
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - reset90_exports:/app/exports
+      - reset90_backups:/app/backups
+    networks:
+      - reset90_internal
+      - traefik
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=${TRAEFIK_NETWORK}"
+      - "traefik.http.routers.reset90.rule=Host(`${RESET90_HOST}`)"
+      - "traefik.http.routers.reset90.entrypoints=${TRAEFIK_ENTRYPOINT:-websecure}"
+      - "traefik.http.routers.reset90.tls=true"
+      - "traefik.http.routers.reset90.tls.certresolver=${TRAEFIK_CERT_RESOLVER:-letsencrypt}"
+      - "traefik.http.services.reset90.loadbalancer.server.port=3000"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/healthz || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+
+  db:
+    image: postgres:16-alpine
+    container_name: reset90-db
+    restart: unless-stopped
+    env_file:
+      - .env.production
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-reset90}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-reset90}
+    volumes:
+      - reset90_postgres:/var/lib/postgresql/data
+    networks:
+      - reset90_internal
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-reset90} -d ${POSTGRES_DB:-reset90}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  reset90_postgres:
+  reset90_exports:
+  reset90_backups:
+
+networks:
+  reset90_internal:
+    driver: bridge
+  traefik:
+    external: true
+    name: ${TRAEFIK_NETWORK:-traefik_proxy}

@@ -1,0 +1,66 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main, local]
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: reset90
+          POSTGRES_PASSWORD: reset90_dev_password
+          POSTGRES_DB: reset90_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      NODE_ENV: test
+      DATABASE_URL: postgresql://reset90:reset90_dev_password@localhost:5432/reset90_test
+      GPT_INGEST_TOKEN: test-token
+      SESSION_SECRET: test-session-secret
+      AUTH_MODE: dev
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run migrations
+        run: npm run db:migrate --if-present
+
+      - name: Lint
+        run: npm run lint --if-present
+
+      - name: Format check
+        run: npm run format:check --if-present
+
+      - name: Typecheck
+        run: npm run typecheck --if-present
+
+      - name: Test
+        run: npm test --if-present
+
+      - name: Validate GPT payload examples
+        run: npm run validate:payloads --if-present
+
+      - name: Build
+        run: npm run build --if-present

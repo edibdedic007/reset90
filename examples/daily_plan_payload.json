@@ -1,0 +1,88 @@
+{
+  "kind": "daily_plan",
+  "schema_version": "1.0",
+  "idempotency_key": "2026-07-01-day-1-morning-plan-v1",
+  "source": "custom_gpt",
+  "external_conversation_id": "chatgpt-project-reset90-main",
+  "payload": {
+    "date": "2026-07-01",
+    "day_number": 1,
+    "phase": "Clear the Fog",
+    "energy_level": "normal",
+    "mission": "Interrupt the drift with one body action, one focus action, and one reflection.",
+    "supportive_message": "Today does not need to repay yesterday. It only needs one honest start.",
+    "downshift_rule": "If energy drops, switch to the minimum plan without marking the day as failed.",
+    "non_negotiables": [
+      {
+        "title": "Move body in some form",
+        "domain": "body",
+        "tier": "non_negotiable",
+        "estimate_minutes": 10
+      },
+      {
+        "title": "Avoid porn spiral",
+        "domain": "digital",
+        "tier": "non_negotiable"
+      },
+      {
+        "title": "Complete evening GPT reflection",
+        "domain": "mood",
+        "tier": "non_negotiable",
+        "estimate_minutes": 5
+      }
+    ],
+    "minimum_plan": [
+      {
+        "title": "Stretch or walk for 10 minutes",
+        "domain": "body",
+        "tier": "minimum",
+        "estimate_minutes": 10,
+        "trigger": "After breakfast",
+        "why": "Rebuild body activation without pressure."
+      },
+      {
+        "title": "Do one 10-minute learning action",
+        "domain": "learning",
+        "tier": "minimum",
+        "estimate_minutes": 10,
+        "trigger": "Before entertainment",
+        "why": "Reduce learning resistance with a tiny start."
+      }
+    ],
+    "standard_plan": [
+      {
+        "title": "Run, swim, walk, or train for 30 minutes",
+        "domain": "body",
+        "tier": "standard",
+        "estimate_minutes": 30
+      },
+      {
+        "title": "Complete one work or study focus block",
+        "domain": "work",
+        "tier": "standard",
+        "estimate_minutes": 45
+      },
+      {
+        "title": "Do evening reflection with GPT",
+        "domain": "mood",
+        "tier": "standard",
+        "estimate_minutes": 10
+      }
+    ],
+    "ideal_plan": [
+      {
+        "title": "Add a second focus block or explain what you learned to GPT",
+        "domain": "learning",
+        "tier": "ideal",
+        "estimate_minutes": 45
+      },
+      {
+        "title": "Prepare tomorrow's first action",
+        "domain": "system",
+        "tier": "ideal",
+        "estimate_minutes": 10
+      }
+    ],
+    "context_summary": "Day 1 should be light. The goal is to interrupt drift and create a clean first data point, not to prove everything at once."
+  }
+}

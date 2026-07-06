@@ -1,0 +1,86 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Daily Plan Payload",
+  "type": "object",
+  "required": [
+    "date",
+    "day_number",
+    "phase",
+    "mission",
+    "tasks"
+  ],
+  "properties": {
+    "date": {
+      "type": "string",
+      "format": "date"
+    },
+    "day_number": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 90
+    },
+    "phase": {
+      "type": "string"
+    },
+    "energy_level": {
+      "type": "string"
+    },
+    "mission": {
+      "type": "string"
+    },
+    "supportive_message": {
+      "type": "string"
+    },
+    "downshift_rule": {
+      "type": "string"
+    },
+    "tasks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "title",
+          "tier",
+          "domain"
+        ],
+        "properties": {
+          "title": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "tier": {
+            "type": "string",
+            "enum": [
+              "minimum",
+              "standard",
+              "ideal",
+              "non_negotiable",
+              "recovery"
+            ]
+          },
+          "domain": {
+            "type": "string",
+            "enum": [
+              "body",
+              "mood",
+              "digital",
+              "learning",
+              "work",
+              "environment",
+              "social",
+              "other"
+            ]
+          },
+          "estimated_minutes": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": true
+      }
+    }
+  },
+  "additionalProperties": true
+}

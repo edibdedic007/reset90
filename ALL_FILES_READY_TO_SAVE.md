@@ -1,0 +1,7537 @@
+# Reset90 V5 Final - All Files Ready To Save
+
+## Directory/File Tree
+
+```text
+AGENTS.md
+CODEX_START_HERE.md
+PACK_TREE.txt
+PROJECT_CONTEXT_SHORT.md
+README.md
+docs/00_PACK_INDEX.md
+docs/01_PRODUCT_REQUIREMENTS.md
+docs/02_SYSTEM_ARCHITECTURE.md
+docs/03_SYSTEM_DESIGN_DATA_MODEL.md
+docs/04_API_AND_AI_PAYLOAD_CONTRACTS.md
+docs/05_CONTEXT_MEMORY_DESIGN.md
+docs/06_UX_FLOWS.md
+docs/07_ENVIRONMENTS_DEPLOYMENT.md
+docs/08_AUTOMATION_AND_SCRIPTS.md
+docs/09_ENGINEERING_BEST_PRACTICES.md
+docs/10_GIT_WORKFLOW.md
+docs/11_IMPLEMENTATION_PLAN.md
+docs/12_CODEX_PROMPTS.md
+docs/13_INSPIRATIONS.md
+docs/14_SOURCE_RESEARCH_NOTES.md
+docs/15_ADR_PROCESS_AND_REASONING.md
+docs/16_BEST_IMPLEMENTATION_ORDER.md
+docs/17_CODEX_EXECUTION_RUNBOOK.md
+docs/adr/0001-modular-monolith.md
+docs/adr/0002-postgresql-source-of-truth.md
+docs/adr/0003-json-schema-import-contracts.md
+docs/adr/0004-separate-auth-boundaries.md
+docs/adr/0005-observability-ladder.md
+docs/adr/0006-context-summaries-not-chain-of-thought.md
+docs/adr/0007-prisma-orm.md
+docs/adr/0008-main-production-local-dev-branch.md
+docs/adr/0009-custom-gpt-as-coach-webapp-as-dashboard.md
+docs/adr/0010-minimum-standard-ideal-task-model.md
+docs/adr/0011-recovery-days-instead-of-harsh-streaks.md
+docs/adr/0012-docker-compose-and-traefik-deployment.md
+docs/adr/0013-docs-as-code-codex-memory.md
+docs/adr/README.md
+docs/adr/TEMPLATE.md
+examples/.env.local.example
+examples/.env.production.example
+examples/.github/PULL_REQUEST_TEMPLATE.md
+examples/.github/workflows/ci.yml
+examples/Makefile
+examples/daily_plan_payload.json
+examples/daily_reflection_payload.json
+examples/docker-compose.local.yml
+examples/docker-compose.production.yml
+examples/schemas/context_packet.schema.json
+examples/schemas/daily_plan.schema.json
+examples/schemas/daily_reflection.schema.json
+examples/schemas/import_envelope.schema.json
+examples/schemas/weekly_review.schema.json
+examples/scripts/backup-db.sh
+examples/scripts/create-branch.sh
+examples/scripts/deploy-production.sh
+examples/scripts/export-data.sh
+examples/scripts/generate-docs-bundle.sh
+examples/scripts/healthcheck.sh
+examples/scripts/precommit-check.sh
+examples/scripts/restore-db.sh
+examples/scripts/setup-local.sh
+examples/traefik/README.md
+examples/weekly_review_payload.json
+```
+
+
+---
+
+# FILE: AGENTS.md
+
+```text
+# AGENTS.md
+
+    ## Purpose
+    Give Codex CLI stable project instructions that remain short enough to read before every implementation task.
+
+    ## Scope
+    - Applies to all Codex-driven work on Reset90.
+- Defines product boundaries, engineering rules, context rules, and safety rules.
+- Does not replace detailed docs; it points Codex to them.
+
+    ## Assumptions
+    - Codex can read files in the repo and edit code when run with appropriate sandbox permissions.
+- The user wants a persistent `local` branch even though many teams avoid long-lived dev branches.
+- The app remains single-user/private unless the user explicitly changes scope.
+
+    ## Success Criteria
+    - Codex does not overbuild SaaS features.
+- Codex keeps changes small, testable, and documented.
+- Codex preserves the main/local branch model and Conventional Commits.
+- Codex stores context summaries and decision logs, not raw internal reasoning.
+
+    ## Deliverables
+    - Short standing instructions for Codex.
+- Task reading order.
+- Non-negotiable product and engineering constraints.
+
+    ## Before every task
+
+1. Read `PROJECT_CONTEXT_SHORT.md` first.
+2. Read only task-relevant docs from `docs/`.
+3. Inspect the current Git branch and working tree.
+4. Read relevant ADRs before changing architecture, auth, database/storage, deployment, AI/GPT integration, context memory, Git workflow, or core product behavior.
+5. Make a short plan before editing files.
+6. Keep changes small enough to review.
+7. Run available checks before declaring completion.
+8. Update `PROJECT_CONTEXT_SHORT.md` when a meaningful decision or implementation status changes.
+9. Create or update ADRs for durable architecture/product/process decisions.
+
+## Product rules
+
+- Build Reset90 as a private self-hosted single-user app.
+- Do not add SaaS, payments, public signup, teams, leaderboards, marketing pages, or public sharing.
+- Fixed 90-day skeleton, adaptive daily execution.
+- Every day supports minimum, standard, and ideal task tiers.
+- Recovery days are tracked and limited, but never treated as moral failure.
+- User-facing copy must avoid: “you failed,” “you wasted the day,” “start over,” or similar shame language.
+- Custom GPT is the coach/planner/interpreter/analyst.
+- Webapp is the dashboard/storage/tracker/export layer.
+
+## Engineering rules
+
+- `main` is production.
+- `local` is persistent developer-only integration/WIP branch unless the user says otherwise.
+- Short-lived branches use: `feature/<slug>`, `cleanup/<slug>`, `fix/<slug>`, `refactor/<slug>`, `chore/<slug>`, `docs/<slug>`.
+- Use Conventional Commits.
+- No secrets in Git.
+- Validate all API inputs with schemas.
+- Store raw GPT import payloads before normalized processing.
+- Add tests for meaningful logic.
+- Use migrations for schema changes.
+- Keep production deployable and backup-aware.
+
+## Context memory rules
+
+Store concrete application context, not hidden model reasoning:
+
+- conversation history imported or written by the user;
+- task summaries;
+- decision logs;
+- daily/weekly summaries;
+- context snapshots;
+- optional embeddings for retrieval.
+
+Never require raw internal chain-of-thought logs. If the app includes a field called `reasoning_summary`, it must mean a user-visible explanation or summarized rationale, not hidden chain-of-thought.
+
+
+## ADR rules
+
+- Accepted ADRs in `docs/adr/` are implementation constraints.
+- Do not contradict an accepted ADR without asking the user first.
+- If a new durable decision is made, create a new ADR from `docs/adr/TEMPLATE.md`.
+- ADR reasoning must be a concise user-visible rationale, not hidden chain-of-thought.
+- Link significant implementation work back to relevant ADR numbers in commit bodies or PR notes when practical.
+
+
+## Implementation Order
+Use `docs/16_BEST_IMPLEMENTATION_ORDER.md` as the primary phase-by-phase build order for Codex CLI. It supersedes generic implementation-order notes.
+
+```
+
+
+---
+
+# FILE: CODEX_START_HERE.md
+
+```text
+# Codex Start Here
+
+    ## Purpose
+    Provide the shortest practical entry point for Codex CLI so it can begin work without loading the whole documentation pack.
+
+    ## Scope
+    - Use this file at the start of a Codex session.
+- Explains reading order, branch workflow, and first build task.
+- Does not contain full product details; those live in `docs/`.
+
+    ## Assumptions
+    - Repository may be empty or partially implemented.
+- Codex should inspect files before assuming the stack is already present.
+- The user wants careful Git usage and meaningful commits.
+
+    ## Success Criteria
+    - Codex reads minimal context first.
+- Codex starts with repository foundation, not advanced features.
+- Codex creates or uses the correct branch before editing.
+
+    ## Deliverables
+    - Codex startup checklist.
+- Minimal build instructions.
+- Token-saving reading plan.
+
+    ## Minimal reading order
+
+Read in this order:
+
+1. `AGENTS.md`
+2. `PROJECT_CONTEXT_SHORT.md`
+3. `docs/00_PACK_INDEX.md`
+4. `docs/adr/README.md` when the task touches architecture, auth, database, deployment, AI integration, Git workflow, or core product behavior
+5. The one or two task-relevant docs only
+
+Do not read `ALL_FILES_READY_TO_SAVE.md` during normal development.
+
+## First implementation task
+
+Use `docs/16_BEST_IMPLEMENTATION_ORDER.md`, Phase 0.
+
+Create the repository/docs foundation first. Do not scaffold app code until Phase 1 of `docs/16_BEST_IMPLEMENTATION_ORDER.md`. Phase 0 is only repo initialization, docs import, ADR verification, and documentation baseline commit.
+
+## Branch rule before editing
+
+If starting from `main`:
+
+```bash
+git switch main
+git pull origin main
+git switch -c local || git switch local
+git switch -c feature/repo-foundation
+```
+
+If already on `local`:
+
+```bash
+git switch -c feature/<short-slug>
+```
+
+Merge short-lived branches into `local`. Merge `local` into `main` only for production-ready releases.
+
+## Finish rule
+
+Before completion:
+
+```bash
+make check
+```
+
+If `make check` does not exist yet, run the closest available commands and create the Makefile as part of repository foundation.
+
+
+## ADR rule before editing
+
+Before changing architecture, auth, database/storage, deployment, AI/GPT integration, context memory, branch workflow, or core product behavior, read:
+
+```text
+docs/15_ADR_PROCESS_AND_REASONING.md
+docs/adr/README.md
+```
+
+Then read the specific ADR that applies.
+
+If the planned change contradicts an `Accepted` ADR, stop and ask the user before editing.
+
+If the task creates a new durable architecture/product/process decision, add a new ADR using `docs/adr/TEMPLATE.md`.
+
+
+## Implementation Order
+Use `docs/16_BEST_IMPLEMENTATION_ORDER.md` as the primary phase-by-phase build order for Codex CLI. It supersedes generic implementation-order notes.
+
+```
+
+
+---
+
+# FILE: PACK_TREE.txt
+
+```text
+AGENTS.md
+ALL_FILES_READY_TO_SAVE.md
+CODEX_START_HERE.md
+PROJECT_CONTEXT_SHORT.md
+README.md
+docs/00_PACK_INDEX.md
+docs/01_PRODUCT_REQUIREMENTS.md
+docs/02_SYSTEM_ARCHITECTURE.md
+docs/03_SYSTEM_DESIGN_DATA_MODEL.md
+docs/04_API_AND_AI_PAYLOAD_CONTRACTS.md
+docs/05_CONTEXT_MEMORY_DESIGN.md
+docs/06_UX_FLOWS.md
+docs/07_ENVIRONMENTS_DEPLOYMENT.md
+docs/08_AUTOMATION_AND_SCRIPTS.md
+docs/09_ENGINEERING_BEST_PRACTICES.md
+docs/10_GIT_WORKFLOW.md
+docs/11_IMPLEMENTATION_PLAN.md
+docs/12_CODEX_PROMPTS.md
+docs/13_INSPIRATIONS.md
+docs/14_SOURCE_RESEARCH_NOTES.md
+docs/15_ADR_PROCESS_AND_REASONING.md
+docs/16_BEST_IMPLEMENTATION_ORDER.md
+docs/17_CODEX_EXECUTION_RUNBOOK.md
+docs/adr/0001-modular-monolith.md
+docs/adr/0002-postgresql-source-of-truth.md
+docs/adr/0003-json-schema-import-contracts.md
+docs/adr/0004-separate-auth-boundaries.md
+docs/adr/0005-observability-ladder.md
+docs/adr/0006-context-summaries-not-chain-of-thought.md
+docs/adr/0007-prisma-orm.md
+docs/adr/0008-main-production-local-dev-branch.md
+docs/adr/0009-custom-gpt-as-coach-webapp-as-dashboard.md
+docs/adr/0010-minimum-standard-ideal-task-model.md
+docs/adr/0011-recovery-days-instead-of-harsh-streaks.md
+docs/adr/0012-docker-compose-and-traefik-deployment.md
+docs/adr/0013-docs-as-code-codex-memory.md
+docs/adr/README.md
+docs/adr/TEMPLATE.md
+examples/.env.local.example
+examples/.env.production.example
+examples/.github/PULL_REQUEST_TEMPLATE.md
+examples/.github/workflows/ci.yml
+examples/Makefile
+examples/daily_plan_payload.json
+examples/daily_reflection_payload.json
+examples/docker-compose.local.yml
+examples/docker-compose.production.yml
+examples/schemas/context_packet.schema.json
+examples/schemas/daily_plan.schema.json
+examples/schemas/daily_reflection.schema.json
+examples/schemas/import_envelope.schema.json
+examples/schemas/weekly_review.schema.json
+examples/scripts/backup-db.sh
+examples/scripts/create-branch.sh
+examples/scripts/deploy-production.sh
+examples/scripts/export-data.sh
+examples/scripts/generate-docs-bundle.sh
+examples/scripts/healthcheck.sh
+examples/scripts/precommit-check.sh
+examples/scripts/restore-db.sh
+examples/scripts/setup-local.sh
+examples/traefik/README.md
+examples/weekly_review_payload.json
+```
+
+
+---
+
+# FILE: PROJECT_CONTEXT_SHORT.md
+
+```text
+# Project Context Short
+
+    ## Purpose
+    Give Codex a compact state file that should be read and updated frequently without wasting tokens.
+
+    ## Scope
+    - Contains app summary, current stack, branch/task status, important decisions, next tasks, and recent changes.
+- Should stay short; deep explanations belong in `docs/`.
+- Must be updated after significant implementation changes.
+
+    ## Assumptions
+    - The implementation has not started unless the actual repo shows otherwise.
+- The stack recommendation is default guidance and should be adapted only with explicit reason.
+- The user wants the app to remain private and self-hosted.
+
+    ## Success Criteria
+    - Codex can understand current project state in under one minute.
+- Context remains reusable across Codex sessions.
+- The file does not become a full changelog or duplicate every document.
+
+    ## Deliverables
+    - Compact current context.
+- Current implementation state placeholder.
+- Next action list.
+
+    ## App summary
+
+Reset90 is a private self-hosted 90-day reset command center. It receives structured daily plans and reflections from a Custom GPT, stores them, displays them cleanly, tracks daily execution across body, mood, digital detox, learning resistance, and work improvement, and visualizes progress without shame-based streaks.
+
+## Recommended stack
+
+- Next.js with TypeScript
+- PostgreSQL
+- Prisma
+- JSON Schema plus Zod
+- Tailwind CSS
+- Authentik OIDC for browser auth
+- Bearer token or HMAC-protected ingest endpoint for Custom GPT actions
+- Docker Compose for local and production deployment behind Traefik in production
+- GitHub Actions for CI
+
+## Current implementation status
+
+Documentation handoff pack created. App source code may not yet be implemented. Codex must inspect the repository before making assumptions.
+
+## Current branch/task
+
+Not started. Use `local` as the persistent developer-only branch and short-lived task branches from `local`.
+
+## Important decisions
+
+- Single-user private app, not SaaS.
+- `main` = production branch.
+- `local` = persistent developer-only branch.
+- Fixed 90-day skeleton with adaptive daily execution.
+- Custom GPT is the coach, planner, interpreter, and analyst.
+- Webapp is the storage, dashboard, tracker, analytics, and export layer.
+- Store raw GPT payloads first, then normalized data.
+- Store conversation history, summaries, decisions, and context snapshots; do not store hidden chain-of-thought.
+- Recovery-aware statuses replace harsh streaks.
+- Export/backup must be available early.
+
+## Next recommended tasks
+
+1. Phase 0: repo foundation and docs import.
+2. Phase 1: stack scaffold.
+3. Phase 2: local development environment.
+4. Phase 3: database/Prisma migrations and seed data.
+5. Phase 4: canonical GPT import schemas and validators.
+6. Phase 5: raw import storage and idempotency.
+
+Use `docs/16_BEST_IMPLEMENTATION_ORDER.md` as the source of truth.
+
+## Update rule
+
+After meaningful work, append a short entry:
+
+```text
+YYYY-MM-DD - branch-name - summary of what changed - checks run - next step
+```
+
+
+## ADR context
+
+This repo uses lightweight Architecture Decision Records in `docs/adr/`.
+Accepted ADRs are implementation constraints. Codex must read relevant ADRs before changing architecture, auth, database/storage, GPT integration, context memory, deployment, Git workflow, or core product behavior.
+ADR reasoning is user-visible rationale, not hidden chain-of-thought.
+
+
+## Implementation Order
+Use `docs/16_BEST_IMPLEMENTATION_ORDER.md` as the primary phase-by-phase build order for Codex CLI. It supersedes generic implementation-order notes.
+
+
+Accepted ADR baseline:
+
+```text
+0001 modular monolith
+0002 PostgreSQL source of truth
+0003 JSON Schema import contracts
+0004 separate browser auth and GPT ingest auth
+0005 observability ladder
+0006 context summaries, not chain-of-thought
+0007 Prisma ORM
+0008 main/local branch model
+0009 Custom GPT coach, webapp dashboard/storage
+0010 minimum/standard/ideal tasks
+0011 recovery days instead of harsh streaks
+0012 Docker Compose + Traefik deployment
+0013 docs-as-code Codex memory
+```
+
+```
+
+
+---
+
+# FILE: README.md
+
+```text
+# Reset90 Codex CLI Pack v5 Final
+
+    ## Purpose
+    Provide a compact, implementation-ready documentation pack for Codex CLI to build the Reset90 webapp without repeatedly re-reading long chats.
+
+    ## Scope
+    - Defines product, architecture, data model, API contracts, context memory, environments, automation, Git workflow, engineering practices, implementation plan, prompts, inspirations, and user runbook.
+- Optimized for Codex CLI by separating short context files from deep reference documents.
+- This pack is documentation and scaffolding guidance, not the final application source code.
+
+    ## Assumptions
+    - App purpose assumption: Reset90 is a private self-hosted 90-day reset command center.
+- Target user assumption: one technical private user using PC and phone, with Authentik available for production auth.
+- Core feature assumption: Custom GPT creates structured plans/reflections and sends them to the app via authenticated payloads.
+- Tech stack assumption: Next.js + TypeScript + PostgreSQL + Prisma + Zod/JSON Schema + Tailwind + Docker Compose + Traefik.
+- Constraint assumption: no SaaS, payments, teams, public signup, leaderboard, or social product scope.
+
+    ## Success Criteria
+    - Codex can start from CODEX_START_HERE.md and avoid loading every file on every task.
+- Every Markdown document begins with Purpose, Scope, Assumptions, Success Criteria, and Deliverables.
+- Branch model, automation rules, environment definitions, context storage, and software engineering practices are explicit.
+- A best implementation order and Codex execution runbook explain how to build the app phase by phase.
+
+    ## Deliverables
+    - Codex-ready documentation pack.
+- Examples for environment files, payloads, Docker Compose, scripts, CI, Makefile, and PR template.
+- All-in-one ready-to-save Markdown bundle.
+- Best implementation order and Codex execution runbook.
+- ADR process guide and accepted architecture decision records.
+
+    ## Directory tree
+
+```text
+reset90_codex_cli_pack_v5_final/
+├── README.md
+├── AGENTS.md
+├── CODEX_START_HERE.md
+├── PROJECT_CONTEXT_SHORT.md
+├── ALL_FILES_READY_TO_SAVE.md
+├── docs/
+│   ├── 00_PACK_INDEX.md
+│   ├── 01_PRODUCT_REQUIREMENTS.md
+│   ├── 02_SYSTEM_ARCHITECTURE.md
+│   ├── 03_SYSTEM_DESIGN_DATA_MODEL.md
+│   ├── 04_API_AND_AI_PAYLOAD_CONTRACTS.md
+│   ├── 05_CONTEXT_MEMORY_DESIGN.md
+│   ├── 06_UX_FLOWS.md
+│   ├── 07_ENVIRONMENTS_DEPLOYMENT.md
+│   ├── 08_AUTOMATION_AND_SCRIPTS.md
+│   ├── 09_ENGINEERING_BEST_PRACTICES.md
+│   ├── 10_GIT_WORKFLOW.md
+│   ├── 11_IMPLEMENTATION_PLAN.md
+│   ├── 12_CODEX_PROMPTS.md
+│   ├── 13_INSPIRATIONS.md
+│   ├── 14_SOURCE_RESEARCH_NOTES.md
+│   ├── 15_ADR_PROCESS_AND_REASONING.md
+│   └── adr/
+│       ├── README.md
+│       ├── TEMPLATE.md
+│       ├── 0001-modular-monolith.md
+│       ├── 0002-postgresql-source-of-truth.md
+│       ├── 0003-json-schema-import-contracts.md
+│       ├── 0004-separate-auth-boundaries.md
+│       ├── 0005-observability-ladder.md
+│       ├── 0006-context-summaries-not-chain-of-thought.md
+│       ├── 0007-prisma-orm.md
+│       ├── 0008-main-production-local-dev-branch.md
+│       ├── 0009-custom-gpt-as-coach-webapp-as-dashboard.md
+│       ├── 0010-minimum-standard-ideal-task-model.md
+│       ├── 0011-recovery-days-instead-of-harsh-streaks.md
+│       ├── 0012-docker-compose-and-traefik-deployment.md
+│       └── 0013-docs-as-code-codex-memory.md
+└── examples/
+    ├── .env.local.example
+    ├── .env.production.example
+    ├── docker-compose.local.yml
+    ├── docker-compose.production.yml
+    ├── Makefile
+    ├── daily_plan_payload.json
+    ├── daily_reflection_payload.json
+    ├── weekly_review_payload.json
+    ├── .github/
+    │   ├── PULL_REQUEST_TEMPLATE.md
+    │   └── workflows/ci.yml
+    └── scripts/
+        ├── setup-local.sh
+        ├── create-branch.sh
+        ├── precommit-check.sh
+        ├── backup-db.sh
+        ├── restore-db.sh
+        ├── export-data.sh
+        ├── deploy-production.sh
+        ├── healthcheck.sh
+        └── generate-docs-bundle.sh
+```
+
+## How Codex should use this pack
+
+1. Read `AGENTS.md` and `PROJECT_CONTEXT_SHORT.md` first.
+2. Read only the specific docs needed for the current task.
+3. Use `docs/16_BEST_IMPLEMENTATION_ORDER.md` for build order.
+4. Use `docs/15_ADR_PROCESS_AND_REASONING.md` and `docs/adr/README.md` before changing architecture, auth, data, deployment, AI integration, Git workflow, or core product rules.
+5. Use `docs/12_CODEX_PROMPTS.md` for copyable prompts and `docs/17_CODEX_EXECUTION_RUNBOOK.md` for the repeatable Codex work loop.
+6. Update `PROJECT_CONTEXT_SHORT.md` after meaningful implementation changes.
+7. Update or add ADRs when meaningful architectural/product/process decisions change.
+8. Do not feed Codex `ALL_FILES_READY_TO_SAVE.md` during normal work. It exists for human backup/export, not token-efficient execution.
+
+## Non-goals
+
+- No generic habit tracker clone.
+- No public SaaS.
+- No team management.
+- No payment/subscription system.
+- No social accountability or leaderboards.
+- No raw hidden chain-of-thought storage.
+
+
+## Implementation Order
+Use `docs/16_BEST_IMPLEMENTATION_ORDER.md` as the primary phase-by-phase build order for Codex CLI. It supersedes generic implementation-order notes.
+
+## Additional generated examples
+
+- `examples/schemas/` contains starter JSON Schema contracts for GPT imports.
+- `examples/traefik/README.md` documents the expected production Traefik assumptions.
+- `docs/17_CODEX_EXECUTION_RUNBOOK.md` is the repeatable non-beginner Codex work loop.
+
+```
+
+
+---
+
+# FILE: docs/00_PACK_INDEX.md
+
+```text
+# 00 - Pack Index
+
+    ## Purpose
+    Help Codex and the user choose the smallest relevant document for each task.
+
+    ## Scope
+    - Indexes all documents in the pack.
+- Explains when to read each document.
+- Supports token-efficient Codex CLI operation.
+
+    ## Assumptions
+    - Codex CLI performs better when given focused context instead of the whole pack.
+- The all-in-one file is for human saving/export only.
+- Docs may be copied into the eventual repository under `docs/`.
+
+    ## Success Criteria
+    - A developer can find the right document quickly.
+- Codex can avoid redundant context loading.
+- The pack remains maintainable as the app grows.
+
+    ## Deliverables
+    - Document map.
+- Task-to-document lookup table.
+- Codex reading strategy.
+
+    ## Read this first for document selection
+
+| Task | Read these files |
+|---|---|
+| Start a Codex session | `AGENTS.md`, `PROJECT_CONTEXT_SHORT.md`, `CODEX_START_HERE.md` |
+| Product clarification | `01_PRODUCT_REQUIREMENTS.md`, `06_UX_FLOWS.md` |
+| Architecture | `02_SYSTEM_ARCHITECTURE.md`, `07_ENVIRONMENTS_DEPLOYMENT.md` |
+| Database/schema | `03_SYSTEM_DESIGN_DATA_MODEL.md`, `05_CONTEXT_MEMORY_DESIGN.md` |
+| GPT action/imports | `04_API_AND_AI_PAYLOAD_CONTRACTS.md`, examples JSON files |
+| Context/memory | `05_CONTEXT_MEMORY_DESIGN.md` |
+| UX/dashboard | `06_UX_FLOWS.md`, `13_INSPIRATIONS.md` |
+| Local/prod deployment | `07_ENVIRONMENTS_DEPLOYMENT.md`, `08_AUTOMATION_AND_SCRIPTS.md` |
+| Scripts/CI | `08_AUTOMATION_AND_SCRIPTS.md`, `examples/Makefile`, `examples/scripts/` |
+| Testing/security/observability | `09_ENGINEERING_BEST_PRACTICES.md` |
+| Git/branches/commits | `10_GIT_WORKFLOW.md` |
+| Build order | `11_IMPLEMENTATION_PLAN.md` |
+| Prompting Codex | `12_CODEX_PROMPTS.md` |
+| Inspirations | `13_INSPIRATIONS.md` |
+| Research-derived product notes | `14_SOURCE_RESEARCH_NOTES.md` |
+| ADR process and reasoning | `15_ADR_PROCESS_AND_REASONING.md`, `adr/README.md`, relevant ADR file |
+| Architecture decision change | `15_ADR_PROCESS_AND_REASONING.md`, `adr/TEMPLATE.md`, relevant existing ADRs |
+| Codex execution runbook | `17_CODEX_EXECUTION_RUNBOOK.md` |
+
+## Token-saving rule
+
+For each Codex task, include:
+
+```text
+Read AGENTS.md, PROJECT_CONTEXT_SHORT.md, and only [specific docs]. Do not load the full docs pack.
+```
+
+## All-in-one file warning
+
+`ALL_FILES_READY_TO_SAVE.md` intentionally contains everything. It is useful for saving, backup, and upload to a project source. It is not token-efficient for normal Codex development.
+
+
+## Best implementation order
+
+- `docs/16_BEST_IMPLEMENTATION_ORDER.md` — primary Codex CLI build order from documentation baseline to production.
+
+- `17_CODEX_EXECUTION_RUNBOOK.md` - repeatable Codex execution loop for branch/task/review/commit workflow.
+
+```
+
+
+---
+
+# FILE: docs/01_PRODUCT_REQUIREMENTS.md
+
+```text
+# 01 - Product Requirements
+
+    ## Purpose
+    Define what Reset90 is, who it is for, what it must do, and what it must not become.
+
+    ## Scope
+    - Product requirements for MVP and near-term iterations.
+- Single-user private app only.
+- Feature boundaries for daily planning, recovery, tracking, analytics, and GPT integration.
+
+    ## Assumptions
+    - App purpose: private 90-day reset command center.
+- Target user: one technical user in a self-hosted environment.
+- Core features: daily dashboard, minimum/standard/ideal tasks, recovery mode, check-ins, GPT imports, analytics, export/backup.
+- Tech constraints: webapp for PC/phone, self-hosted, no offline requirement, Authentik production auth.
+- Emotional constraint: app must support honest accountability without shame-based language.
+
+    ## Success Criteria
+    - MVP helps the user see today, execute small actions, recover from bad days, and preserve history.
+- Custom GPT can import daily plans, reflections, weekly reviews, and context summaries.
+- The app can export all user data.
+- The UI works on phone and desktop.
+
+    ## Deliverables
+    - Product definition.
+- MVP feature list.
+- Non-goals.
+- Acceptance criteria.
+
+    ## Product definition
+
+Reset90 is a private self-hosted 90-day reset dashboard that receives plans and reflections from a Custom GPT, tracks daily execution across body, mood, digital detox, learning, and work, uses minimum/standard/ideal task modes, protects recovery days, visualizes progress without harsh streaks, and helps the user finish 90 days with more clarity and less self-judgment.
+
+## Product pillars
+
+1. Fixed 90-day skeleton.
+2. Adaptive daily execution.
+3. Low-friction logging.
+4. Recovery-aware progress.
+5. GPT-assisted planning and reflection.
+6. Privacy-first self-hosting.
+7. Exportable personal data.
+
+## 90-day structure
+
+| Days | Phase | Purpose |
+|---:|---|---|
+| 1-30 | Clear the Fog | Stabilize, reduce drift, create daily anchors, lower shame, collect baseline data. |
+| 31-60 | Rebuild Momentum | Increase consistency, body activation, learning tolerance, work improvement, digital control. |
+| 61-90 | Prove Continuation | Strengthen self-trust, continue after misses, prepare final report and next cycle. |
+
+## MVP features
+
+- Cycle setup with start date and active phase.
+- Today Command Center.
+- Energy selector: burned out, low, normal, high, restless/chaotic.
+- Daily plan import from Custom GPT.
+- Task tiers: non-negotiable, minimum, standard, ideal.
+- Task completion and notes.
+- Check-ins for mood, fog, loneliness, self-criticism, digital control, body relationship, learning resistance, work confidence.
+- Recovery mode and recovery credits.
+- Day statuses: green, yellow, blue, red, gold.
+- Weekly review import/display.
+- 90-day grid and basic analytics.
+- Context library: conversation summaries, task summaries, decision logs, context snapshots.
+- Full JSON export and database backup path.
+
+## Day status definitions
+
+| Status | Meaning |
+|---|---|
+| Green | Standard or ideal day completed. |
+| Yellow | Minimum day completed; still counts. |
+| Blue | Intentional recovery day with minimum reset actions. |
+| Red | Abandoned/no useful reset data; not a moral label. |
+| Gold | Comeback day after red/blue or major resistance. |
+
+## Non-goals
+
+- Generic habit tracker clone.
+- Full workout planner.
+- Full study planner.
+- Full journaling app.
+- Public user accounts.
+- Payments/subscriptions.
+- Social accountability.
+- Leaderboards.
+- Shame-based streaks.
+- Complex gamification.
+
+## User-facing language rules
+
+Allowed:
+
+- “Minimum still counts.”
+- “Downshift, don’t abandon.”
+- “A miss is data.”
+- “Today does not need to repay yesterday.”
+- “Come back with one action.”
+
+Avoid:
+
+- “You failed.”
+- “You wasted the day.”
+- “You ruined your streak.”
+- “Start over.”
+- “You are behind.”
+
+```
+
+
+---
+
+# FILE: docs/02_SYSTEM_ARCHITECTURE.md
+
+```text
+# 02 - System Architecture
+
+    ## Purpose
+    Define the technical architecture, runtime components, data flow, boundaries, and deployment shape for Reset90.
+
+    ## Scope
+    - High-level architecture for local and production environments.
+- Component responsibilities for UI, API, database, auth, GPT ingest, backups, and observability.
+- Mandates the accepted high-level architecture: modular monolith, PostgreSQL, Prisma, JSON Schema/Zod import validation, Authentik OIDC for browser auth, separate GPT machine ingest auth, Docker Compose, and Traefik in production.
+
+    ## Assumptions
+    - App runs as a web application accessible from PC and phone.
+- Production is self-hosted behind HTTPS and Authentik.
+- Custom GPT calls a machine-authenticated ingest API.
+- PostgreSQL is the source of truth.
+- No offline support is required.
+
+    ## Success Criteria
+    - Local developer can start the app reliably.
+- Production can run with Docker Compose and persistent volumes.
+- GPT payloads are authenticated, validated, stored raw, normalized, and visible in UI.
+- Backups and exports are designed from the beginning.
+
+    ## Deliverables
+    - Architecture diagram.
+- Component responsibilities.
+- Request/data flows.
+- Security boundaries.
+- Recommended repository structure.
+
+    ## High-level architecture
+
+```mermaid
+flowchart LR
+    USER[User on phone/PC] --> PROXY[Traefik / HTTPS]
+    PROXY --> AUTH[Authentik OIDC]
+    AUTH --> APP[Reset90 Web App]
+    APP --> DB[(PostgreSQL)]
+    APP --> EXPORTS[Exports/backups volume]
+
+    GPT[Custom GPT Action] --> INGEST[Authenticated GPT ingest API]
+    INGEST --> APP
+    APP --> DB
+
+    CRON[Host cron/systemd timer] --> SCRIPTS[Backup/export/deploy scripts]
+    SCRIPTS --> DB
+    SCRIPTS --> EXPORTS
+
+    CI[GitHub Actions CI] --> CHECKS[Lint/typecheck/test/build]
+```
+
+## Components
+
+### Web UI
+
+Responsible for:
+
+- Today Command Center;
+- energy check-in;
+- plan and task display;
+- task completion;
+- recovery mode;
+- 90-day grid;
+- weekly reviews;
+- context library;
+- analytics;
+- settings;
+- export/download.
+
+### API layer
+
+Responsible for:
+
+- browser UI data requests;
+- task/check-in updates;
+- GPT ingest;
+- payload validation;
+- export generation;
+- health checks;
+- context retrieval.
+
+### Database
+
+Responsible for durable storage of:
+
+- reset cycles and phases;
+- daily logs;
+- daily plans and tasks;
+- check-ins and reflections;
+- recovery events;
+- weekly reviews;
+- imported raw payloads;
+- context items and decisions;
+- optional embedding records.
+
+### Auth
+
+Browser UI:
+
+- production: Authentik OIDC;
+- local: dev auth can be mocked or disabled until OIDC is implemented.
+
+GPT ingest:
+
+- separate bearer token or HMAC signature;
+- never use browser session auth for machine ingest;
+- rate limit and size limit.
+
+### Backups and exports
+
+- Daily PostgreSQL backups.
+- Manual restore script with confirmation.
+- Full JSON export from UI/API.
+- Optional Markdown summary export.
+
+## Data flow: daily plan import
+
+```mermaid
+sequenceDiagram
+    participant GPT as Custom GPT
+    participant API as /api/gpt/import
+    participant DB as PostgreSQL
+    participant UI as Dashboard
+
+    GPT->>API: POST daily_plan payload + token
+    API->>API: Verify auth and body size
+    API->>API: Validate schema with Zod
+    API->>DB: Store raw imported_payload
+    API->>DB: Normalize plan/tasks/day log
+    API-->>GPT: 201 created or 200 duplicate-safe result
+    UI->>DB: Load today plan
+    DB-->>UI: Plan, tasks, check-ins, status
+```
+
+## Recommended repository structure
+
+```text
+app/ or src/app/          Next.js routes/pages
+src/components/           UI components
+src/lib/                  shared utilities
+src/server/               server-only logic
+src/server/db/            Prisma client/schema/migrations helper
+src/server/imports/       GPT import validation/normalization
+src/server/context/       context pack and retrieval logic
+src/server/analytics/     metrics and weekly comparisons
+scripts/                  operational scripts
+docs/                     living documentation
+examples/                 payload examples and templates
+```
+
+## Security boundaries
+
+- Authentik protects browser routes in production.
+- GPT ingest endpoint has dedicated machine auth.
+- Admin/export/delete endpoints require browser auth, never GPT token.
+- Secrets are environment variables only.
+- Logs must not print full journal/reflection content by default.
+
+
+## Architecture decisions
+
+The current architecture is governed by accepted ADRs:
+
+- ADR-0001: modular monolith.
+- ADR-0002: PostgreSQL source of truth.
+- ADR-0003: JSON Schema import contracts.
+- ADR-0004: separate browser auth and GPT ingest auth.
+- ADR-0007: Prisma ORM.
+- ADR-0012: Docker Compose and Traefik deployment.
+
+```
+
+
+---
+
+# FILE: docs/03_SYSTEM_DESIGN_DATA_MODEL.md
+
+```text
+# 03 - System Design and Data Model
+
+    ## Purpose
+    Define the concrete database concepts and system design rules needed to implement Reset90 safely.
+
+    ## Scope
+    - Logical data model for MVP and near-term features.
+- Entities, enums, relationships, and idempotency requirements.
+- Optional embeddings are included but not required for MVP.
+
+    ## Assumptions
+    - PostgreSQL is used in local and production.
+- There is one primary user, but a `users` table is still useful for Authentik subject mapping.
+- The app stores raw imported payloads before normalized entities.
+- Conversation/context storage must not include hidden chain-of-thought logs.
+
+    ## Success Criteria
+    - Schema supports the MVP without large refactors.
+- Imports are idempotent.
+- Analytics can be generated from normalized data.
+- Full export can reconstruct the user’s data.
+
+    ## Deliverables
+    - Entity list.
+- Enums.
+- ERD.
+- Table guidance.
+- Indexing and migration rules.
+
+    ## Logical ERD
+
+```mermaid
+erDiagram
+    USER ||--o{ RESET_CYCLE : owns
+    RESET_CYCLE ||--o{ RESET_PHASE : has
+    RESET_CYCLE ||--o{ DAY_LOG : contains
+    DAY_LOG ||--o| DAILY_PLAN : has
+    DAILY_PLAN ||--o{ TASK : contains
+    DAY_LOG ||--o{ CHECKIN : records
+    DAY_LOG ||--o| DAILY_REFLECTION : closes
+    RESET_CYCLE ||--o{ WEEKLY_REVIEW : summarizes
+    RESET_CYCLE ||--o{ RECOVERY_EVENT : uses
+    RESET_CYCLE ||--o{ METRIC_ENTRY : records
+    RESET_CYCLE ||--o{ CONTEXT_ITEM : remembers
+    CONTEXT_ITEM ||--o{ CONTEXT_TAG : tagged
+    IMPORTED_PAYLOAD ||--o| DAILY_PLAN : may_create
+    IMPORTED_PAYLOAD ||--o| DAILY_REFLECTION : may_create
+    IMPORTED_PAYLOAD ||--o| WEEKLY_REVIEW : may_create
+```
+
+## Core enums
+
+```text
+FocusDomain = BODY | MOOD | DIGITAL | LEARNING | WORK | SYSTEM | SOCIAL | RECOVERY
+TaskTier = NON_NEGOTIABLE | MINIMUM | STANDARD | IDEAL
+EnergyLevel = BURNED_OUT | LOW | NORMAL | HIGH | RESTLESS_CHAOTIC
+DayStatus = GREEN | YELLOW | BLUE | RED | GOLD | UNSET
+PayloadKind = DAILY_PLAN | DAILY_REFLECTION | WEEKLY_REVIEW | CONTEXT_SUMMARY
+ContextKind = CONVERSATION | TASK_SUMMARY | DECISION_LOG | DAILY_SUMMARY | WEEKLY_SUMMARY | CONTEXT_SNAPSHOT | REASONING_SUMMARY
+RecoveryType = PLANNED | EMERGENCY_RESET | DOWNSHIFT | COMEBACK
+```
+
+## Main tables
+
+### users
+
+Fields:
+
+- `id`
+- `authentik_subject`
+- `email`
+- `display_name`
+- `created_at`
+- `updated_at`
+
+### reset_cycles
+
+Fields:
+
+- `id`
+- `user_id`
+- `name`
+- `start_date`
+- `end_date`
+- `status`
+- `recovery_credit_limit`
+- `created_at`
+- `updated_at`
+
+### reset_phases
+
+Fields:
+
+- `id`
+- `cycle_id`
+- `name`
+- `day_start`
+- `day_end`
+- `description`
+
+Seed default phases:
+
+- 1-30: Clear the Fog
+- 31-60: Rebuild Momentum
+- 61-90: Prove Continuation
+
+### day_logs
+
+Fields:
+
+- `id`
+- `cycle_id`
+- `date`
+- `day_number`
+- `phase_id`
+- `energy_level`
+- `status`
+- `mission`
+- `supportive_message`
+- `notes`
+- `created_at`
+- `updated_at`
+
+Unique:
+
+- `(cycle_id, date)`
+- `(cycle_id, day_number)`
+
+### daily_plans
+
+Fields:
+
+- `id`
+- `day_log_id`
+- `imported_payload_id`
+- `source`
+- `schema_version`
+- `mission`
+- `downshift_rule`
+- `context_summary`
+- `created_at`
+
+### tasks
+
+Fields:
+
+- `id`
+- `daily_plan_id`
+- `title`
+- `description`
+- `domain`
+- `tier`
+- `estimate_minutes`
+- `trigger`
+- `why`
+- `completed_at`
+- `skipped_at`
+- `notes`
+- `sort_order`
+
+### checkins
+
+Fields:
+
+- `id`
+- `day_log_id`
+- `timestamp`
+- `energy_level`
+- `mood_score`
+- `fog_score`
+- `loneliness_score`
+- `self_criticism_score`
+- `digital_control_score`
+- `learning_resistance_score`
+- `body_relationship_score`
+- `work_confidence_score`
+- `note`
+
+Scores should use 1-10 integers unless a better scale is explicitly chosen later.
+
+### daily_reflections
+
+Fields:
+
+- `id`
+- `day_log_id`
+- `imported_payload_id`
+- `summary`
+- `what_happened`
+- `what_worked`
+- `what_blocked_me`
+- `tomorrow_adjustment`
+- `self_criticism_note`
+- `day_status_recommendation`
+- `created_at`
+
+### weekly_reviews
+
+Fields:
+
+- `id`
+- `cycle_id`
+- `imported_payload_id`
+- `week_number`
+- `date_from`
+- `date_to`
+- `summary`
+- `wins_json`
+- `blockers_json`
+- `patterns_json`
+- `recommended_changes_json`
+- `next_week_commitments_json`
+- `metrics_json`
+- `created_at`
+
+### imported_payloads
+
+Fields:
+
+- `id`
+- `kind`
+- `schema_version`
+- `idempotency_key`
+- `source`
+- `external_conversation_id`
+- `raw_json`
+- `validation_status`
+- `processed_at`
+- `created_at`
+
+Unique:
+
+- `idempotency_key`
+
+### context_items
+
+Fields:
+
+- `id`
+- `cycle_id`
+- `day_log_id` nullable
+- `weekly_review_id` nullable
+- `kind`
+- `title`
+- `summary`
+- `source_ref`
+- `importance`
+- `tags_json`
+- `embedding_id` nullable
+- `created_at`
+- `updated_at`
+
+Context items must store user-visible summaries, decisions, and facts. Do not store hidden chain-of-thought.
+
+### embedding_records optional
+
+Fields:
+
+- `id`
+- `context_item_id`
+- `provider`
+- `model`
+- `vector`
+- `created_at`
+
+Optional MVP decision: create the table later if vector retrieval is implemented. Do not block MVP on embeddings.
+
+## Migration rules
+
+- Every schema change gets a migration.
+- Migrations must be safe for production data.
+- Before production migrations, run backup.
+- Destructive migrations require explicit note in PR and deploy plan.
+
+```
+
+
+---
+
+# FILE: docs/04_API_AND_AI_PAYLOAD_CONTRACTS.md
+
+```text
+# 04 - API and AI Payload Contracts
+
+    ## Purpose
+    Define API endpoints and Custom GPT payload contracts so Codex can implement imports consistently.
+
+    ## Scope
+    - MVP REST-style API contract.
+- Custom GPT daily plan, reflection, weekly review, and context payloads.
+- Validation, idempotency, and auth rules.
+
+    ## Assumptions
+    - Custom GPT Actions can POST JSON to a public HTTPS endpoint.
+- GPT endpoint uses machine auth separate from user/browser auth.
+- Zod or equivalent validates payloads.
+- All raw payloads are stored before normalization.
+
+    ## Success Criteria
+    - GPT can safely import data without duplicate records.
+- Malformed payloads are rejected and saved as failed imports if useful.
+- Browser API cannot be accessed with GPT ingest token.
+- Payload examples validate in CI.
+
+    ## Deliverables
+    - Endpoint list.
+- Auth rules.
+- Payload schemas.
+- Example responses.
+- OpenAPI guidance.
+
+    ## Auth model
+
+Browser UI:
+
+- production: Authentik OIDC session;
+- local: `AUTH_MODE=dev` can create a local development user.
+
+GPT ingest:
+
+- `Authorization: Bearer <GPT_INGEST_TOKEN>` for MVP;
+- optional HMAC signature later;
+- no export/delete/admin permissions.
+
+## Endpoint overview
+
+| Method | Path | Auth | Purpose |
+|---|---|---|---|
+| GET | `/api/health` | none | Health check. |
+| GET | `/api/dashboard/today` | user | Current day dashboard data. |
+| POST | `/api/gpt/import` | GPT token | Import daily plan/reflection/weekly review/context payload. |
+| POST | `/api/checkins` | user | Create manual check-in. |
+| PATCH | `/api/tasks/:id` | user | Complete/skip/update task. |
+| POST | `/api/recovery/start` | user | Start recovery mode for a day. |
+| GET | `/api/analytics/90-day` | user | Grid and trends. |
+| GET | `/api/context` | user | List/search context items. |
+| GET | `/api/export/full` | user | Full JSON export. |
+| POST | `/api/import/full` | user | Full JSON import/restore helper, optional. |
+
+## Shared GPT envelope
+
+All GPT imports use:
+
+```json
+{
+  "kind": "daily_plan",
+  "schema_version": "1.0",
+  "idempotency_key": "2026-07-01-day-1-morning-plan-v1",
+  "source": "custom_gpt",
+  "external_conversation_id": "chatgpt-project-reset90-main",
+  "payload": {}
+}
+```
+
+Rules:
+
+- `kind` determines payload schema.
+- `idempotency_key` is required and unique.
+- Store full raw JSON in `imported_payloads.raw_json`.
+- If duplicate idempotency key arrives, return `200` with existing import reference, not a hard error.
+- Reject bodies over `GPT_INGEST_MAX_BODY_BYTES`.
+
+## Daily plan payload
+
+Fields inside `payload`:
+
+```json
+{
+  "date": "2026-07-01",
+  "day_number": 1,
+  "phase": "Clear the Fog",
+  "energy_level": "normal",
+  "mission": "Interrupt drift with one body action, one focus action, and one reflection.",
+  "supportive_message": "Today does not need to repay yesterday.",
+  "downshift_rule": "If energy drops, switch to minimum plan.",
+  "non_negotiables": [],
+  "minimum_plan": [],
+  "standard_plan": [],
+  "ideal_plan": [],
+  "context_summary": "Short user-visible context summary."
+}
+```
+
+Each task object:
+
+```json
+{
+  "title": "Stretch or walk for 10 minutes",
+  "domain": "body",
+  "tier": "minimum",
+  "estimate_minutes": 10,
+  "trigger": "After breakfast",
+  "why": "Rebuild body activation without pressure."
+}
+```
+
+## Daily reflection payload
+
+Fields inside `payload`:
+
+```json
+{
+  "date": "2026-07-01",
+  "day_number": 1,
+  "day_status_recommendation": "yellow",
+  "summary": "User-visible summary.",
+  "scores": {
+    "mood": 5,
+    "fog": 7,
+    "loneliness": 6,
+    "self_criticism": 5,
+    "digital_control": 4,
+    "learning_resistance": 7,
+    "body_relationship": 5,
+    "work_confidence": 5
+  },
+  "what_happened": "Text.",
+  "what_worked": ["Text"],
+  "what_blocked_me": ["Text"],
+  "tomorrow_adjustment": "Text.",
+  "self_criticism_note": "Text.",
+  "context_items": []
+}
+```
+
+## Weekly review payload
+
+Fields inside `payload`:
+
+```json
+{
+  "week_number": 1,
+  "date_from": "2026-07-01",
+  "date_to": "2026-07-07",
+  "summary": "Week summary.",
+  "wins": [],
+  "blockers": [],
+  "patterns": [],
+  "recommended_changes": [],
+  "next_week_commitments": [],
+  "metrics": {},
+  "context_snapshot": {}
+}
+```
+
+## Context item rules
+
+Context payloads may include:
+
+- `conversation` history summary;
+- `task_summary`;
+- `decision_log`;
+- `daily_summary`;
+- `weekly_summary`;
+- `context_snapshot`;
+- `reasoning_summary` as a user-visible rationale only.
+
+Do not request or store raw hidden internal reasoning logs.
+
+## Response examples
+
+Created:
+
+```json
+{
+  "ok": true,
+  "status": "created",
+  "imported_payload_id": "uuid",
+  "normalized_records": ["daily_plan", "tasks"]
+}
+```
+
+Duplicate:
+
+```json
+{
+  "ok": true,
+  "status": "duplicate",
+  "imported_payload_id": "uuid"
+}
+```
+
+Validation error:
+
+```json
+{
+  "ok": false,
+  "error": "validation_error",
+  "details": []
+}
+```
+
+```
+
+
+---
+
+# FILE: docs/05_CONTEXT_MEMORY_DESIGN.md
+
+```text
+# 05 - Context Memory Design
+
+    ## Purpose
+    Define how Reset90 stores conversational and thinking context without requiring raw hidden reasoning logs.
+
+    ## Scope
+    - Conversation history, task summaries, decision logs, daily/weekly summaries, context snapshots, optional embeddings-based retrieval.
+- Rules for what may and may not be stored.
+- Context export and context pack generation for Custom GPT/Codex handoff.
+
+    ## Assumptions
+    - The app should become the durable source of truth across many Custom GPT chats.
+- The user will often speak or type messy reflections into GPT, which then sends structured summaries.
+- The app stores summaries and decisions, not private chain-of-thought.
+- Embeddings are optional and should not block MVP.
+
+    ## Success Criteria
+    - Future GPT/Codex sessions can retrieve key decisions and patterns.
+- Context is searchable, taggable, and exportable.
+- Sensitive logs are not exposed unnecessarily.
+- No raw internal reasoning is required.
+
+    ## Deliverables
+    - Context item taxonomy.
+- Storage rules.
+- Retrieval rules.
+- Context pack generation strategy.
+- Embeddings optional plan.
+
+    ## Concrete definition of stored context
+
+Reset90 should store:
+
+1. Conversation history provided by the user or imported as visible transcript/summary.
+2. Task summaries.
+3. Decision logs.
+4. Daily summaries.
+5. Weekly summaries.
+6. Context snapshots.
+7. User-visible reasoning summaries/rationales.
+8. Optional embeddings for retrieval over the above.
+
+Reset90 must not require:
+
+- raw internal chain-of-thought;
+- hidden model reasoning traces;
+- private scratchpad logs;
+- unrestricted full prompt logs if summaries are sufficient.
+
+## Context item fields
+
+Recommended fields:
+
+```text
+id
+cycle_id
+day_log_id nullable
+weekly_review_id nullable
+kind
+title
+summary
+source_ref
+importance 1-5
+tags_json
+created_at
+updated_at
+```
+
+Optional:
+
+```text
+embedding_id
+expires_at
+is_sensitive
+```
+
+## Context kinds
+
+| Kind | Meaning |
+|---|---|
+| conversation | User-visible conversation or a summary of it. |
+| task_summary | Summary of a completed implementation/life task. |
+| decision_log | Explicit decision and why it was made, in user-visible form. |
+| daily_summary | Daily reflection summary. |
+| weekly_summary | Weekly review summary. |
+| context_snapshot | Condensed state for future planning. |
+| reasoning_summary | Short visible rationale, not hidden chain-of-thought. |
+
+## Retrieval strategy
+
+MVP retrieval:
+
+- filter by date range;
+- filter by kind;
+- filter by tags;
+- sort by importance and recency;
+- full-text search over title/summary.
+
+Optional later retrieval:
+
+- embeddings over `title + summary + tags`;
+- semantic search for patterns;
+- hybrid full-text + vector retrieval.
+
+## Context pack generation
+
+Add a function/script/API that can generate a compact context pack for GPT/Codex:
+
+```text
+Current cycle summary
+Active phase
+Last 7 days summaries
+Open decisions
+Important recurring patterns
+Recovery usage
+Current blockers
+Next recommended actions
+```
+
+Output formats:
+
+- Markdown for humans/ChatGPT;
+- JSON for programmatic import;
+- optional clipped version under a token/character budget.
+
+## Privacy rules
+
+- Mark sensitive context items.
+- Do not show sensitive full text in logs.
+- Export must include sensitive items because the user owns the data.
+- UI should let user delete individual context items.
+- Backups should be treated as sensitive.
+
+```
+
+
+---
+
+# FILE: docs/06_UX_FLOWS.md
+
+```text
+# 06 - UX Flows
+
+    ## Purpose
+    Define the main screens and user flows so Codex can build the webapp without inventing UX from scratch.
+
+    ## Scope
+    - Today dashboard, daily check-in, task completion, recovery mode, weekly review, analytics, context library, settings/export.
+- Responsive phone/PC design.
+- Calm mentor copy rules.
+
+    ## Assumptions
+    - The user wants low friction, not a dense productivity cockpit.
+- Phone usage matters for quick check-ins and task completion.
+- Desktop usage matters for review, analytics, and admin/export.
+- The app should make the next useful action obvious.
+
+    ## Success Criteria
+    - User can understand today within 10 seconds.
+- User can mark a minimum day without shame.
+- User can start recovery mode quickly.
+- User can review weekly/final progress visually and textually.
+
+    ## Deliverables
+    - Screen list.
+- User flows.
+- Status/copy guidance.
+- Responsive layout principles.
+
+    ## Primary navigation
+
+- Today
+- 90 Days
+- Reviews
+- Context
+- Analytics
+- Settings
+
+## Today Command Center
+
+Top section:
+
+- Day X/90
+- Phase name
+- Current status
+- One supportive message
+- Energy selector
+
+Cards:
+
+1. Mission.
+2. Non-negotiables.
+3. Minimum plan.
+4. Standard plan.
+5. Ideal plan.
+6. Reset me now.
+7. Evening reflection status.
+
+## Energy check-in flow
+
+Question:
+
+```text
+What is your energy right now?
+```
+
+Options:
+
+- burned out;
+- low;
+- normal;
+- high;
+- restless/chaotic.
+
+After selection:
+
+- update day log;
+- highlight matching task tier;
+- show downshift rule if energy is low/burned out.
+
+## Task completion flow
+
+User can:
+
+- mark complete;
+- skip with reason;
+- add note;
+- downshift task to lower tier;
+- see why task exists.
+
+Task card should show:
+
+- title;
+- domain;
+- tier;
+- estimated minutes;
+- trigger;
+- why.
+
+## Recovery mode flow
+
+Entry points:
+
+- `Reset me now` button;
+- low/burned out energy;
+- user manually selects recovery;
+- after red day when next day begins.
+
+Recovery screen:
+
+```text
+Downshift, don't abandon.
+```
+
+Recovery checklist:
+
+- drink water or basic physical reset;
+- 5-10 minute walk/stretch/shower/cleanup;
+- one tiny focus action;
+- one GPT reflection or note;
+- prepare one thing for tomorrow.
+
+Recovery result:
+
+- day can become blue if intentional recovery actions are completed;
+- comeback day can become gold after returning from a bad day.
+
+## 90-day grid
+
+Display 90 cells:
+
+- Green = standard/ideal;
+- Yellow = minimum;
+- Blue = recovery;
+- Red = abandoned/no useful reset;
+- Gold = comeback;
+- Gray = future/unset.
+
+Clicking a cell opens day details.
+
+## Weekly review
+
+Show:
+
+- week number;
+- summary;
+- wins;
+- blockers;
+- patterns;
+- recommended changes;
+- next week commitments;
+- metrics summary;
+- linked context snapshot.
+
+## Context library
+
+Allow:
+
+- list context items;
+- search;
+- filter by kind/tag/date;
+- view source payload;
+- edit/delete user-created context items;
+- generate context pack.
+
+## Analytics
+
+MVP charts/cards:
+
+- day status count;
+- recovery credits used/remaining;
+- weekly comparison;
+- mood/fog trend;
+- digital control trend;
+- learning resistance trend;
+- body relationship trend;
+- work confidence trend;
+- self-trust score.
+
+## Copy rules
+
+Use calm, direct language. Avoid dramatic motivation.
+
+Good examples:
+
+- “Minimum still counts.”
+- “Choose the smallest useful version.”
+- “You are still in the run.”
+- “This is data for tomorrow.”
+
+Bad examples:
+
+- “No excuses.”
+- “You failed.”
+- “You ruined your streak.”
+- “Start from zero.”
+
+```
+
+
+---
+
+# FILE: docs/07_ENVIRONMENTS_DEPLOYMENT.md
+
+```text
+# 07 - Environments and Deployment
+
+    ## Purpose
+    Define local and production environments clearly and document how the app should be deployed and operated.
+
+    ## Scope
+    - Local developer-only environment.
+- Production live environment.
+- Environment variables, Docker Compose, Authentik, backups, deployment, rollback.
+- Optional staging is explicitly not required for MVP.
+
+    ## Assumptions
+    - Local machine has Node and Docker available.
+- Production server already has or can run reverse proxy and Authentik.
+- Production is live user data and must be treated carefully.
+- The `main` branch represents production-ready code.
+
+    ## Success Criteria
+    - Local environment can be started quickly by a developer.
+- Production is repeatable, backup-aware, and HTTPS-only.
+- Deployment runs checks, backup, migration, build, start, healthcheck.
+- Rollback path is documented.
+
+    ## Deliverables
+    - Environment definitions.
+- Variable guidance.
+- Local setup flow.
+- Production deployment flow.
+- Backup/restore and rollback notes.
+
+    ## Environment definitions
+
+### Local
+
+Local is a developer-only environment.
+
+Purpose:
+
+- build features;
+- test migrations;
+- run sample payload imports;
+- validate UI changes;
+- experiment safely.
+
+Local must not be treated as live data.
+
+### Production
+
+Production is the live environment.
+
+Purpose:
+
+- actual user access;
+- actual reset data;
+- actual GPT ingest;
+- real backups and restores.
+
+Production is represented by the `main` branch.
+
+## Local development setup
+
+Expected files:
+
+- `.env.local`
+- `docker-compose.local.yml`
+- local Postgres volume
+
+Recommended commands:
+
+```bash
+cp examples/.env.local.example .env.local
+make setup-local
+make dev
+```
+
+Local URLs:
+
+```text
+App: http://localhost:3000
+Database: localhost:5432
+```
+
+Local auth:
+
+- Use `AUTH_MODE=dev` initially.
+- Add Authentik OIDC after core MVP works.
+
+## Production setup
+
+Expected files:
+
+- `.env.production`
+- `docker-compose.production.yml`
+- persistent Postgres volume
+- persistent exports/backups volume
+- reverse proxy HTTPS route
+- Authentik OIDC provider/app
+
+Production requirements:
+
+- HTTPS only;
+- Authentik OIDC for UI;
+- separate GPT ingest token;
+- no dev auth;
+- logs retained but scrubbed;
+- daily DB backup;
+- tested restore path.
+
+## Deployment flow
+
+```text
+local branch -> feature branch -> local -> main -> production deploy
+```
+
+Deploy steps:
+
+1. Ensure `main` is clean and up to date.
+2. Run CI/checks.
+3. SSH to server or run deploy on server.
+4. Create pre-deploy backup.
+5. Pull latest `main`.
+6. Build image.
+7. Run migrations.
+8. Start services.
+9. Healthcheck.
+10. Check logs.
+
+## Rollback flow
+
+If deploy fails before migrations:
+
+- checkout previous commit/tag;
+- rebuild/restart;
+- check health.
+
+If deploy fails after migrations:
+
+- stop app;
+- restore pre-deploy backup if needed;
+- checkout previous commit/tag;
+- restart;
+- document incident.
+
+## Environment variable rules
+
+- Commit only `.env.example` files.
+- Never commit `.env.local` or `.env.production`.
+- Use long random secrets.
+- Rotate GPT ingest token if exposed.
+- Keep production passwords out of chat/logs.
+
+```
+
+
+---
+
+# FILE: docs/08_AUTOMATION_AND_SCRIPTS.md
+
+```text
+# 08 - Automation and Scripts
+
+    ## Purpose
+    Define which repeated or risky processes should be automated and which should be documented with scripts.
+
+    ## Scope
+    - Setup, linting, formatting, testing, branch creation, commit checks, build, deployment, backup/export, documentation generation.
+- Makefile as the main command surface.
+- Shell scripts for operational tasks.
+
+    ## Assumptions
+    - The user is comfortable with terminal workflows.
+- Scripts should be simple Bash unless the app stack provides better native commands.
+- Dangerous scripts require confirmation and safety backups.
+- CI should enforce the same checks as local `make check` where possible.
+
+    ## Success Criteria
+    - Common tasks are repeatable with one command.
+- Risky tasks have guardrails.
+- Codex can discover commands from `make help`.
+- Scripts reduce manual mistakes.
+
+    ## Deliverables
+    - Automation matrix.
+- Suggested Makefile commands.
+- Script responsibilities.
+- CI guidance.
+
+    ## Automation matrix
+
+| Process | Automation decision | Command/script | Notes |
+|---|---|---|---|
+| Setup | Fully automated | `make setup-local`, `scripts/setup-local.sh` | Check tools, copy env, start db, install deps, migrate, seed. |
+| Linting | Fully automated | `make lint` | Run locally and in CI. |
+| Formatting | Fully automated | `make format` | Also support check-only format in CI if available. |
+| Testing | Fully automated | `make test` | Unit/integration tests. |
+| Type checking | Fully automated | `make typecheck` | Required before merge. |
+| Branch creation | Documented with script | `scripts/create-branch.sh` | Helps enforce branch naming; user still chooses intent/slug. |
+| Commit checks | Fully automated | `make check`, `scripts/precommit-check.sh` | Run lint/typecheck/test/build/payload validation. |
+| Build | Fully automated | `make build` | Required locally and in CI. |
+| Deployment | Documented with script | `scripts/deploy-production.sh` | Script handles steps; human confirms production. |
+| Backup | Fully automated | `scripts/backup-db.sh` | Can run from cron/systemd timer. |
+| Restore | Documented with script | `scripts/restore-db.sh` | Destructive; requires confirmation. |
+| Export | Fully automated | `scripts/export-data.sh` or app endpoint | User-owned data export. |
+| Documentation generation | Fully automated | `scripts/generate-docs-bundle.sh` | Creates all-in-one docs/context bundle. |
+| Healthcheck | Fully automated | `scripts/healthcheck.sh` | Used after deploy. |
+| Release tagging | Documented with commands | `git tag vX.Y.Z` | Human decides release version. |
+| Incident response | Documented runbook | `09_ENGINEERING_BEST_PRACTICES.md` | Not fully automatable. |
+
+## Makefile interface
+
+Recommended commands:
+
+```bash
+make help
+make setup-local
+make install
+make dev
+make check
+make lint
+make format
+make typecheck
+make test
+make build
+make db-migrate
+make db-seed
+make db-reset
+make db-backup
+make db-restore FILE=backup.sql.gz
+make validate-payloads
+make prod-build
+make prod-up
+make prod-down
+make prod-logs
+make prod-health
+make deploy-production
+make export-full
+make docs-bundle
+```
+
+## Script rules
+
+- Use `set -euo pipefail` in Bash scripts.
+- Print what the script is doing.
+- Fail loudly.
+- Do not hide destructive actions.
+- Require typed confirmation for restore/production destructive tasks.
+- Create backups before migrations/restore/deploy.
+- Scripts must be committed and executable.
+
+## CI requirements
+
+CI should run on:
+
+- pull requests;
+- pushes to `main`;
+- optionally pushes to `local`.
+
+CI checks:
+
+- install dependencies;
+- run migrations against test DB;
+- lint;
+- format check;
+- typecheck;
+- unit/integration tests;
+- payload example validation;
+- build.
+
+```
+
+
+---
+
+# FILE: docs/09_ENGINEERING_BEST_PRACTICES.md
+
+```text
+# 09 - Engineering Best Practices
+
+    ## Purpose
+    Define software engineering practices Codex should follow while building and maintaining Reset90.
+
+    ## Scope
+    - Coding standards, testing, CI/CD, security, observability, documentation, code review, release management, incident response.
+- Sized for a solo/self-hosted project but written like professional software.
+- Applies to both human and Codex changes.
+
+    ## Assumptions
+    - The app contains sensitive personal data, so privacy/security matter even though it is single-user.
+- Small disciplined practices are better than heavy enterprise process.
+- The repository will be Git-managed and possibly pushed to GitHub.
+- Production must be recoverable from backup.
+
+    ## Success Criteria
+    - Code remains readable, tested, secure, and deployable.
+- Changes can be reviewed and rolled back.
+- Sensitive data is protected.
+- Incidents have a clear response path.
+
+    ## Deliverables
+    - Engineering standards.
+- Testing strategy.
+- CI/CD rules.
+- Security/privacy checklist.
+- Observability guidance.
+- Documentation and review rules.
+- Release and incident response process.
+
+    ## Coding standards
+
+- Use TypeScript strict mode.
+- Prefer explicit domain types over loose `any`.
+- Validate external inputs at boundaries.
+- Keep business logic in testable functions, not buried in UI components.
+- Keep components small and named by intent.
+- Avoid premature abstractions.
+- Use consistent formatting with Prettier or equivalent.
+- Use ESLint or equivalent to catch unsafe patterns.
+- Keep environment access centralized.
+
+## Testing
+
+Prioritize tests for logic that can corrupt or misrepresent user data:
+
+- GPT payload validation;
+- import idempotency;
+- day number calculation;
+- phase calculation;
+- day status calculation;
+- recovery credit logic;
+- export generation;
+- context pack generation;
+- auth guards.
+
+Test layers:
+
+- unit tests for pure logic;
+- integration tests for API + database;
+- lightweight UI tests for critical flows;
+- manual smoke test after deploy.
+
+## CI/CD
+
+CI should run the same checks as local `make check`.
+
+Production deployment should:
+
+1. verify clean tree;
+2. pull `main`;
+3. create backup;
+4. build;
+5. migrate;
+6. start/restart;
+7. healthcheck;
+8. print logs if failure.
+
+## Security
+
+- No secrets in Git.
+- Use HTTPS in production.
+- Use Authentik OIDC for UI.
+- Use separate GPT ingest token.
+- Rate-limit ingest endpoint.
+- Set max request body size.
+- Validate all payloads.
+- Avoid logging full reflections by default.
+- Backups are sensitive.
+- Exports are sensitive.
+- Dependency scanning should be enabled if available.
+
+## Observability
+
+MVP observability:
+
+- structured logs;
+- request IDs;
+- `/api/health` endpoint;
+- startup logs with version/commit but no secrets;
+- import success/failure counters;
+- deploy healthcheck script.
+
+Later:
+
+- OpenTelemetry instrumentation;
+- Prometheus metrics;
+- uptime checks;
+- error tracking.
+
+## Documentation
+
+Keep docs-as-code in the repo.
+
+Update docs when changing:
+
+- API contracts;
+- database schema;
+- deployment flow;
+- branch workflow;
+- GPT payload schema;
+- context memory behavior;
+- recovery/day status rules.
+
+## Code review
+
+Even as a solo developer, self-review every branch before merge:
+
+```bash
+git diff local...HEAD
+make check
+```
+
+Review checklist:
+
+- Is the scope small?
+- Are secrets absent?
+- Are migrations safe?
+- Are payloads validated?
+- Are sensitive logs avoided?
+- Are docs updated?
+- Can this be rolled back?
+
+## Release management
+
+Release from `main` only.
+
+Suggested release flow:
+
+```bash
+git switch local
+make check
+git switch main
+git merge --no-ff local
+git tag v0.1.0
+git push origin main --tags
+make deploy-production
+```
+
+Use semantic versioning lightly:
+
+- `v0.1.0` first MVP foundation;
+- `v0.2.0` GPT import MVP;
+- `v0.3.0` recovery/analytics MVP;
+- patch tags for fixes.
+
+## Incident response
+
+For production issue:
+
+1. Stop making changes.
+2. Identify impact: app down, data issue, auth issue, import issue, deploy issue.
+3. Preserve logs.
+4. If data risk exists, create immediate backup.
+5. Roll back app if needed.
+6. Restore DB only if necessary.
+7. Write an incident note in `docs/incidents/` or context log.
+8. Add prevention task.
+
+Incident note template:
+
+```text
+Date/time:
+Impact:
+Cause:
+Detection:
+Resolution:
+Data affected:
+Rollback/restore used:
+Prevention:
+```
+
+```
+
+
+---
+
+# FILE: docs/10_GIT_WORKFLOW.md
+
+```text
+# 10 - Git Workflow
+
+    ## Purpose
+    Define branch naming, branch lifecycle, merge targets, and commit rules for Reset90.
+
+    ## Scope
+    - `main` production branch.
+- `local` persistent developer-only branch.
+- Short-lived feature/cleanup/fix/refactor/chore/docs branches.
+- Conventional Commits and commit size guidance.
+
+    ## Assumptions
+    - The user explicitly wants `main` and `local` branches.
+- The repo may be pushed to GitHub.
+- Production deploys should only come from `main`.
+- Codex should create task branches, not work directly on `main`.
+
+    ## Success Criteria
+    - Branch purpose is clear from name.
+- Production remains deployable.
+- Local work can accumulate safely before release.
+- Commit history is readable and reversible.
+
+    ## Deliverables
+    - Branch model.
+- Naming conventions.
+- Lifecycle and merge target rules.
+- Conventional Commit examples.
+- Commit size guidance.
+
+    ## Branch roles
+
+### `main`
+
+- Production branch.
+- Must always be deployable.
+- Production deployments pull from `main`.
+- Protected if using GitHub branch protection.
+- No direct Codex feature work unless emergency hotfix and user approves.
+
+### `local`
+
+- Persistent developer-only branch.
+- Integration branch for local development.
+- Not production.
+- Short-lived branches usually branch from and merge back into `local`.
+- Can be pushed to GitHub for backup, but not deployed as production.
+
+## Short-lived branch names
+
+Use exactly these families:
+
+```text
+feature/<slug>
+cleanup/<slug>
+fix/<slug>
+refactor/<slug>
+chore/<slug>
+docs/<slug>
+```
+
+Examples:
+
+```text
+feature/daily-plan-import
+feature/recovery-mode
+cleanup/remove-unused-ui
+fix/import-idempotency
+refactor/context-service
+chore/docker-production-env
+docs/update-api-contracts
+```
+
+## Branch lifecycle
+
+### Normal feature work
+
+```bash
+git switch local
+git pull origin local
+git switch -c feature/<slug>
+# work, commit, check
+git switch local
+git merge --no-ff feature/<slug>
+```
+
+Merge target:
+
+- feature/cleanup/fix/refactor/chore/docs branches merge into `local`.
+- `local` merges into `main` only when production-ready.
+
+### Production release
+
+```bash
+git switch local
+make check
+git switch main
+git pull origin main
+git merge --no-ff local
+git push origin main
+```
+
+Then deploy production from `main`.
+
+### Hotfix
+
+When production is broken:
+
+```bash
+git switch main
+git pull origin main
+git switch -c fix/<slug>
+# fix, test, commit
+git switch main
+git merge --no-ff fix/<slug>
+git push origin main
+# then back-merge to local
+git switch local
+git merge --no-ff main
+```
+
+Hotfix branches may target `main` first, then back-merge into `local`.
+
+## Conventional Commits
+
+Format:
+
+```text
+<type>(optional-scope): <short imperative summary>
+```
+
+Types:
+
+- `feat`
+- `fix`
+- `refactor`
+- `cleanup`
+- `chore`
+- `docs`
+- `test`
+- `ci`
+- `build`
+- `perf`
+
+Examples:
+
+```text
+feat(api): add GPT daily plan import endpoint
+fix(import): prevent duplicate tasks for repeated idempotency key
+refactor(context): extract context pack builder
+cleanup(ui): remove unused dashboard card component
+chore(env): add production compose example
+docs(git): document local branch lifecycle
+test(recovery): cover recovery credit calculation
+ci: validate payload examples on pull request
+```
+
+## Commit size guidance
+
+A good commit:
+
+- has one purpose;
+- can be explained in one sentence;
+- passes relevant checks;
+- does not mix formatting with logic unless unavoidable;
+- does not mix unrelated product features;
+- is small enough to revert safely.
+
+Avoid:
+
+```text
+feat: add everything
+fix: stuff
+update files
+wip
+misc
+```
+
+## Before commit checklist
+
+```bash
+git status
+git diff
+make check
+```
+
+If checks are too expensive during early scaffold, run at least:
+
+```bash
+npm run lint
+npm run typecheck
+npm test
+```
+
+## Pushing branches
+
+```bash
+git push -u origin feature/<slug>
+git push origin local
+git push origin main
+```
+
+Do not force-push `main`. Avoid force-pushing `local` unless intentionally repairing a bad local-only history and the user approves.
+
+```
+
+
+---
+
+# FILE: docs/11_IMPLEMENTATION_PLAN.md
+
+```text
+# 11 - Implementation Plan
+
+    ## Purpose
+    Provide Codex with an ordered, incremental build plan that avoids giant unfocused changes.
+
+    ## Scope
+    - MVP phases from repository foundation to analytics/export.
+- Acceptance criteria for each phase.
+- Suggested branch names and relevant docs.
+
+    ## Assumptions
+    - The repository may start empty.
+- Codex can create code, scripts, and docs.
+- The app should become useful before advanced analytics or embeddings.
+- Production deployment should wait until foundation, backup, and auth basics are safe.
+
+    ## Success Criteria
+    - Each phase produces a working increment.
+- Codex can stop after any phase with a stable repo.
+- No phase requires reading the entire pack.
+- Tests/checks exist before complex features.
+
+    ## Deliverables
+    - Phased roadmap.
+- Branch suggestions.
+- Acceptance checks.
+- Prompt pointers.
+
+    ## Phase 0 - Repository foundation
+
+Branch:
+
+```text
+feature/repo-foundation
+```
+
+Read:
+
+- `02_SYSTEM_ARCHITECTURE.md`
+- `07_ENVIRONMENTS_DEPLOYMENT.md`
+- `08_AUTOMATION_AND_SCRIPTS.md`
+- `10_GIT_WORKFLOW.md`
+- `15_ADR_PROCESS_AND_REASONING.md`
+- `adr/README.md`
+
+Build:
+
+- Next.js + TypeScript;
+- Tailwind;
+- strict TypeScript;
+- ESLint/Prettier;
+- testing framework;
+- PostgreSQL local Docker Compose;
+- ORM setup;
+- `.env.local.example` and `.env.production.example`;
+- Makefile;
+- health endpoint;
+- CI workflow;
+- copy ADR directory into repo docs if not already present.
+
+Acceptance:
+
+- `make dev` works;
+- `make check` works or is stubbed with real available commands;
+- CI file exists;
+- app renders basic shell.
+
+## Phase 1 - Data model and migrations
+
+Branch:
+
+```text
+feature/core-data-model
+```
+
+Build:
+
+- users;
+- reset cycles/phases;
+- day logs;
+- daily plans;
+- tasks;
+- check-ins;
+- reflections;
+- weekly reviews;
+- recovery events;
+- imported payloads;
+- context items.
+
+Acceptance:
+
+- migration runs locally;
+- seed creates active 90-day cycle;
+- unit tests cover day/phase calculations.
+
+## Phase 2 - Today dashboard
+
+Branch:
+
+```text
+feature/today-dashboard
+```
+
+Build:
+
+- responsive layout;
+- Day X/90;
+- phase display;
+- energy selector;
+- task cards;
+- empty-state if no GPT plan imported.
+
+Acceptance:
+
+- dashboard works with seed data;
+- mobile width is usable;
+- no shame-based language.
+
+## Phase 3 - GPT import MVP
+
+Branch:
+
+```text
+feature/gpt-import
+```
+
+Build:
+
+- `/api/gpt/import`;
+- bearer auth;
+- body size limit;
+- Zod schemas;
+- raw payload storage;
+- daily plan normalization;
+- idempotency handling;
+- payload example validation command.
+
+Acceptance:
+
+- daily plan example imports;
+- duplicate import does not duplicate tasks;
+- invalid payload rejected;
+- tests cover import logic.
+
+## Phase 4 - Tasks, check-ins, recovery
+
+Branch:
+
+```text
+feature/daily-execution
+```
+
+Build:
+
+- task completion;
+- skip/note;
+- check-in creation;
+- recovery mode;
+- recovery credits;
+- day status calculation.
+
+Acceptance:
+
+- user can run a minimum day;
+- recovery mode can mark day blue;
+- comeback status supported;
+- tests cover status/recovery logic.
+
+## Phase 5 - Reflections and weekly reviews
+
+Branch:
+
+```text
+feature/reviews
+```
+
+Build:
+
+- daily reflection import;
+- weekly review import;
+- review pages;
+- context items from payloads.
+
+Acceptance:
+
+- example reflection imports;
+- example weekly review imports;
+- context items are created and searchable.
+
+## Phase 6 - Analytics and 90-day grid
+
+Branch:
+
+```text
+feature/analytics-grid
+```
+
+Build:
+
+- 90-day grid;
+- day status counts;
+- weekly comparison;
+- score trends;
+- recovery usage.
+
+Acceptance:
+
+- grid reflects seeded/imported data;
+- charts/cards do not require perfect data;
+- analytics handles missing days.
+
+## Phase 7 - Export, backup, production deployment
+
+Branch:
+
+```text
+feature/export-production-ops
+```
+
+Build:
+
+- full JSON export;
+- backup scripts integrated;
+- production compose;
+- deploy script;
+- healthcheck script;
+- Authentik OIDC production mode.
+
+Acceptance:
+
+- export downloads valid JSON;
+- backup/restore scripts documented;
+- production env examples exist;
+- deploy script performs backup before migration.
+
+## Phase 8 - Optional enhancements
+
+Do later only after MVP works:
+
+- embeddings-based context retrieval;
+- Markdown final Day 90 report;
+- Apple Shortcuts integration;
+- calendar integration;
+- Home Assistant/Discord/Telegram notification integration;
+- richer charts.
+
+
+## ADR check for every phase
+
+Before each phase, Codex must check whether the phase touches an accepted ADR.
+
+Minimum checks:
+
+| Phase area | ADRs to read |
+|---|---|
+| Branching/release | ADR-0001 |
+| Auth | ADR-0002 |
+| Database/migrations | ADR-0003 |
+| GPT integration | ADR-0004, ADR-0009 |
+| Context/memory | ADR-0005 |
+| Daily task model | ADR-0006 |
+| Recovery/reset flows | ADR-0007 |
+| Environments/deploy | ADR-0008 |
+| Docs/project memory | ADR-0010 |
+
+If a phase requires a new durable decision, add a new ADR before finalizing the phase.
+
+```
+
+
+---
+
+# FILE: docs/12_CODEX_PROMPTS.md
+
+```text
+# 12 - Codex Prompts
+
+    ## Purpose
+    Provide copyable prompts for Codex CLI that are scoped, reusable, and token-efficient.
+
+    ## Scope
+    - Prompts for setup, planning, implementation, review, debugging, docs, and deployment.
+- Designed for Codex CLI interactive and exec-style use.
+- Prompts reference specific docs instead of the full pack.
+
+    ## Assumptions
+    - Codex has access to the repository files.
+- User can paste prompts into Codex CLI.
+- Codex should inspect the repo before editing.
+- The best output comes from small tasks.
+
+    ## Success Criteria
+    - Prompts reduce repeated context.
+- Codex makes small, reviewable changes.
+- Codex follows branch and commit rules.
+- Codex asks less often for missing requirements already documented.
+
+    ## Deliverables
+    - Startup prompt.
+- Planning prompt.
+- Implementation prompts by phase.
+- Review/debug prompts.
+- Docs and release prompts.
+
+    ## Session startup prompt
+
+```text
+Read AGENTS.md, PROJECT_CONTEXT_SHORT.md, CODEX_START_HERE.md, and docs/00_PACK_INDEX.md only. Summarize the current project rules in 10 bullets, inspect the repo, tell me the current branch/status, and recommend the next smallest implementation task. Do not edit files yet.
+```
+
+## Repo foundation prompt
+
+```text
+Read AGENTS.md, PROJECT_CONTEXT_SHORT.md, docs/02_SYSTEM_ARCHITECTURE.md, docs/07_ENVIRONMENTS_DEPLOYMENT.md, docs/08_AUTOMATION_AND_SCRIPTS.md, docs/10_GIT_WORKFLOW.md, and docs/11_IMPLEMENTATION_PLAN.md.
+
+Create or update branch feature/repo-foundation from local. Implement Phase 0 only: Next.js + TypeScript + Tailwind skeleton, PostgreSQL local Docker Compose, ORM setup, .env examples, Makefile, health endpoint, and CI workflow. Keep changes small. Do not implement product features yet. Run available checks and report commands/results.
+```
+
+## Data model prompt
+
+```text
+Read AGENTS.md, PROJECT_CONTEXT_SHORT.md, docs/03_SYSTEM_DESIGN_DATA_MODEL.md, docs/05_CONTEXT_MEMORY_DESIGN.md, and docs/11_IMPLEMENTATION_PLAN.md.
+
+Create branch feature/core-data-model from local. Implement Phase 1 database schema and migrations for Reset90. Include seed data for one active 90-day cycle and default phases. Add tests for day number and phase calculation. Do not build UI features in this task.
+```
+
+## GPT import prompt
+
+```text
+Read AGENTS.md, PROJECT_CONTEXT_SHORT.md, docs/04_API_AND_AI_PAYLOAD_CONTRACTS.md, docs/03_SYSTEM_DESIGN_DATA_MODEL.md, and the example JSON payloads.
+
+Create branch feature/gpt-import from local. Implement /api/gpt/import with bearer-token auth, body size limit, Zod validation, raw payload storage, idempotency, and daily_plan normalization. Add tests and a validate-payloads script. Do not implement reflection or weekly review imports unless the daily plan import is complete and tested first.
+```
+
+## UX/dashboard prompt
+
+```text
+Read AGENTS.md, PROJECT_CONTEXT_SHORT.md, docs/01_PRODUCT_REQUIREMENTS.md, docs/06_UX_FLOWS.md, docs/13_INSPIRATIONS.md, and docs/11_IMPLEMENTATION_PLAN.md.
+
+Create branch feature/today-dashboard from local. Build the Today Command Center UI for phone and desktop. Use seed/imported data. Include Day X/90, phase, energy selector, mission, non-negotiables, minimum/standard/ideal tasks, and Reset Me Now entry point. Avoid shame-based copy.
+```
+
+## Review current changes prompt
+
+```text
+Review the current branch against AGENTS.md and docs/10_GIT_WORKFLOW.md. Check for scope creep, secrets, unsafe migrations, missing tests, missing docs updates, and noncompliant branch/commit naming. Do not edit files unless I ask.
+```
+
+## Debug prompt
+
+```text
+Read only the failing output, AGENTS.md, PROJECT_CONTEXT_SHORT.md, and the most relevant doc. Diagnose the failure. Make the smallest fix. Run the failing command again. Do not refactor unrelated code.
+```
+
+## Documentation update prompt
+
+```text
+Update only the docs affected by the current implementation change. Keep Purpose, Scope, Assumptions, Success Criteria, and Deliverables at the top of every Markdown document. Do not rewrite unrelated docs.
+```
+
+## Release prompt
+
+```text
+Read docs/07_ENVIRONMENTS_DEPLOYMENT.md, docs/08_AUTOMATION_AND_SCRIPTS.md, docs/09_ENGINEERING_BEST_PRACTICES.md, and docs/10_GIT_WORKFLOW.md. Prepare a production release from local to main. Run checks, summarize changes, list migration/deployment risks, and do not deploy until I explicitly confirm.
+```
+
+
+## ADR-aware prompt add-on
+
+Add this to prompts that may affect architecture, product behavior, deployment, auth, data model, Git workflow, or AI integration:
+
+```text
+Before editing, read docs/15_ADR_PROCESS_AND_REASONING.md, docs/adr/README.md, and any relevant accepted ADRs.
+Do not contradict an accepted ADR without stopping and asking me.
+If this task introduces a durable architecture/product/process decision, create a new ADR using docs/adr/TEMPLATE.md.
+Keep ADR reasoning user-visible and concise; do not store raw internal reasoning.
+```
+
+## Create a new ADR prompt
+
+```text
+Create a new lightweight ADR for the following decision: [decision].
+Use docs/adr/TEMPLATE.md.
+Check existing ADRs first so you do not duplicate or contradict them.
+Set status to Proposed unless the decision was already explicitly accepted.
+Include context, decision, ADR reasoning, consequences, alternatives, implementation notes, and review trigger.
+Do not modify code yet.
+```
+
+```
+
+
+---
+
+# FILE: docs/13_INSPIRATIONS.md
+
+```text
+# 13 - Inspirations
+
+    ## Purpose
+    List exactly 10 inspirations Codex can use while developing Reset90, grouped into UI references, architecture/design patterns, and relevant repositories/tools.
+
+    ## Scope
+    - Exactly 10 inspirations total.
+- Each inspiration has one-line reason.
+- Inspirations are patterns, not cloning instructions.
+
+    ## Assumptions
+    - The user asked for inspiration research to guide Codex.
+- Codex should borrow useful patterns but implement Reset90-specific behavior.
+- No inspiration overrides the product requirements or privacy constraints.
+
+    ## Success Criteria
+    - Codex has concrete references for UI, architecture, and implementation patterns.
+- The list remains compact and token-efficient.
+- The app avoids copying any product wholesale.
+
+    ## Deliverables
+    - Exactly 10 grouped inspirations.
+- One-line reason for each.
+- Reset90 translation rules.
+
+    ## UI references
+
+1. **Daylio** — Fast mood/activity logging pattern for low-friction daily check-ins.
+2. **Todoist** — Clean task organization pattern for today-focused lists without visual clutter.
+3. **Linear** — Crisp issue/detail layout pattern for fast scanning, statuses, and keyboard-friendly interaction.
+4. **GitHub Projects** — Board/table/status pattern for simple progress visibility across many items.
+
+## Architecture/design patterns
+
+5. **Command Center pattern** — One primary dashboard shows the current day, next actions, status, and recovery entry point.
+6. **Event/Audit Log pattern** — Store raw imports, user actions, and decision logs so history can be reconstructed.
+7. **Retrieval-Augmented Context pattern** — Store summaries and optional embeddings so future GPT/Codex sessions can reference prior context without full chat dumps.
+
+## Relevant repositories/tools
+
+8. **Memos** — Self-hosted private notes pattern for lightweight personal history and searchable memory.
+9. **Actual Budget** — Self-hosted personal-data app pattern for local ownership, import/export, and private operations.
+10. **Plausible Analytics** — Simple privacy-focused analytics pattern for useful dashboards without surveillance-style complexity.
+
+## Reset90 translation rule
+
+Use these inspirations as references only:
+
+```text
+Daylio speed + Todoist clarity + Linear/GitHub status visibility + self-hosted personal-data ownership + recovery-aware 90-day logic.
+```
+
+Do not copy branding, layouts, or features wholesale. The app’s purpose is still a private 90-day reset command center integrated with Custom GPT.
+
+```
+
+
+---
+
+# FILE: docs/14_SOURCE_RESEARCH_NOTES.md
+
+```text
+# 14 - Source Research Notes
+
+    ## Purpose
+    Preserve key research-derived principles without forcing Codex to reread long research reports during implementation.
+
+    ## Scope
+    - Summarizes useful lessons from 90-day reset/productivity research and prior source-first/Codex workflow docs.
+- Serves as practical product memory, not as a full citation report.
+- Should be updated if the user runs new research.
+
+    ## Assumptions
+    - The user wants a 90-day reset app that avoids shame spirals.
+- Codex should prioritize concise docs and source-first project context.
+- The app should use recovery mechanisms and weekly reviews instead of harsh restarts.
+
+    ## Success Criteria
+    - Codex can implement product behavior based on stable principles.
+- Research insights are converted into concrete app rules.
+- The pack remains compact and non-redundant.
+
+    ## Deliverables
+    - Research principles.
+- Failure modes to avoid.
+- Implementation translations.
+- Codex workflow notes.
+
+    ## Product research principles
+
+People usually complete bounded reset periods when the system has:
+
+- clear start and end date;
+- small number of priorities;
+- daily anchors;
+- weekly review;
+- flexible minimum version;
+- recovery mechanism;
+- visible progress;
+- enough forgiveness to continue after imperfect days.
+
+## Reset90 implementation translations
+
+| Principle | App behavior |
+|---|---|
+| Bounded challenge | Fixed 90-day cycle with day number and phase. |
+| Daily anchors | Today Command Center and non-negotiables. |
+| Minimum viable day | Minimum task tier and yellow day status. |
+| Recovery after misses | Blue recovery day and gold comeback day. |
+| Weekly reflection | Weekly review import/display. |
+| Avoid overwhelm | Adaptive energy-based execution. |
+| Pattern learning | Context summaries and analytics. |
+| Privacy | Self-hosting, Authentik, export/backup. |
+
+## Failure modes to avoid
+
+- Too many goals at once.
+- Complex schedule builder before basic dashboard works.
+- Punishing streak logic.
+- Restarting the entire 90 days after one miss.
+- Storing sensitive text in logs.
+- Building social/SaaS features.
+- Adding embeddings before basic context search works.
+- Letting GPT imports mutate production data without validation/idempotency.
+
+## Codex workflow principles
+
+- Keep context files short and reusable.
+- Use stable prompts and specific docs per task.
+- Prefer small feature branches.
+- Run checks before completion.
+- Store decisions in docs/context instead of relying on chat memory.
+- Archive or summarize old Codex sessions when they become noisy.
+
+```
+
+
+---
+
+# FILE: docs/15_ADR_PROCESS_AND_REASONING.md
+
+```text
+# 15 - ADR Process and Reasoning
+
+## Purpose
+Define how Architecture Decision Records are used in Reset90 so Codex preserves important decisions instead of re-litigating them.
+
+## Scope
+Covers ADR purpose, when to create one, ADR lifecycle, how Codex should read them, and how ADRs relate to decision logs and context memory.
+
+## Assumptions
+Reset90 is a solo private app but still benefits from lightweight architectural memory because Codex sessions may be resumed, forked, or started fresh. ADRs should be concise and practical, not enterprise-heavy.
+
+## Success Criteria
+Codex checks ADRs before changing architecture, auth, data model, deployment, branch policy, AI integration, or core behavioral rules. New important decisions are recorded as ADRs before or with implementation.
+
+## Deliverables
+ADR operating rules, decision categories, lifecycle rules, and Codex instructions for using ADRs.
+
+## Why ADRs exist in this project
+
+Reset90 will be built over many small Codex sessions. Without durable decision records, Codex may repeatedly question settled decisions or accidentally replace them with generic defaults.
+
+ADRs are the repo's architectural memory. They record what was decided, why it was decided, what tradeoffs were accepted, and when the decision should be reviewed.
+
+## ADRs vs decision logs vs context memory
+
+| Item | Purpose | Stored where | Example |
+|---|---|---|---|
+| ADR | Durable architecture/product/process decision | `docs/adr/` | Use Authentik OIDC instead of app-managed passwords |
+| Decision log | Smaller day-to-day implementation note | database or `PROJECT_CONTEXT_SHORT.md` | Chose Radix dialog for confirmation modal |
+| Context memory | Searchable app/user/project context | app tables | Weekly review summary, task summary, imported GPT payload |
+| Raw internal reasoning | Not required and not stored | nowhere | Hidden model chain-of-thought |
+
+Do not confuse `reasoning_summary` or ADR reasoning with hidden chain-of-thought. ADR reasoning means a concise, user-visible explanation of decision factors.
+
+## When Codex must check ADRs
+
+Codex must read relevant ADRs before changing:
+
+- branch model or release flow;
+- authentication or authorization;
+- database/storage choice;
+- AI/GPT integration boundaries;
+- context/memory design;
+- product behavior rules such as recovery days and task tiers;
+- local/production deployment model;
+- API contract strategy;
+- docs-as-code or Codex handoff rules.
+
+## When Codex must create a new ADR
+
+Create an ADR when a change is:
+
+- hard to reverse;
+- likely to affect multiple files or phases;
+- architectural rather than cosmetic;
+- a product rule that changes how Reset90 behaves;
+- a security, privacy, deployment, or data-retention decision;
+- a deviation from an accepted ADR.
+
+Do not create ADRs for small UI copy changes, local refactors with no behavior change, routine dependency bumps, or implementation details already covered by an existing ADR.
+
+## ADR lifecycle
+
+Statuses:
+
+- `Proposed` - written but not yet accepted.
+- `Accepted` - current rule for implementation.
+- `Superseded` - replaced by a newer ADR.
+- `Deprecated` - no longer recommended but not yet replaced.
+- `Rejected` - considered and intentionally not used.
+
+Rules:
+
+- Never edit the meaning of an accepted ADR silently.
+- If a decision changes, create a new ADR and mark the old ADR as superseded.
+- Keep ADRs short enough for Codex to read during implementation.
+- Link implementation PRs/commits to ADR numbers in commit bodies when relevant.
+
+## ADR naming
+
+Use:
+
+```text
+NNNN-short-slug.md
+```
+
+Examples:
+
+```text
+0001-modular-monolith.md
+0002-postgresql-source-of-truth.md
+```
+
+## Codex instruction
+
+Before implementing a phase, Codex should run this mental checklist:
+
+```text
+Does this task touch an accepted ADR?
+If yes, read it and follow it.
+Does this task introduce a new architectural/product/process decision?
+If yes, create or update an ADR before finalizing.
+Does this task contradict an accepted ADR?
+If yes, stop and ask the user before changing direction.
+```
+
+## Current ADR baseline
+
+The current accepted ADR baseline is:
+
+```text
+docs/adr/0001-modular-monolith.md
+docs/adr/0002-postgresql-source-of-truth.md
+docs/adr/0003-json-schema-import-contracts.md
+docs/adr/0004-separate-auth-boundaries.md
+docs/adr/0005-observability-ladder.md
+docs/adr/0006-context-summaries-not-chain-of-thought.md
+docs/adr/0007-prisma-orm.md
+docs/adr/0008-main-production-local-dev-branch.md
+docs/adr/0009-custom-gpt-as-coach-webapp-as-dashboard.md
+docs/adr/0010-minimum-standard-ideal-task-model.md
+docs/adr/0011-recovery-days-instead-of-harsh-streaks.md
+docs/adr/0012-docker-compose-and-traefik-deployment.md
+docs/adr/0013-docs-as-code-codex-memory.md
+```
+
+```
+
+
+---
+
+# FILE: docs/16_BEST_IMPLEMENTATION_ORDER.md
+
+```text
+# Reset90 Best Implementation Order
+
+## Purpose
+Define the best practical implementation order for building Reset90 with Codex CLI from documentation pack to production deployment.
+
+## Scope
+This file is the main execution roadmap for Codex CLI. It replaces older or generic implementation-order files. It assumes the current Reset90 pack contains `AGENTS.md`, `PROJECT_CONTEXT_SHORT.md`, `CODEX_START_HERE.md`, `docs/`, `docs/adr/`, and `examples/`.
+
+## Assumptions
+- App purpose: Reset90 is a private, self-hosted, single-user 90-day reset dashboard.
+- Target user: one primary user operating the app from phone and PC.
+- Core features: Custom GPT payload import, Today Command Center, task/check-in tracking, recovery mode, 90-day grid, reviews, context memory, exports, backups, and production deployment.
+- Tech stack: Next.js + TypeScript, pnpm, Tailwind CSS, PostgreSQL, Prisma ORM, Zod plus JSON Schema validation, Authentik OIDC, Docker Compose, GitHub Actions.
+- Constraints: no SaaS, no payments, no public signup, no social features, no leaderboards, no Kubernetes, no microservices, no raw hidden reasoning logs.
+- Branch model: `main` is production; `local` is persistent developer-only integration; short-lived branches use `feature/<slug>`, `cleanup/<slug>`, `fix/<slug>`, `refactor/<slug>`, `chore/<slug>`, or `docs/<slug>`.
+- Reverse proxy: production must use Docker Compose behind Traefik. Do not introduce Caddy, Nginx, Kubernetes, or microservices unless a future ADR explicitly changes this.
+
+## Success Criteria
+- Codex can build the app phase by phase without repeatedly re-reading the whole documentation pack.
+- Each phase has a small scope, source docs, done criteria, branch suggestion, commit suggestion, and a ready-to-paste Codex prompt.
+- Architecture decisions are respected through ADRs.
+- `main` stays production-ready.
+- The MVP is not considered complete until GPT import, dashboard use, context export, backup/restore, and production deployment all work.
+
+## Deliverables
+- Non-negotiable implementation rules.
+- Phase-by-phase implementation plan.
+- Ready-to-paste Codex prompts.
+- Branch/commit guidance per phase.
+- MVP finish line.
+- Production-readiness checklist.
+- Scope-creep stop list.
+
+---
+
+# 0. Read order for Codex
+
+For every Codex session, start with the smallest useful context.
+
+Always read first:
+
+```text
+AGENTS.md
+PROJECT_CONTEXT_SHORT.md
+CODEX_START_HERE.md
+```
+
+Then read only the phase-specific docs listed in that phase.
+
+Do not ask Codex to read `ALL_FILES_READY_TO_SAVE.md` during normal implementation. That file is for archival/export convenience and is too large for token-efficient work.
+
+---
+
+# 1. Non-negotiable rules
+
+Repeat these rules to Codex often.
+
+```text
+Build Reset90 as a private self-hosted single-user modular monolith.
+Do not add SaaS, payments, public signup, social features, leaderboards, marketing pages, Kubernetes, microservices, or multi-tenant complexity.
+Use PostgreSQL as the source of truth.
+Store raw GPT imports before normalization.
+Validate GPT imports with Zod and/or JSON Schema at the boundary.
+Keep browser Authentik OIDC auth separate from GPT machine ingest auth.
+Store conversation history, task summaries, decision logs, reflections, and context snapshots.
+Do not store raw hidden chain-of-thought or internal model reasoning logs.
+Every architecture-affecting change must respect existing ADRs.
+If a decision conflicts with an accepted ADR, stop and ask the user.
+Update PROJECT_CONTEXT_SHORT.md after every task.
+Keep main production-ready.
+Use local as persistent developer-only integration branch.
+Use short-lived branches from local unless doing an emergency hotfix from main.
+```
+
+---
+
+# 2. Existing key docs in the current pack
+
+Use these exact current-pack paths.
+
+```text
+README.md
+AGENTS.md
+CODEX_START_HERE.md
+PROJECT_CONTEXT_SHORT.md
+
+docs/00_PACK_INDEX.md
+docs/01_PRODUCT_REQUIREMENTS.md
+docs/02_SYSTEM_ARCHITECTURE.md
+docs/03_SYSTEM_DESIGN_DATA_MODEL.md
+docs/04_API_AND_AI_PAYLOAD_CONTRACTS.md
+docs/05_CONTEXT_MEMORY_DESIGN.md
+docs/06_UX_FLOWS.md
+docs/07_ENVIRONMENTS_DEPLOYMENT.md
+docs/08_AUTOMATION_AND_SCRIPTS.md
+docs/09_ENGINEERING_BEST_PRACTICES.md
+docs/10_GIT_WORKFLOW.md
+docs/11_IMPLEMENTATION_PLAN.md
+docs/12_CODEX_PROMPTS.md
+docs/13_INSPIRATIONS.md
+docs/14_SOURCE_RESEARCH_NOTES.md
+docs/15_ADR_PROCESS_AND_REASONING.md
+
+docs/adr/README.md
+docs/adr/TEMPLATE.md
+docs/adr/0001-modular-monolith.md
+docs/adr/0002-postgresql-source-of-truth.md
+docs/adr/0003-json-schema-import-contracts.md
+docs/adr/0004-separate-auth-boundaries.md
+docs/adr/0005-observability-ladder.md
+docs/adr/0006-context-summaries-not-chain-of-thought.md
+docs/adr/0007-prisma-orm.md
+docs/adr/0008-main-production-local-dev-branch.md
+docs/adr/0009-custom-gpt-as-coach-webapp-as-dashboard.md
+docs/adr/0010-minimum-standard-ideal-task-model.md
+docs/adr/0011-recovery-days-instead-of-harsh-streaks.md
+docs/adr/0012-docker-compose-and-traefik-deployment.md
+docs/adr/0013-docs-as-code-codex-memory.md
+
+examples/.env.local.example
+examples/.env.production.example
+examples/docker-compose.local.yml
+examples/docker-compose.production.yml
+examples/Makefile
+examples/daily_plan_payload.json
+examples/daily_reflection_payload.json
+examples/weekly_review_payload.json
+examples/scripts/*
+examples/.github/*
+```
+
+---
+
+# 3. Branch workflow during implementation
+
+Normal work:
+
+```bash
+git switch local
+git pull origin local
+git switch -c feature/<slug>
+# work
+make check
+git add .
+git commit -m "feat(scope): short imperative summary"
+git switch local
+git merge --no-ff feature/<slug>
+```
+
+Production release:
+
+```bash
+git switch local
+make check
+git switch main
+git pull origin main
+git merge --no-ff local
+git push origin main
+```
+
+Emergency production hotfix:
+
+```bash
+git switch main
+git pull origin main
+git switch -c fix/<slug>
+# fix
+make check
+git commit -m "fix(scope): short imperative summary"
+git switch main
+git merge --no-ff fix/<slug>
+git push origin main
+git switch local
+git merge --no-ff main
+```
+
+Commit examples:
+
+```bash
+git commit -m "docs: add Reset90 Codex handoff pack"
+git commit -m "chore(app): scaffold Next.js application"
+git commit -m "chore(env): add local Docker Compose setup"
+git commit -m "feat(db): add reset cycle schema and seed data"
+git commit -m "feat(import): validate GPT payload envelopes"
+git commit -m "feat(api): add GPT ingest endpoint"
+git commit -m "feat(dashboard): show today command center"
+git commit -m "feat(recovery): add recovery mode and day statuses"
+git commit -m "chore(deploy): add production compose workflow"
+```
+
+---
+
+# Phase 0 — Repository foundation and docs baseline
+
+## Goal
+Create the real repo, add the documentation pack, and establish `main`/`local` before app code exists.
+
+## Branch
+`docs/codex-handoff-baseline`
+
+## Source docs
+
+```text
+README.md
+AGENTS.md
+CODEX_START_HERE.md
+PROJECT_CONTEXT_SHORT.md
+docs/00_PACK_INDEX.md
+docs/10_GIT_WORKFLOW.md
+docs/15_ADR_PROCESS_AND_REASONING.md
+```
+
+## Human steps
+
+1. Create or open the repo.
+2. Extract the current Reset90 Codex pack into the repo root.
+3. Confirm `AGENTS.md`, `PROJECT_CONTEXT_SHORT.md`, `CODEX_START_HERE.md`, `docs/`, and `examples/` exist.
+4. Initialize Git if needed.
+5. Commit documentation baseline.
+6. Create/push `main` and `local`.
+
+## Done when
+
+- Repo contains the full docs pack.
+- `docs/adr/` exists.
+- No app code exists unless already scaffolded.
+- `main` and `local` exist.
+- `PROJECT_CONTEXT_SHORT.md` says the repo is at documentation baseline.
+
+## Suggested commit
+
+```bash
+git commit -m "docs: add Reset90 Codex handoff pack"
+```
+
+## Codex prompt
+
+```text
+Read first:
+- AGENTS.md
+- PROJECT_CONTEXT_SHORT.md
+- CODEX_START_HERE.md
+
+Relevant docs:
+- docs/00_PACK_INDEX.md
+- docs/10_GIT_WORKFLOW.md
+- docs/15_ADR_PROCESS_AND_REASONING.md
+
+Task:
+Review the repository documentation foundation only.
+
+Requirements:
+- Confirm expected root docs, docs folder, examples folder, and ADRs exist.
+- Do not scaffold the application.
+- Do not create duplicate ADRs.
+- List missing or inconsistent documentation if any.
+- Update PROJECT_CONTEXT_SHORT.md with the current repo state.
+
+After implementation:
+- summarize findings
+- summarize changed files, if any
+```
+
+---
+
+# Phase 1 — Stack scaffold
+
+## Goal
+Create the initial app shell only.
+
+## Branch
+`feature/app-scaffold`
+
+## Source docs
+
+```text
+docs/02_SYSTEM_ARCHITECTURE.md
+docs/07_ENVIRONMENTS_DEPLOYMENT.md
+docs/09_ENGINEERING_BEST_PRACTICES.md
+docs/10_GIT_WORKFLOW.md
+docs/adr/0002-postgresql-source-of-truth.md
+docs/adr/0012-docker-compose-and-traefik-deployment.md
+```
+
+## Tasks
+
+1. Scaffold Next.js + TypeScript.
+2. Use pnpm.
+3. Add Tailwind CSS.
+4. Add ESLint + Prettier.
+5. Add basic folder structure.
+6. Add placeholder home page.
+7. Add health endpoint. Prefer `/api/health` if following current API doc; optionally alias `/healthz` later for container checks.
+8. Add placeholder readiness endpoint. Prefer `/api/ready` or `/readyz`, but document the chosen path in `PROJECT_CONTEXT_SHORT.md`.
+9. Add `pnpm lint`, `pnpm typecheck`, `pnpm test`, and `pnpm build` scripts.
+10. Do not add business features.
+
+## Done when
+
+- `pnpm install` works.
+- `pnpm dev` works.
+- `pnpm lint` works or has documented scaffold-only blockers.
+- `pnpm typecheck` works.
+- `pnpm build` works.
+- Placeholder page renders.
+- Health endpoint returns safe minimal JSON.
+
+## Suggested commit
+
+```bash
+git commit -m "chore(app): scaffold Next.js application"
+```
+
+## Codex prompt
+
+```text
+Read first:
+- AGENTS.md
+- PROJECT_CONTEXT_SHORT.md
+
+Relevant docs:
+- docs/02_SYSTEM_ARCHITECTURE.md
+- docs/07_ENVIRONMENTS_DEPLOYMENT.md
+- docs/09_ENGINEERING_BEST_PRACTICES.md
+- docs/10_GIT_WORKFLOW.md
+- docs/adr/0002-postgresql-source-of-truth.md
+- docs/adr/0012-docker-compose-and-traefik-deployment.md
+
+Task:
+Scaffold the application stack only.
+
+Requirements:
+- Next.js + TypeScript.
+- pnpm.
+- Tailwind CSS.
+- ESLint + Prettier.
+- Simple placeholder page.
+- Safe health endpoint.
+- Placeholder readiness endpoint if DB is not wired yet.
+- No business features.
+- No Authentik implementation yet.
+- No GPT import endpoint yet.
+- Do not create duplicate ADRs.
+
+After implementation:
+- run pnpm lint if available
+- run pnpm typecheck if available
+- run pnpm build if available
+- summarize changed files
+- summarize assumptions
+- update PROJECT_CONTEXT_SHORT.md
+```
+
+---
+
+# Phase 2 — Local development environment
+
+## Goal
+Make the project reproducible from a clean clone.
+
+## Branch
+`chore/local-development-env`
+
+## Source docs/examples
+
+```text
+docs/07_ENVIRONMENTS_DEPLOYMENT.md
+docs/08_AUTOMATION_AND_SCRIPTS.md
+docs/10_GIT_WORKFLOW.md
+examples/.env.local.example
+examples/docker-compose.local.yml
+examples/Makefile
+examples/scripts/setup-local.sh
+```
+
+## Tasks
+
+1. Add/adapt root `docker-compose.local.yml`.
+2. Add local PostgreSQL service.
+3. Keep Postgres internal to Docker networks or only bound locally.
+4. Add `.env.local.example` or root `.env.example` with safe placeholders.
+5. Add `.gitignore` entries for `.env*`, backups, exports, logs, generated docs, and local volumes.
+6. Add `Makefile` targets:
+   - `make setup-local`
+   - `make dev`
+   - `make dev-up`
+   - `make dev-down`
+   - `make logs`
+   - `make lint`
+   - `make typecheck`
+   - `make test`
+   - `make build`
+   - `make check`
+7. Document clean-start setup in `README.md`.
+
+## Done when
+
+- A fresh clone can start local dependencies.
+- `.env.local` is not committed.
+- `make check` exists.
+- README has local setup instructions.
+
+## Suggested commit
+
+```bash
+git commit -m "chore(env): add local development environment"
+```
+
+## Codex prompt
+
+```text
+Read first:
+- AGENTS.md
+- PROJECT_CONTEXT_SHORT.md
+
+Relevant docs/examples:
+- docs/07_ENVIRONMENTS_DEPLOYMENT.md
+- docs/08_AUTOMATION_AND_SCRIPTS.md
+- docs/10_GIT_WORKFLOW.md
+- examples/.env.local.example
+- examples/docker-compose.local.yml
+- examples/Makefile
+- examples/scripts/setup-local.sh
+
+Task:
+Create the reproducible local development environment.
+
+Requirements:
+- Add root local Docker Compose file based on the example.
+- Add local PostgreSQL.
+- Add safe env example placeholders only.
+- Add .gitignore entries for env files, backups, exports, logs, generated docs, and local volumes.
+- Add Makefile targets for setup, dev, logs, lint, typecheck, test, build, and check.
+- Document clean-start setup.
+- Do not add production deployment yet.
+- Do not expose Postgres publicly.
+
+After implementation:
+- run documented commands where possible
+- summarize changed files
+- update PROJECT_CONTEXT_SHORT.md
+```
+
+---
+
+# Phase 3 — Database/ORM, migrations, and seed data
+
+## Goal
+Build durable data foundation before product UI.
+
+## Branch
+`feature/database-foundation`
+
+## Source docs
+
+```text
+docs/03_SYSTEM_DESIGN_DATA_MODEL.md
+docs/09_ENGINEERING_BEST_PRACTICES.md
+docs/adr/0002-postgresql-source-of-truth.md
+```
+
+## Tasks
+
+1. Choose Prisma once.
+2. If the choice is not already documented, add a lightweight ADR for ORM choice.
+3. Add database connection module.
+4. Implement migrations for core tables.
+5. Seed one active 90-day cycle.
+6. Create phases:
+   - Days 1-30: Clear the Fog
+   - Days 31-60: Rebuild Momentum
+   - Days 61-90: Prove Continuation
+7. Seed 90 day logs.
+8. Add tests for:
+   - day number calculation
+   - phase calculation
+   - active cycle lookup
+   - no duplicate day logs
+9. Wire readiness endpoint to DB safely.
+
+## Minimum tables
+
+```text
+users
+reset_cycles
+reset_phases
+day_logs
+imported_payloads
+```
+
+## Done when
+
+- Migrations run locally.
+- Seed creates one active cycle and 90 days.
+- Readiness endpoint checks DB safely.
+- Unit tests cover day/phase logic.
+
+## Suggested commit
+
+```bash
+git commit -m "feat(db): add reset cycle data model"
+```
+
+## Codex prompt
+
+```text
+Read first:
+- AGENTS.md
+- PROJECT_CONTEXT_SHORT.md
+
+Relevant docs:
+- docs/03_SYSTEM_DESIGN_DATA_MODEL.md
+- docs/09_ENGINEERING_BEST_PRACTICES.md
+- docs/adr/0002-postgresql-source-of-truth.md
+
+Task:
+Implement the database foundation, migrations, and seed data.
+
+Requirements:
+- Choose Prisma once if not already chosen.
+- Add a lightweight ADR only if the ORM choice is not already documented.
+- Implement users, reset_cycles, reset_phases, day_logs, and imported_payloads first.
+- Seed one active 90-day cycle with 3 phases and 90 day logs.
+- Add tests for day number and phase calculation.
+- Connect readiness endpoint to a safe DB readiness check.
+- Do not build product UI yet.
+
+After implementation:
+- run migrations locally if possible
+- run tests/typecheck
+- summarize changed files
+- update PROJECT_CONTEXT_SHORT.md
+```
+
+---
+
+# Phase 4 — Canonical GPT import schemas and validators
+
+## Goal
+Make GPT imports safe before creating the ingest endpoint.
+
+## Branch
+`feature/gpt-payload-validation`
+
+## Source docs/examples
+
+```text
+docs/04_API_AND_AI_PAYLOAD_CONTRACTS.md
+docs/05_CONTEXT_MEMORY_DESIGN.md
+docs/adr/0009-custom-gpt-as-coach-webapp-as-dashboard.md
+docs/adr/0006-context-summaries-not-chain-of-thought.md
+docs/adr/0003-json-schema-import-contracts.md
+examples/daily_plan_payload.json
+examples/daily_reflection_payload.json
+examples/weekly_review_payload.json
+```
+
+## Tasks
+
+1. Create canonical schemas in the app, for example:
+   - `src/server/imports/schemas/import-envelope.ts`
+   - `src/server/imports/schemas/daily-plan.ts`
+   - `src/server/imports/schemas/daily-reflection.ts`
+   - `src/server/imports/schemas/weekly-review.ts`
+   - `src/server/imports/schemas/context-item.ts`
+2. Use Zod as runtime boundary validation.
+3. Optionally generate or export JSON Schema from Zod if useful for Custom GPT Actions.
+4. Add validation script for all example payloads.
+5. Add valid and invalid fixture tests.
+6. Wire payload validation into `make check`.
+7. Do not mutate DB from validators.
+
+## Done when
+
+- All valid example payloads pass.
+- Invalid payloads fail clearly.
+- `make validate-payloads` or equivalent works.
+- `make check` includes payload validation.
+
+## Suggested commit
+
+```bash
+git commit -m "feat(import): validate GPT payload contracts"
+```
+
+## Codex prompt
+
+```text
+Read first:
+- AGENTS.md
+- PROJECT_CONTEXT_SHORT.md
+
+Relevant docs/examples:
+- docs/04_API_AND_AI_PAYLOAD_CONTRACTS.md
+- docs/05_CONTEXT_MEMORY_DESIGN.md
+- docs/adr/0009-custom-gpt-as-coach-webapp-as-dashboard.md
+- docs/adr/0006-context-summaries-not-chain-of-thought.md
+- docs/adr/0003-json-schema-import-contracts.md
+- examples/daily_plan_payload.json
+- examples/daily_reflection_payload.json
+- examples/weekly_review_payload.json
+
+Task:
+Implement canonical GPT payload validation.
+
+Requirements:
+- Use Zod as runtime validation at import boundaries.
+- Support daily_plan, daily_reflection, weekly_review, and context summary/item payloads from the API contract.
+- Add a script to validate all example payloads.
+- Add invalid payload tests.
+- Wire validation into make check.
+- Do not create the ingest endpoint yet unless needed for tests.
+- Do not mutate database state from validators.
+
+After implementation:
+- run payload validation
+- run tests/typecheck
+- summarize changed files
+- update PROJECT_CONTEXT_SHORT.md
+```
+
+---
+
+# Phase 5 — Raw import storage and idempotency
+
+## Goal
+Prepare service-layer import storage before exposing a public machine endpoint.
+
+## Branch
+`feature/raw-import-storage`
+
+## Source docs
+
+```text
+docs/03_SYSTEM_DESIGN_DATA_MODEL.md
+docs/04_API_AND_AI_PAYLOAD_CONTRACTS.md
+docs/05_CONTEXT_MEMORY_DESIGN.md
+docs/09_ENGINEERING_BEST_PRACTICES.md
+docs/adr/0006-context-summaries-not-chain-of-thought.md
+docs/adr/0003-json-schema-import-contracts.md
+```
+
+## Tasks
+
+1. Complete `imported_payloads` table.
+2. Include fields for:
+   - source
+   - kind
+   - schema version
+   - idempotency key
+   - raw JSON
+   - validation status
+   - processing status
+   - safe error metadata
+   - normalized record references if useful
+3. Add unique constraint for source + idempotency key.
+4. Add service method:
+   - validate envelope
+   - store raw payload
+   - reject or return duplicate idempotently
+   - avoid domain mutation for now
+5. Add tests for valid raw import, invalid raw import, and duplicate key.
+
+## Done when
+
+- Raw valid import can be stored through service tests.
+- Duplicate imports do not duplicate rows.
+- Invalid imports do not mutate domain tables.
+
+## Suggested commit
+
+```bash
+git commit -m "feat(import): store raw GPT imports idempotently"
+```
+
+## Codex prompt
+
+```text
+Read first:
+- AGENTS.md
+- PROJECT_CONTEXT_SHORT.md
+
+Relevant docs:
+- docs/03_SYSTEM_DESIGN_DATA_MODEL.md
+- docs/04_API_AND_AI_PAYLOAD_CONTRACTS.md
+- docs/05_CONTEXT_MEMORY_DESIGN.md
+- docs/09_ENGINEERING_BEST_PRACTICES.md
+- docs/adr/0006-context-summaries-not-chain-of-thought.md
+- docs/adr/0003-json-schema-import-contracts.md
+
+Task:
+Implement raw GPT import storage and idempotency service.
+
+Requirements:
+- Store raw payloads before normalization.
+- Enforce source + idempotency key uniqueness.
+- Store validation/processing status and safe error metadata.
+- Add tests for valid raw import, duplicate import, and invalid import behavior.
+- Do not implement all normalization yet.
+- Do not log raw private reflection text.
+
+After implementation:
+- run tests/typecheck
+- summarize changed files
+- update PROJECT_CONTEXT_SHORT.md
+```
+
+---
+
+# Phase 6 — GPT ingest endpoint with machine auth
+
+## Goal
+Expose the Custom GPT import endpoint safely.
+
+## Branch
+`feature/gpt-ingest-endpoint`
+
+## Source docs
+
+```text
+docs/02_SYSTEM_ARCHITECTURE.md
+docs/04_API_AND_AI_PAYLOAD_CONTRACTS.md
+docs/07_ENVIRONMENTS_DEPLOYMENT.md
+docs/adr/0004-separate-auth-boundaries.md
+docs/adr/0003-json-schema-import-contracts.md
+```
+
+## Endpoint
+
+```text
+POST /api/gpt/import
+```
+
+Headers:
+
+```http
+Authorization: Bearer <GPT_INGEST_TOKEN>
+Content-Type: application/json
+Idempotency-Key: <stable-key>
+```
+
+## Tasks
+
+1. Add `GPT_INGEST_TOKEN` to env examples as placeholder only.
+2. Implement token validation.
+3. Enforce max body size.
+4. Validate envelope and payload.
+5. Store raw payload.
+6. Return clear result.
+7. Add basic rate-limit placeholder or simple safe limiter if practical.
+8. Add integration tests:
+   - missing token
+   - bad token
+   - valid token
+   - invalid payload
+   - duplicate idempotency key
+
+## Done when
+
+- Valid example payloads are accepted.
+- Bad token is rejected.
+- Invalid payload is rejected before domain mutation.
+- Duplicate idempotency key is safe.
+- Browser Authentik session is not required for this endpoint.
+
+## Suggested commit
+
+```bash
+git commit -m "feat(api): add GPT ingest endpoint"
+```
+
+## Codex prompt
+
+```text
+Read first:
+- AGENTS.md
+- PROJECT_CONTEXT_SHORT.md
+
+Relevant docs:
+- docs/02_SYSTEM_ARCHITECTURE.md
+- docs/04_API_AND_AI_PAYLOAD_CONTRACTS.md
+- docs/07_ENVIRONMENTS_DEPLOYMENT.md
+- docs/adr/0004-separate-auth-boundaries.md
+- docs/adr/0003-json-schema-import-contracts.md
+
+Task:
+Implement the GPT machine-authenticated ingest endpoint.
+
+Requirements:
+- Implement POST /api/gpt/import.
+- Use GPT_INGEST_TOKEN bearer auth.
+- Enforce max body size.
+- Validate envelope and payload.
+- Store raw import before normalization.
+- Preserve idempotency behavior.
+- Do not rely on browser/AuthentiK session for this endpoint.
+- Do not log raw private reflection text, cookies, tokens, or DB URLs.
+
+After implementation:
+- run integration tests/typecheck
+- summarize changed files
+- update PROJECT_CONTEXT_SHORT.md
+```
+
+---
+
+# Phase 7 — Daily plan normalization
+
+## Goal
+Turn valid `daily_plan` imports into day plans and tasks.
+
+## Branch
+`feature/daily-plan-normalization`
+
+## Source docs/examples
+
+```text
+docs/01_PRODUCT_REQUIREMENTS.md
+docs/03_SYSTEM_DESIGN_DATA_MODEL.md
+docs/04_API_AND_AI_PAYLOAD_CONTRACTS.md
+docs/06_UX_FLOWS.md
+docs/adr/0010-minimum-standard-ideal-task-model.md
+examples/daily_plan_payload.json
+```
+
+## Tasks
+
+1. Add/complete `daily_plans` table.
+2. Add/complete `tasks` table.
+3. Normalize `daily_plan` imports.
+4. Link plan to `day_log` by date/day number.
+5. Store mission, supportive message, warnings, downshift rule, and context summary.
+6. Store tasks by tier:
+   - non-negotiable
+   - minimum
+   - standard
+   - ideal
+7. Make re-import deterministic.
+8. Add normalization tests.
+
+## Done when
+
+- Example daily plan imports into database.
+- Dashboard query can load today’s plan.
+- Duplicate import does not duplicate tasks.
+
+## Suggested commit
+
+```bash
+git commit -m "feat(import): normalize daily plans into tasks"
+```
+
+## Codex prompt
+
+```text
+Read first:
+- AGENTS.md
+- PROJECT_CONTEXT_SHORT.md
+
+Relevant docs/examples:
+- docs/01_PRODUCT_REQUIREMENTS.md
+- docs/03_SYSTEM_DESIGN_DATA_MODEL.md
+- docs/04_API_AND_AI_PAYLOAD_CONTRACTS.md
+- docs/06_UX_FLOWS.md
+- docs/adr/0010-minimum-standard-ideal-task-model.md
+- examples/daily_plan_payload.json
+
+Task:
+Normalize daily_plan imports into day plans and tasks.
+
+Requirements:
+- Link imported plan to the correct day_log.
+- Store mission, supportive message, warnings, downshift rule, and context summary.
+- Store tasks grouped by tier and domain.
+- Keep raw import linked to normalized records.
+- Make repeated imports idempotent.
+- Add tests for daily plan normalization.
+
+After implementation:
+- run tests/typecheck
+- summarize changed files
+- update PROJECT_CONTEXT_SHORT.md
+```
+
+---
+
+# Phase 8 — Browser authentication with Authentik OIDC
+
+## Goal
+Protect the UI while keeping GPT machine ingest auth separate.
+
+## Branch
+`feature/authentik-oidc`
+
+## Source docs
+
+```text
+docs/02_SYSTEM_ARCHITECTURE.md
+docs/04_API_AND_AI_PAYLOAD_CONTRACTS.md
+docs/07_ENVIRONMENTS_DEPLOYMENT.md
+docs/adr/0004-separate-auth-boundaries.md
+```
+
+## Tasks
+
+1. Choose and configure an OIDC/session library for Next.js.
+2. Add Authentik OIDC env vars to examples with placeholders.
+3. Protect browser UI routes.
+4. Keep `/api/gpt/import` protected only by machine token.
+5. Add local dev bypass only if safe and clearly documented.
+6. Store user identity from Authentik subject.
+7. Add logout route if straightforward.
+8. Add tests or manual test plan.
+
+## Done when
+
+- UI requires Authentik login in production mode.
+- GPT ingest does not require browser session.
+- Missing/invalid GPT token still fails.
+- Session cookies are secure in production config.
+
+## Suggested commit
+
+```bash
+git commit -m "feat(auth): protect UI with Authentik OIDC"
+```
+
+## Codex prompt
+
+```text
+Read first:
+- AGENTS.md
+- PROJECT_CONTEXT_SHORT.md
+
+Relevant docs:
+- docs/02_SYSTEM_ARCHITECTURE.md
+- docs/04_API_AND_AI_PAYLOAD_CONTRACTS.md
+- docs/07_ENVIRONMENTS_DEPLOYMENT.md
+- docs/adr/0004-separate-auth-boundaries.md
+
+Task:
+Implement Authentik OIDC browser authentication.
+
+Requirements:
+- Protect browser UI routes.
+- Keep GPT ingest machine auth separate.
+- Add safe env example placeholders for OIDC settings.
+- Use secure cookie/session settings in production.
+- Do not add public signup or multi-user account management.
+- Document Authentik setup assumptions.
+
+After implementation:
+- run lint/typecheck/tests if available
+- summarize changed files
+- update PROJECT_CONTEXT_SHORT.md
+```
+
+---
+
+# Phase 9 — Today Command Center UI
+
+## Goal
+Make the app useful: show today’s imported plan and allow action.
+
+## Branch
+`feature/today-command-center`
+
+## Source docs
+
+```text
+docs/01_PRODUCT_REQUIREMENTS.md
+docs/03_SYSTEM_DESIGN_DATA_MODEL.md
+docs/06_UX_FLOWS.md
+docs/13_INSPIRATIONS.md
+docs/adr/0009-custom-gpt-as-coach-webapp-as-dashboard.md
+docs/adr/0010-minimum-standard-ideal-task-model.md
+```
+
+## Tasks
+
+1. Build app shell/navigation.
+2. Build Today Command Center.
+3. Show:
+   - Day X/90
+   - phase
+   - day status
+   - recovery credits
+   - energy level
+   - mission
+   - supportive message
+   - downshift rule
+   - non-negotiables
+   - minimum/standard/ideal task groups
+4. Add task completion API.
+5. Add task completion UI.
+6. Add energy selector.
+7. Keep copy calm and non-shaming.
+8. Make mobile layout good enough.
+
+## Done when
+
+- Imported daily plan displays.
+- Tasks can be completed/uncompleted.
+- Energy can be updated.
+- Page works on phone width.
+- No harsh failure wording appears.
+
+## Suggested commit
+
+```bash
+git commit -m "feat(dashboard): show today command center"
+```
+
+## Codex prompt
+
+```text
+Read first:
+- AGENTS.md
+- PROJECT_CONTEXT_SHORT.md
+
+Relevant docs:
+- docs/01_PRODUCT_REQUIREMENTS.md
+- docs/03_SYSTEM_DESIGN_DATA_MODEL.md
+- docs/06_UX_FLOWS.md
+- docs/13_INSPIRATIONS.md
+- docs/adr/0009-custom-gpt-as-coach-webapp-as-dashboard.md
+- docs/adr/0010-minimum-standard-ideal-task-model.md
+
+Task:
+Build the Today Command Center UI.
+
+Requirements:
+- Display active cycle, Day X/90, phase, current status, and recovery credits.
+- Display mission, supportive message, downshift rule, non-negotiables, and tasks grouped by tier.
+- Add task completion API and UI.
+- Add energy selector.
+- Make the UI mobile-friendly.
+- Use inspiration patterns without cloning any app.
+- Do not add advanced analytics yet.
+
+After implementation:
+- run lint/typecheck/tests if available
+- summarize changed files
+- update PROJECT_CONTEXT_SHORT.md
+```
+
+---
+
+# Phase 10 — Check-ins and day state basics
+
+## Goal
+Track how the day is going without becoming a full journaling app.
+
+## Branch
+`feature/checkins`
+
+## Source docs
+
+```text
+docs/01_PRODUCT_REQUIREMENTS.md
+docs/03_SYSTEM_DESIGN_DATA_MODEL.md
+docs/06_UX_FLOWS.md
+```
+
+## Tasks
+
+1. Add/complete `checkins` table.
+2. Implement morning/midday/evening/manual check-in API.
+3. Track:
+   - energy
+   - mood
+   - fog/clarity
+   - self-criticism
+   - loneliness
+   - digital control/risk
+   - learning resistance
+   - body relationship
+   - work confidence
+4. Build simple check-in form.
+5. Show latest check-in on dashboard.
+6. Add tests for check-in validation.
+
+## Done when
+
+- User can submit a check-in.
+- Check-ins link to correct day.
+- Check-in data appears on dashboard/day detail.
+
+## Suggested commit
+
+```bash
+git commit -m "feat(checkins): add day state tracking"
+```
+
+## Codex prompt
+
+```text
+Read first:
+- AGENTS.md
+- PROJECT_CONTEXT_SHORT.md
+
+Relevant docs:
+- docs/01_PRODUCT_REQUIREMENTS.md
+- docs/03_SYSTEM_DESIGN_DATA_MODEL.md
+- docs/06_UX_FLOWS.md
+
+Task:
+Implement check-ins and basic day-state tracking.
+
+Requirements:
+- Support morning, midday, evening, and manual check-ins.
+- Track energy, mood, fog/clarity, loneliness, self-criticism, digital control/risk, learning resistance, body relationship, and work confidence.
+- Keep the UI quick and low-friction.
+- Do not build a full journaling app.
+
+After implementation:
+- run tests/typecheck
+- summarize changed files
+- update PROJECT_CONTEXT_SHORT.md
+```
+
+---
+
+# Phase 11 — Recovery mode and day status calculation
+
+## Goal
+Implement the core anti-shame mechanic.
+
+## Branch
+`feature/recovery-mode`
+
+## Source docs
+
+```text
+docs/01_PRODUCT_REQUIREMENTS.md
+docs/03_SYSTEM_DESIGN_DATA_MODEL.md
+docs/06_UX_FLOWS.md
+docs/adr/0011-recovery-days-instead-of-harsh-streaks.md
+```
+
+## Day statuses
+
+```text
+GREEN = standard/ideal day
+YELLOW = minimum day
+BLUE = intentional recovery day
+RED = abandoned/no useful reset
+GOLD = comeback day
+UNSET = not calculated yet
+```
+
+## Tasks
+
+1. Add/complete `recovery_events` table.
+2. Add `Reset Me Now` flow.
+3. Add recovery credit usage.
+4. Implement day status calculation rules.
+5. Add manual override only if useful.
+6. Add no-shame UI copy.
+7. Add tests for:
+   - minimum day
+   - recovery day
+   - comeback day
+   - recovery credits
+   - no restart-from-zero behavior
+
+## Done when
+
+- User can start recovery mode.
+- Recovery credit can be consumed.
+- Day can become blue.
+- Comeback day can become gold.
+- Status calculation is tested.
+- No UI copy says “failed,” “wasted day,” or “ruined streak.”
+
+## Suggested commit
+
+```bash
+git commit -m "feat(recovery): add recovery mode and day statuses"
+```
+
+## Codex prompt
+
+```text
+Read first:
+- AGENTS.md
+- PROJECT_CONTEXT_SHORT.md
+
+Relevant docs:
+- docs/01_PRODUCT_REQUIREMENTS.md
+- docs/03_SYSTEM_DESIGN_DATA_MODEL.md
+- docs/06_UX_FLOWS.md
+- docs/adr/0011-recovery-days-instead-of-harsh-streaks.md
+
+Task:
+Implement recovery mode and day status calculation.
+
+Requirements:
+- Add Reset Me Now flow.
+- Track recovery credits.
+- Implement GREEN/YELLOW/BLUE/RED/GOLD/UNSET statuses.
+- Add tests for status calculation and recovery credits.
+- Do not implement harsh streaks or restart-from-day-one logic.
+- Use calm, non-shaming UI copy.
+
+After implementation:
+- run tests/typecheck
+- summarize changed files
+- update PROJECT_CONTEXT_SHORT.md
+```
+
+---
+
+# Phase 12 — 90-day grid and day detail
+
+## Goal
+Give visible progress without harsh streak pressure.
+
+## Branch
+`feature/ninety-day-grid`
+
+## Source docs
+
+```text
+docs/01_PRODUCT_REQUIREMENTS.md
+docs/03_SYSTEM_DESIGN_DATA_MODEL.md
+docs/06_UX_FLOWS.md
+docs/13_INSPIRATIONS.md
+docs/adr/0011-recovery-days-instead-of-harsh-streaks.md
+```
+
+## Tasks
+
+1. Build 90-day grid.
+2. Show each day status.
+3. Add click/open day detail.
+4. Show day plan, tasks, check-ins, and reflection if present.
+5. Show status counts.
+6. Show recovery credits remaining.
+7. Avoid streak-centered UI.
+
+## Done when
+
+- User sees all 90 days.
+- Current day is obvious.
+- Past day details are viewable.
+- Recovery days look intentional, not like failure.
+
+## Suggested commit
+
+```bash
+git commit -m "feat(progress): add 90-day grid"
+```
+
+## Codex prompt
+
+```text
+Read first:
+- AGENTS.md
+- PROJECT_CONTEXT_SHORT.md
+
+Relevant docs:
+- docs/01_PRODUCT_REQUIREMENTS.md
+- docs/03_SYSTEM_DESIGN_DATA_MODEL.md
+- docs/06_UX_FLOWS.md
+- docs/13_INSPIRATIONS.md
+- docs/adr/0011-recovery-days-instead-of-harsh-streaks.md
+
+Task:
+Build the 90-day grid and day detail view.
+
+Requirements:
+- Show all 90 days with recovery-aware statuses.
+- Allow opening a day detail view.
+- Show plan, tasks, check-ins, and reflection when available.
+- Show status counts and recovery credits.
+- Do not center harsh streaks.
+
+After implementation:
+- run lint/typecheck/tests if available
+- summarize changed files
+- update PROJECT_CONTEXT_SHORT.md
+```
+
+---
+
+# Phase 13 — Daily reflection import normalization
+
+## Goal
+Store daily reflection summaries from GPT without turning the app into a raw thought dump.
+
+## Branch
+`feature/daily-reflection-import`
+
+## Source docs/examples
+
+```text
+docs/03_SYSTEM_DESIGN_DATA_MODEL.md
+docs/04_API_AND_AI_PAYLOAD_CONTRACTS.md
+docs/05_CONTEXT_MEMORY_DESIGN.md
+docs/adr/0006-context-summaries-not-chain-of-thought.md
+examples/daily_reflection_payload.json
+```
+
+## Tasks
+
+1. Add/complete `daily_reflections` table.
+2. Normalize `daily_reflection` imports.
+3. Link reflection to day log and raw import.
+4. Store cleaned summaries and structured fields.
+5. Keep raw payload in `imported_payloads` but never log it.
+6. Show reflection in day detail.
+7. Add tests.
+
+## Done when
+
+- Example reflection imports.
+- Day detail shows reflection summary.
+- Invalid reflections are rejected safely.
+
+## Suggested commit
+
+```bash
+git commit -m "feat(import): normalize daily reflections"
+```
+
+## Codex prompt
+
+```text
+Read first:
+- AGENTS.md
+- PROJECT_CONTEXT_SHORT.md
+
+Relevant docs/examples:
+- docs/03_SYSTEM_DESIGN_DATA_MODEL.md
+- docs/04_API_AND_AI_PAYLOAD_CONTRACTS.md
+- docs/05_CONTEXT_MEMORY_DESIGN.md
+- docs/adr/0006-context-summaries-not-chain-of-thought.md
+- examples/daily_reflection_payload.json
+
+Task:
+Normalize daily_reflection imports and display them in day detail.
+
+Requirements:
+- Store cleaned reflection summaries and structured fields.
+- Link reflection to day_log and imported_payload.
+- Do not log raw private reflection text.
+- Add tests for valid, invalid, and duplicate reflection imports.
+
+After implementation:
+- run tests/typecheck
+- summarize changed files
+- update PROJECT_CONTEXT_SHORT.md
+```
+
+---
+
+# Phase 14 — Weekly review import and Reviews page
+
+## Goal
+Support GPT-generated weekly reviews and progress summaries.
+
+## Branch
+`feature/weekly-reviews`
+
+## Source docs/examples
+
+```text
+docs/01_PRODUCT_REQUIREMENTS.md
+docs/03_SYSTEM_DESIGN_DATA_MODEL.md
+docs/04_API_AND_AI_PAYLOAD_CONTRACTS.md
+docs/05_CONTEXT_MEMORY_DESIGN.md
+examples/weekly_review_payload.json
+```
+
+## Tasks
+
+1. Add/complete `weekly_reviews` table.
+2. Normalize weekly review imports.
+3. Link to cycle and week number/date range.
+4. Build Reviews page.
+5. Show summary, wins, blockers, patterns, recommendations, and recovery usage.
+6. Add tests.
+
+## Done when
+
+- Example weekly review imports.
+- Reviews page displays useful weekly summary.
+- Weekly review links back to raw import.
+
+## Suggested commit
+
+```bash
+git commit -m "feat(reviews): add weekly review imports"
+```
+
+## Codex prompt
+
+```text
+Read first:
+- AGENTS.md
+- PROJECT_CONTEXT_SHORT.md
+
+Relevant docs/examples:
+- docs/01_PRODUCT_REQUIREMENTS.md
+- docs/03_SYSTEM_DESIGN_DATA_MODEL.md
+- docs/04_API_AND_AI_PAYLOAD_CONTRACTS.md
+- docs/05_CONTEXT_MEMORY_DESIGN.md
+- examples/weekly_review_payload.json
+
+Task:
+Normalize weekly_review imports and build the Reviews page.
+
+Requirements:
+- Store weekly review linked to cycle and week.
+- Display summary, wins, blockers, patterns, recommendations, and recovery usage.
+- Link normalized records to imported_payload.
+- Add tests.
+
+After implementation:
+- run tests/typecheck
+- summarize changed files
+- update PROJECT_CONTEXT_SHORT.md
+```
+
+---
+
+# Phase 15 — Context Memory Library
+
+## Goal
+Give the app durable reference memory for future GPT sessions.
+
+## Branch
+`feature/context-memory-library`
+
+## Source docs/examples
+
+```text
+docs/05_CONTEXT_MEMORY_DESIGN.md
+docs/04_API_AND_AI_PAYLOAD_CONTRACTS.md
+docs/adr/0006-context-summaries-not-chain-of-thought.md
+docs/adr/0013-docs-as-code-codex-memory.md
+```
+
+## Tasks
+
+1. Add/complete `context_items` and `context_tags` tables.
+2. Support context item creation from imports.
+3. Support manual context item creation.
+4. Build Context Library page.
+5. Add search/filter by:
+   - domain
+   - kind
+   - tag
+   - date
+   - pinned status
+6. Add context item pinning.
+7. Add tests.
+
+## Done when
+
+- App stores decisions, summaries, snapshots, and preferences.
+- User can search/filter context memory.
+- No hidden chain-of-thought storage exists.
+
+## Suggested commit
+
+```bash
+git commit -m "feat(context): add context memory library"
+```
+
+## Codex prompt
+
+```text
+Read first:
+- AGENTS.md
+- PROJECT_CONTEXT_SHORT.md
+
+Relevant docs:
+- docs/05_CONTEXT_MEMORY_DESIGN.md
+- docs/04_API_AND_AI_PAYLOAD_CONTRACTS.md
+- docs/adr/0006-context-summaries-not-chain-of-thought.md
+- docs/adr/0013-docs-as-code-codex-memory.md
+
+Task:
+Implement the Context Memory Library MVP.
+
+Requirements:
+- Store context summaries, decisions, preferences, weekly snapshots, and cycle reports.
+- Support tags and pinned context.
+- Add search/filter UI.
+- Do not store hidden model chain-of-thought.
+- Add tests for context item creation/search.
+
+After implementation:
+- run tests/typecheck
+- summarize changed files
+- update PROJECT_CONTEXT_SHORT.md
+```
+
+---
+
+# Phase 16 — Compact GPT context packet export
+
+## Goal
+Save tokens and make future GPT sessions easier by exporting compact context packets.
+
+## Branch
+`feature/context-packet-export`
+
+## Source docs
+
+```text
+docs/05_CONTEXT_MEMORY_DESIGN.md
+docs/04_API_AND_AI_PAYLOAD_CONTRACTS.md
+docs/12_CODEX_PROMPTS.md
+docs/adr/0006-context-summaries-not-chain-of-thought.md
+```
+
+## Tasks
+
+1. Add export endpoint for compact GPT context packet.
+2. Include:
+   - active cycle summary
+   - current day
+   - last 3 days summary
+   - last 7 days metrics
+   - active patterns
+   - pinned context
+   - recovery credits
+   - open decisions
+3. Validate/export with the same schema logic if practical.
+4. Add Markdown export option if quick.
+5. Add UI button: “Export GPT context packet.”
+
+## Done when
+
+- User can export compact JSON context.
+- Export does not include unnecessary raw thought dumps.
+- Export is token-efficient and useful for a Custom GPT prompt.
+
+## Suggested commit
+
+```bash
+git commit -m "feat(context): export compact GPT context packet"
+```
+
+## Codex prompt
+
+```text
+Read first:
+- AGENTS.md
+- PROJECT_CONTEXT_SHORT.md
+
+Relevant docs:
+- docs/05_CONTEXT_MEMORY_DESIGN.md
+- docs/04_API_AND_AI_PAYLOAD_CONTRACTS.md
+- docs/12_CODEX_PROMPTS.md
+- docs/adr/0006-context-summaries-not-chain-of-thought.md
+
+Task:
+Implement compact GPT context packet export.
+
+Requirements:
+- Export active cycle state, recent summaries, pinned context, key metrics, and recovery state.
+- Keep export compact and token-efficient.
+- Do not include hidden chain-of-thought or unnecessary raw dumps.
+- Validate exported JSON against app schema if practical.
+
+After implementation:
+- run tests/typecheck
+- summarize changed files
+- update PROJECT_CONTEXT_SHORT.md
+```
+
+---
+
+# Phase 17 — Analytics MVP
+
+## Goal
+Add useful progress visibility without quantified-self overkill.
+
+## Branch
+`feature/analytics-mvp`
+
+## Source docs
+
+```text
+docs/01_PRODUCT_REQUIREMENTS.md
+docs/06_UX_FLOWS.md
+docs/13_INSPIRATIONS.md
+docs/adr/0011-recovery-days-instead-of-harsh-streaks.md
+```
+
+## Tasks
+
+1. Add Analytics page.
+2. Show:
+   - status counts
+   - recovery credits used/remaining
+   - body/mood/digital/learning/work check-in trends
+   - week vs previous week basics
+   - task completion by domain
+3. Keep charts simple.
+4. Avoid advanced correlation engines for MVP.
+
+## Done when
+
+- Analytics help user understand progress.
+- Page is not overwhelming.
+- No embeddings or advanced statistics exist yet.
+
+## Suggested commit
+
+```bash
+git commit -m "feat(analytics): add progress overview"
+```
+
+## Codex prompt
+
+```text
+Read first:
+- AGENTS.md
+- PROJECT_CONTEXT_SHORT.md
+
+Relevant docs:
+- docs/01_PRODUCT_REQUIREMENTS.md
+- docs/06_UX_FLOWS.md
+- docs/13_INSPIRATIONS.md
+- docs/adr/0011-recovery-days-instead-of-harsh-streaks.md
+
+Task:
+Build the Analytics MVP.
+
+Requirements:
+- Show day status counts, recovery usage, simple domain trends, week-vs-previous-week basics, and task completion by domain.
+- Keep charts simple and readable.
+- Do not add embeddings, heavy correlation engines, or complicated gamification.
+
+After implementation:
+- run lint/typecheck/tests if available
+- summarize changed files
+- update PROJECT_CONTEXT_SHORT.md
+```
+
+---
+
+# Phase 18 — Full export/import MVP
+
+## Goal
+Make the user’s data portable before production.
+
+## Branch
+`feature/data-export-import`
+
+## Source docs
+
+```text
+docs/03_SYSTEM_DESIGN_DATA_MODEL.md
+docs/07_ENVIRONMENTS_DEPLOYMENT.md
+docs/08_AUTOMATION_AND_SCRIPTS.md
+docs/05_CONTEXT_MEMORY_DESIGN.md
+```
+
+## Tasks
+
+1. Add full JSON export.
+2. Add CSV export for:
+   - day logs
+   - tasks
+   - check-ins
+   - reviews if useful
+3. Add Markdown export for weekly/final report summaries.
+4. Add import from app export only if safe enough.
+5. Ensure exports are not logged or publicly served.
+6. Add `.gitignore` rules for generated exports.
+
+## Done when
+
+- User can download data.
+- Export works locally.
+- Export files are ignored by Git.
+- Export endpoint requires browser auth.
+
+## Suggested commit
+
+```bash
+git commit -m "feat(export): add user data export"
+```
+
+## Codex prompt
+
+```text
+Read first:
+- AGENTS.md
+- PROJECT_CONTEXT_SHORT.md
+
+Relevant docs:
+- docs/03_SYSTEM_DESIGN_DATA_MODEL.md
+- docs/07_ENVIRONMENTS_DEPLOYMENT.md
+- docs/08_AUTOMATION_AND_SCRIPTS.md
+- docs/05_CONTEXT_MEMORY_DESIGN.md
+
+Task:
+Implement data export MVP.
+
+Requirements:
+- Add full JSON export.
+- Add CSV exports for day logs, tasks, and check-ins.
+- Add Markdown export for summaries if practical.
+- Ensure exports are private and ignored by Git.
+- Do not expose export files through static routes.
+- Keep GPT machine token unable to call exports.
+
+After implementation:
+- run tests/typecheck
+- summarize changed files
+- update PROJECT_CONTEXT_SHORT.md
+```
+
+---
+
+# Phase 19 — Testing foundation and CI completion
+
+## Goal
+Make `main` stay deployable.
+
+## Branch
+`chore/ci-and-testing-foundation`
+
+## Source docs/examples
+
+```text
+docs/08_AUTOMATION_AND_SCRIPTS.md
+docs/09_ENGINEERING_BEST_PRACTICES.md
+docs/10_GIT_WORKFLOW.md
+examples/.github/PULL_REQUEST_TEMPLATE.md
+```
+
+## Tasks
+
+1. Finish unit test setup.
+2. Add integration tests for imports and database logic.
+3. Add basic UI/component tests if useful.
+4. Add CI workflow:
+   - install
+   - lint
+   - typecheck
+   - tests
+   - build
+   - payload validation
+   - migration check if practical
+5. Add PR template.
+6. Add branch protection instructions to README.
+7. Ensure `make check` matches CI as closely as practical.
+
+## Done when
+
+- CI passes on pull request.
+- `make check` matches CI closely.
+- PR template reminds Codex/user to update docs and `PROJECT_CONTEXT_SHORT.md`.
+
+## Suggested commit
+
+```bash
+git commit -m "ci: run checks on pull requests"
+```
+
+## Codex prompt
+
+```text
+Read first:
+- AGENTS.md
+- PROJECT_CONTEXT_SHORT.md
+
+Relevant docs/examples:
+- docs/08_AUTOMATION_AND_SCRIPTS.md
+- docs/09_ENGINEERING_BEST_PRACTICES.md
+- docs/10_GIT_WORKFLOW.md
+- examples/.github/PULL_REQUEST_TEMPLATE.md
+
+Task:
+Complete testing foundation and CI.
+
+Requirements:
+- Ensure make check runs lint, typecheck, tests, build, and payload validation.
+- Add GitHub Actions CI.
+- Add or update PR template.
+- Add branch protection instructions to README.
+- Do not add heavy E2E tests yet unless the app is stable enough.
+
+After implementation:
+- run make check locally if possible
+- summarize changed files
+- update PROJECT_CONTEXT_SHORT.md
+```
+
+---
+
+# Phase 20 — Security hardening before production
+
+## Goal
+Close major security/privacy gaps before deployment.
+
+## Branch
+`fix/security-hardening`
+
+## Source docs
+
+```text
+docs/02_SYSTEM_ARCHITECTURE.md
+docs/04_API_AND_AI_PAYLOAD_CONTRACTS.md
+docs/07_ENVIRONMENTS_DEPLOYMENT.md
+docs/09_ENGINEERING_BEST_PRACTICES.md
+docs/adr/0004-separate-auth-boundaries.md
+docs/adr/0006-context-summaries-not-chain-of-thought.md
+```
+
+## Tasks
+
+1. Add security headers.
+2. Confirm CSRF protection for browser mutations.
+3. Confirm no state-changing GET routes.
+4. Confirm GPT endpoint machine auth.
+5. Confirm request body limits.
+6. Confirm logs redact:
+   - tokens
+   - cookies
+   - DB URL
+   - raw reflections
+   - sensitive digital-detox text
+7. Confirm `.env`, backups, exports, and logs are gitignored.
+8. Add basic rate limiting where practical.
+9. Add security checklist to docs or README.
+
+## Done when
+
+- Security checklist passes.
+- Logs are safe.
+- No secret files are tracked.
+- Browser and GPT auth boundaries are separate.
+
+## Suggested commit
+
+```bash
+git commit -m "fix(security): harden auth and logging boundaries"
+```
+
+## Codex prompt
+
+```text
+Read first:
+- AGENTS.md
+- PROJECT_CONTEXT_SHORT.md
+
+Relevant docs:
+- docs/02_SYSTEM_ARCHITECTURE.md
+- docs/04_API_AND_AI_PAYLOAD_CONTRACTS.md
+- docs/07_ENVIRONMENTS_DEPLOYMENT.md
+- docs/09_ENGINEERING_BEST_PRACTICES.md
+- docs/adr/0004-separate-auth-boundaries.md
+- docs/adr/0006-context-summaries-not-chain-of-thought.md
+
+Task:
+Perform pre-production security hardening.
+
+Requirements:
+- Add security headers.
+- Confirm CSRF protection for browser mutations.
+- Confirm no state-changing GET routes.
+- Confirm GPT machine auth and request size limits.
+- Redact sensitive data from logs.
+- Confirm .env, backups, exports, and logs are ignored by Git.
+- Add rate limiting where practical.
+
+After implementation:
+- run tests/typecheck/build
+- summarize changed files
+- update PROJECT_CONTEXT_SHORT.md
+```
+
+---
+
+# Phase 21 — Production Docker Compose and reverse proxy deployment
+
+## Goal
+Prepare production deployment using Docker Compose and the user’s existing HTTPS reverse proxy.
+
+## Branch
+`chore/production-deployment`
+
+## Source docs/examples
+
+```text
+docs/02_SYSTEM_ARCHITECTURE.md
+docs/07_ENVIRONMENTS_DEPLOYMENT.md
+docs/08_AUTOMATION_AND_SCRIPTS.md
+docs/adr/0012-docker-compose-and-traefik-deployment.md
+examples/.env.production.example
+examples/docker-compose.production.yml
+examples/scripts/deploy-production.sh
+examples/scripts/healthcheck.sh
+```
+
+## Tasks
+
+1. Add production Compose file based on example.
+2. Add Dockerfile production build.
+3. Keep Postgres internal-only.
+4. Add production env example placeholders.
+5. Add health checks.
+6. Add deploy script.
+7. Document required variables:
+   - host/domain
+   - DB vars
+   - OIDC vars
+   - GPT token
+   - Traefik external network and labels
+8. Traefik is already locked in by ADR-0012.
+
+## Done when
+
+- Production Compose config validates.
+- App has a production image build.
+- DB is not exposed publicly.
+- Reverse proxy assumptions are documented.
+- Use Traefik for production. Do not add Caddy or Nginx.
+
+## Suggested commit
+
+```bash
+git commit -m "chore(deploy): add production Docker Compose workflow"
+```
+
+## Codex prompt
+
+```text
+Read first:
+- AGENTS.md
+- PROJECT_CONTEXT_SHORT.md
+
+Relevant docs/examples:
+- docs/02_SYSTEM_ARCHITECTURE.md
+- docs/07_ENVIRONMENTS_DEPLOYMENT.md
+- docs/08_AUTOMATION_AND_SCRIPTS.md
+- docs/adr/0012-docker-compose-and-traefik-deployment.md
+- examples/.env.production.example
+- examples/docker-compose.production.yml
+- examples/scripts/deploy-production.sh
+- examples/scripts/healthcheck.sh
+
+Task:
+Prepare production Docker Compose deployment.
+
+Requirements:
+- Add production Dockerfile/build path if missing.
+- Add production Compose based on the example.
+- Keep Postgres internal-only.
+- Add health checks.
+- Document required production env vars.
+- Document reverse proxy assumptions.
+- If implementing Traefik-specific labels, first add a lightweight ADR explaining the decision.
+- Do not add Caddy or Nginx unless the user explicitly approves with an ADR.
+
+After implementation:
+- run compose config validation if possible
+- summarize changed files
+- update PROJECT_CONTEXT_SHORT.md
+```
+
+---
+
+# Phase 22 — Backup, restore, and disaster recovery
+
+## Goal
+Do not deploy without tested backup/restore.
+
+## Branch
+`feature/backup-restore`
+
+## Source docs/examples
+
+```text
+docs/07_ENVIRONMENTS_DEPLOYMENT.md
+docs/08_AUTOMATION_AND_SCRIPTS.md
+examples/scripts/backup-db.sh
+examples/scripts/restore-db.sh
+examples/scripts/export-data.sh
+```
+
+## Tasks
+
+1. Add backup script.
+2. Add restore script.
+3. Add Makefile targets:
+   - `make backup`
+   - `make restore FILE=...`
+   - `make export-data`
+4. Add backup/export directory to `.gitignore`.
+5. Add backup retention handling.
+6. Add restore safety confirmation.
+7. Add restore drill instructions.
+8. Test restore into local temp DB if practical.
+
+## Done when
+
+- Backup creates a non-empty dump.
+- Restore works into a test DB or has a documented dry run blocker.
+- Restore drill is documented.
+- Production is not considered ready until this passes.
+
+## Suggested commit
+
+```bash
+git commit -m "feat(ops): add backup and restore workflow"
+```
+
+## Codex prompt
+
+```text
+Read first:
+- AGENTS.md
+- PROJECT_CONTEXT_SHORT.md
+
+Relevant docs/examples:
+- docs/07_ENVIRONMENTS_DEPLOYMENT.md
+- docs/08_AUTOMATION_AND_SCRIPTS.md
+- examples/scripts/backup-db.sh
+- examples/scripts/restore-db.sh
+- examples/scripts/export-data.sh
+
+Task:
+Implement backup, restore, and restore-drill workflow.
+
+Requirements:
+- Add safe backup and restore scripts.
+- Add Makefile targets.
+- Ignore backup/export files in Git.
+- Add restore safety confirmation.
+- Document monthly restore drill.
+- Test restore locally if possible.
+
+After implementation:
+- run backup if possible
+- run restore into test DB if possible
+- summarize changed files
+- update PROJECT_CONTEXT_SHORT.md
+```
+
+---
+
+# Phase 23 — Observability MVP and operations
+
+## Goal
+Make the app operable without overbuilding monitoring.
+
+## Branch
+`feature/observability-mvp`
+
+## Source docs/examples
+
+```text
+docs/02_SYSTEM_ARCHITECTURE.md
+docs/07_ENVIRONMENTS_DEPLOYMENT.md
+docs/08_AUTOMATION_AND_SCRIPTS.md
+docs/09_ENGINEERING_BEST_PRACTICES.md
+examples/scripts/healthcheck.sh
+```
+
+## Tasks
+
+1. Confirm health and readiness endpoints.
+2. Add structured JSON logs.
+3. Add request IDs.
+4. Add safe import failure logging.
+5. Add Docker health checks.
+6. Add basic operations notes for checking app, DB, imports, backups, and disk usage.
+7. Do not add Prometheus/Grafana/OpenTelemetry yet unless needed.
+
+## Done when
+
+- You can tell if app, DB, imports, and backups are healthy.
+- Logs are useful but privacy-safe.
+- Operations notes are current.
+
+## Suggested commit
+
+```bash
+git commit -m "feat(ops): add observability basics"
+```
+
+## Codex prompt
+
+```text
+Read first:
+- AGENTS.md
+- PROJECT_CONTEXT_SHORT.md
+
+Relevant docs/examples:
+- docs/02_SYSTEM_ARCHITECTURE.md
+- docs/07_ENVIRONMENTS_DEPLOYMENT.md
+- docs/08_AUTOMATION_AND_SCRIPTS.md
+- docs/09_ENGINEERING_BEST_PRACTICES.md
+- examples/scripts/healthcheck.sh
+
+Task:
+Implement observability MVP.
+
+Requirements:
+- Ensure health and readiness endpoints work.
+- Add structured JSON logs with request IDs.
+- Add safe import failure logging.
+- Add Docker health checks.
+- Add basic operations notes.
+- Do not add heavy monitoring stacks yet.
+
+After implementation:
+- run tests/typecheck/build
+- summarize changed files
+- update PROJECT_CONTEXT_SHORT.md
+```
+
+---
+
+# Phase 24 — Production dry run
+
+## Goal
+Simulate production before touching the real server/domain.
+
+## Branch
+`chore/production-dry-run`
+
+## Source docs/examples
+
+```text
+docs/07_ENVIRONMENTS_DEPLOYMENT.md
+docs/08_AUTOMATION_AND_SCRIPTS.md
+docs/09_ENGINEERING_BEST_PRACTICES.md
+examples/docker-compose.production.yml
+examples/scripts/deploy-production.sh
+examples/scripts/healthcheck.sh
+```
+
+## Tasks
+
+1. Build production image locally.
+2. Run production Compose locally or in a staging folder.
+3. Use production-like env values, never real secrets in Git.
+4. Confirm:
+   - app starts
+   - DB migrates
+   - Authentik flow is documented/tested
+   - GPT import works with token
+   - dashboard loads
+   - task completion works
+   - context export works
+   - backup works
+   - restore works
+   - logs are safe
+5. Fix blockers before server deploy.
+
+## Done when
+
+- Production-like run passes locally/staging.
+- No secret is committed.
+- Restore drill passes once.
+
+## Suggested commit
+
+```bash
+git commit -m "chore(deploy): document production dry run"
+```
+
+## Codex prompt
+
+```text
+Read first:
+- AGENTS.md
+- PROJECT_CONTEXT_SHORT.md
+
+Relevant docs/examples:
+- docs/07_ENVIRONMENTS_DEPLOYMENT.md
+- docs/08_AUTOMATION_AND_SCRIPTS.md
+- docs/09_ENGINEERING_BEST_PRACTICES.md
+- examples/docker-compose.production.yml
+- examples/scripts/deploy-production.sh
+- examples/scripts/healthcheck.sh
+
+Task:
+Perform a production-readiness dry-run review.
+
+Requirements:
+- Validate production Docker/Compose configuration.
+- Confirm no secrets are committed.
+- Confirm DB is internal-only.
+- Confirm reverse proxy assumptions are documented.
+- Confirm backup/restore has a tested path.
+- Confirm logs avoid sensitive data.
+- Produce a checklist of remaining blockers.
+
+After implementation:
+- run available production config checks
+- summarize blockers
+- update PROJECT_CONTEXT_SHORT.md
+```
+
+---
+
+# Phase 25 — First production deploy
+
+## Goal
+Deploy the MVP to the self-hosted server.
+
+## Branch
+Release from `local` to `main`; no feature branch unless fixing blockers.
+
+## Human steps
+
+1. Ensure `local` passes `make check`.
+2. Merge `local` into `main`.
+3. Push `main`.
+4. Create production `.env.production` manually on server.
+5. Confirm domain/subdomain DNS points to server.
+6. Confirm reverse proxy route.
+7. Confirm Authentik OIDC client redirect URIs.
+8. Confirm `GPT_INGEST_TOKEN` is long/random.
+9. Pull repo on server.
+10. Start production Compose.
+11. Run migrations.
+12. Run health checks.
+13. Test login.
+14. Test GPT import with example payload.
+15. Test backup.
+16. Test export.
+17. Watch logs.
+
+## Done when
+
+- HTTPS works.
+- Authentik login works.
+- Today dashboard loads.
+- GPT import works.
+- Backup works.
+- DB is not public.
+- Logs are safe.
+
+## Suggested release commit/tag
+
+```bash
+git tag -a v0.1.0 -m "Reset90 MVP production deploy"
+```
+
+## Codex prompt for deployment review
+
+```text
+Read first:
+- AGENTS.md
+- PROJECT_CONTEXT_SHORT.md
+
+Relevant docs:
+- docs/07_ENVIRONMENTS_DEPLOYMENT.md
+- docs/08_AUTOMATION_AND_SCRIPTS.md
+- docs/09_ENGINEERING_BEST_PRACTICES.md
+
+Task:
+Review production deployment readiness for the first real deploy.
+
+Requirements:
+- Do not change architecture.
+- Verify reverse proxy assumptions.
+- Verify required env vars are documented.
+- Verify backup/restore commands exist.
+- Verify security checklist is complete.
+- Give exact remaining manual steps for the user.
+
+After implementation:
+- summarize deployment blockers
+- update PROJECT_CONTEXT_SHORT.md
+```
+
+---
+
+# Phase 26 — Post-deploy stabilization
+
+## Goal
+Make sure the app remains usable after first real use.
+
+## Branch
+`fix/post-deploy-stabilization` or `cleanup/post-deploy-polish`
+
+## First 24 hours
+
+Check:
+
+- app container health
+- DB container health
+- reverse proxy route
+- Authentik login
+- GPT import success/failure logs
+- backups
+- disk usage
+- UI on phone
+- exports
+
+## First week
+
+Improve only real friction:
+
+- import error UI/history
+- missing empty states
+- awkward dashboard flow
+- backup retention
+- context export format
+- small analytics gaps
+- mobile layout issues
+
+## Do not add yet
+
+- embeddings
+- heavy charts
+- notification system
+- native mobile app
+- public accounts
+- multi-cycle comparison
+
+## Codex prompt
+
+```text
+Read first:
+- AGENTS.md
+- PROJECT_CONTEXT_SHORT.md
+
+Task:
+Perform post-deploy stabilization based on observed issues.
+
+Requirements:
+- Fix only the listed production issues.
+- Do not add new major features.
+- Preserve privacy/security rules.
+- Keep main deployable.
+- Update docs if operational behavior changes.
+
+Observed issues:
+[paste issues here]
+
+After implementation:
+- run checks
+- summarize changed files
+- update PROJECT_CONTEXT_SHORT.md
+```
+
+---
+
+# Phase 27 — Day 7 improvements
+
+## Goal
+Improve the app after one week of actual use.
+
+## Branch
+`cleanup/day-7-polish` or `feature/day-7-improvements`
+
+## Build only from real friction
+
+Ask:
+
+- Was logging too slow?
+- Did GPT imports fail?
+- Was the dashboard confusing?
+- Did recovery mode help?
+- Did context export save tokens?
+- Were analytics useful or noisy?
+
+## Good Day 7 improvements
+
+- better empty states
+- import history page
+- small UX polish
+- faster check-ins
+- better mobile spacing
+- clearer recovery display
+- one-click context export
+- better “what changed this week” view
+
+## Codex prompt
+
+```text
+Read first:
+- AGENTS.md
+- PROJECT_CONTEXT_SHORT.md
+
+Relevant docs:
+- docs/06_UX_FLOWS.md
+- docs/13_INSPIRATIONS.md
+
+Task:
+Implement Day 7 polish based only on actual usage friction.
+
+Observed friction:
+[paste real friction]
+
+Requirements:
+- Keep changes small.
+- Do not add major new modules.
+- Do not turn the app into a generic habit tracker.
+- Preserve recovery-aware behavior.
+
+After implementation:
+- run checks
+- summarize changed files
+- update PROJECT_CONTEXT_SHORT.md
+```
+
+---
+
+# Phase 28 — Day 30 and Day 60 improvements
+
+## Goal
+Improve review, analytics, context, and final-report readiness after real use.
+
+## Branch
+`feature/phase-review-improvements`
+
+## Day 30 possible improvements
+
+- better Phase 1 summary
+- better weekly comparison
+- refined context packet
+- stronger Day 30 review page
+- better repeated-pattern display
+- improved task carryover/downshift behavior
+
+## Day 60 possible improvements
+
+- better long-term context summaries
+- trend comparison across first 60 days
+- refined recovery credit display
+- improved work/study/body domain summaries
+- better final report data capture
+
+## Do not add unless truly needed
+
+- advanced AI inside the app
+- embeddings
+- complicated custom dashboards
+- calendar integration
+- push notifications
+
+## Codex prompt
+
+```text
+Read first:
+- AGENTS.md
+- PROJECT_CONTEXT_SHORT.md
+
+Task:
+Implement phase-review improvements based on actual use.
+
+Observed needs:
+[paste needs]
+
+Requirements:
+- Improve review/analytics/context only where it helps the daily loop.
+- Avoid over-engineering.
+- Preserve privacy and token efficiency.
+- Keep UI simple.
+
+After implementation:
+- run checks
+- summarize changed files
+- update PROJECT_CONTEXT_SHORT.md
+```
+
+---
+
+# Phase 29 — Day 90 report and next-cycle planning
+
+## Goal
+Finish the 90-day reset with a useful report and a next step.
+
+## Branch
+`feature/day-90-report`
+
+## Source docs
+
+```text
+docs/01_PRODUCT_REQUIREMENTS.md
+docs/03_SYSTEM_DESIGN_DATA_MODEL.md
+docs/05_CONTEXT_MEMORY_DESIGN.md
+docs/06_UX_FLOWS.md
+docs/04_API_AND_AI_PAYLOAD_CONTRACTS.md
+```
+
+## Tasks
+
+1. Generate Day 90 report page/export.
+2. Include:
+   - cycle summary
+   - phase summaries
+   - status counts
+   - recovery usage
+   - biggest wins
+   - repeated blockers
+   - body/mood/digital/learning/work trends
+   - context decisions
+   - what to continue
+   - what to stop
+   - next-cycle recommendation
+3. Add Markdown export.
+4. Add JSON export.
+5. Add archive cycle flow.
+6. Add start-next-cycle flow only if needed.
+
+## Done when
+
+- Final report can be generated from stored app data.
+- Completed cycle is not erased or overwritten.
+- Export is available.
+- Next-cycle path is clear but not forced.
+
+## Suggested commit
+
+```bash
+git commit -m "feat(report): add Day 90 cycle report"
+```
+
+## Codex prompt
+
+```text
+Read first:
+- AGENTS.md
+- PROJECT_CONTEXT_SHORT.md
+
+Relevant docs:
+- docs/01_PRODUCT_REQUIREMENTS.md
+- docs/03_SYSTEM_DESIGN_DATA_MODEL.md
+- docs/05_CONTEXT_MEMORY_DESIGN.md
+- docs/06_UX_FLOWS.md
+- docs/04_API_AND_AI_PAYLOAD_CONTRACTS.md
+
+Task:
+Implement the Day 90 report and cycle completion flow.
+
+Requirements:
+- Generate a final report from stored app data.
+- Include phase summaries, trends, wins, blockers, recovery usage, and next-cycle recommendations.
+- Add Markdown/JSON export.
+- Keep the tone non-shaming and realistic.
+- Do not erase or overwrite the completed cycle.
+
+After implementation:
+- run checks
+- summarize changed files
+- update PROJECT_CONTEXT_SHORT.md
+```
+
+---
+
+# 4. Correct MVP finish line
+
+Do not call the MVP done until this loop works:
+
+```text
+1. User logs in through Authentik.
+2. Custom GPT sends daily_plan JSON to the ingest endpoint.
+3. App authenticates machine request.
+4. App validates payload.
+5. App stores raw import.
+6. App normalizes daily plan/tasks.
+7. Today Command Center displays the plan.
+8. User completes tasks/check-ins.
+9. Day status is calculated with recovery-aware logic.
+10. 90-day grid updates.
+11. GPT sends reflection/weekly review imports.
+12. App stores context summaries/decisions/snapshots.
+13. User exports compact GPT context packet.
+14. User exports full app data.
+15. Backup runs.
+16. Restore is tested.
+17. App runs in production behind HTTPS reverse proxy.
+18. Logs are privacy-safe.
+```
+
+---
+
+# 5. Recommended first 10 Codex sessions
+
+Use these in order.
+
+## Session 1 — Repository/docs sanity check
+
+```text
+Read AGENTS.md, PROJECT_CONTEXT_SHORT.md, and CODEX_START_HERE.md.
+Review the docs pack structure. Do not code. Confirm the first implementation task and update PROJECT_CONTEXT_SHORT.md.
+```
+
+## Session 2 — Stack scaffold
+
+```text
+Scaffold Next.js + TypeScript + pnpm + Tailwind + ESLint/Prettier + health endpoint only. Follow existing ADRs. Do not build business features.
+```
+
+## Session 3 — Local dev environment
+
+```text
+Create local Compose, env examples, Makefile, and clean-start instructions based on examples/. Do not add production deployment yet.
+```
+
+## Session 4 — Database foundation
+
+```text
+Implement ORM, migrations, active cycle seed, 3 phases, 90 day logs, and day/phase tests.
+```
+
+## Session 5 — GPT payload validation
+
+```text
+Implement Zod/JSON Schema-style validation and make payload examples pass. Do not build the ingest endpoint yet.
+```
+
+## Session 6 — Raw import/idempotency
+
+```text
+Implement raw import storage and idempotency service. No full normalization yet.
+```
+
+## Session 7 — GPT ingest endpoint
+
+```text
+Implement POST /api/gpt/import with machine bearer token, size limits, validation, raw storage, idempotency, and tests.
+```
+
+## Session 8 — Daily plan normalization
+
+```text
+Normalize daily_plan imports into daily_plans and tasks. Link raw import to normalized records. Add tests.
+```
+
+## Session 9 — Authentik OIDC
+
+```text
+Implement Authentik OIDC browser auth. Keep GPT ingest machine auth separate. Do not add public signup.
+```
+
+## Session 10 — Today dashboard
+
+```text
+Build Today Command Center with active cycle, day/phase, mission, tasks by tier, energy selector, recovery credits, and task completion.
+```
+
+---
+
+# 6. What to avoid during implementation
+
+Stop Codex if it starts doing any of this:
+
+```text
+Creating a public signup page.
+Adding billing/payment/subscription logic.
+Adding teams, tenants, roles, organizations, or admin panels.
+Adding Kubernetes.
+Adding microservices.
+Adding a queue before there is a real need.
+Adding Caddy or Nginx files. Production reverse proxy must be Traefik unless a future ADR supersedes ADR-0012.
+Parsing GPT Markdown instead of validating JSON.
+Logging raw reflections or sensitive digital-detox text.
+Skipping raw import storage.
+Skipping idempotency.
+Skipping backups.
+Skipping restore testing.
+Building advanced analytics before the daily loop works.
+Building embeddings/vector search before context summaries work.
+Refactoring unrelated files during a small task.
+Working directly on main for normal feature work.
+Changing accepted ADR decisions without asking.
+```
+
+---
+
+# 7. One prompt to use when Codex gets confused
+
+```text
+Stop and re-align.
+
+Read:
+- AGENTS.md
+- PROJECT_CONTEXT_SHORT.md
+- CODEX_START_HERE.md
+- docs/09_ENGINEERING_BEST_PRACTICES.md
+- docs/10_GIT_WORKFLOW.md
+- docs/15_ADR_PROCESS_AND_REASONING.md
+
+Current task:
+[paste the current small task]
+
+Rules:
+- Do not build unrelated features.
+- Do not change the architecture.
+- Keep the app single-user/private.
+- Store raw GPT imports before normalization.
+- Validate payloads.
+- Keep browser Authentik auth separate from GPT machine auth.
+- Do not store hidden chain-of-thought.
+- Update PROJECT_CONTEXT_SHORT.md after the task.
+
+Now summarize the correct scope before editing files.
+```
+
+---
+
+# 8. One prompt to use before production
+
+```text
+Perform a production readiness review.
+
+Read:
+- AGENTS.md
+- PROJECT_CONTEXT_SHORT.md
+- docs/02_SYSTEM_ARCHITECTURE.md
+- docs/07_ENVIRONMENTS_DEPLOYMENT.md
+- docs/08_AUTOMATION_AND_SCRIPTS.md
+- docs/09_ENGINEERING_BEST_PRACTICES.md
+- docs/15_ADR_PROCESS_AND_REASONING.md
+
+Check:
+- HTTPS through reverse proxy
+- Authentik OIDC browser login
+- GPT machine ingest token
+- DB internal-only
+- no secrets in Git
+- migrations safe
+- backup works
+- restore tested
+- logs redacted
+- health/readiness endpoints work
+- CI/make check passes
+
+Output:
+- blockers
+- warnings
+- manual steps
+- exact files to review
+- whether production deploy is safe
+```
+
+---
+
+# 9. ADR rule during implementation
+
+Create a new ADR only when Codex or the user makes a decision that changes:
+
+- architecture
+- database/ORM/storage
+- authentication/security boundaries
+- production deployment/reverse proxy
+- GPT import contract
+- context memory rules
+- recovery/status model
+- branch/release workflow
+
+Do not create ADRs for routine implementation details.
+
+ADR reasoning must be user-visible rationale only: context, decision, consequences, alternatives, and review trigger. It must not contain hidden chain-of-thought.
+
+```
+
+
+---
+
+# FILE: docs/17_CODEX_EXECUTION_RUNBOOK.md
+
+```text
+# 17 - Codex Execution Runbook
+
+## Purpose
+Define the repeatable Codex CLI execution loop for building Reset90 from the documentation pack without scope creep.
+
+## Scope
+Covers how to start a task, choose a branch, feed Codex context, review changes, run checks, commit, merge, update docs, and stop when scope drifts.
+
+## Assumptions
+The repository contains this handoff pack, the user will work locally with Git, and `docs/16_BEST_IMPLEMENTATION_ORDER.md` is the source of truth for build order.
+
+## Success Criteria
+Each Codex session produces one small, reviewable increment; accepted ADRs remain respected; `PROJECT_CONTEXT_SHORT.md` stays current; `main` remains production-ready.
+
+## Deliverables
+Task loop, branch loop, prompt pattern, review checklist, commit checklist, and troubleshooting prompts.
+
+# Codex execution loop
+
+## 1. Start from the right branch
+
+Normal work starts from `local`:
+
+```bash
+git switch local
+git pull origin local
+git switch -c feature/<slug>
+```
+
+Use `cleanup/<slug>`, `fix/<slug>`, `refactor/<slug>`, `chore/<slug>`, or `docs/<slug>` when that better matches the work.
+
+Emergency production fixes may branch from `main`, then merge back into both `main` and `local`.
+
+## 2. Give Codex minimal context
+
+Use this pattern:
+
+```text
+Read first:
+- AGENTS.md
+- PROJECT_CONTEXT_SHORT.md
+- CODEX_START_HERE.md
+
+Then read only the relevant phase in:
+- docs/16_BEST_IMPLEMENTATION_ORDER.md
+
+Also read relevant ADRs from docs/adr/ before editing.
+
+Current task:
+[paste one phase or one subtask]
+
+Rules:
+- Keep changes small.
+- Do not build unrelated features.
+- Follow accepted ADRs.
+- Run checks.
+- Update PROJECT_CONTEXT_SHORT.md.
+```
+
+Do not feed `ALL_FILES_READY_TO_SAVE.md` to Codex during implementation.
+
+## 3. Require a plan before edits
+
+Ask Codex to summarize:
+
+- files it expects to touch;
+- checks it will run;
+- assumptions;
+- which ADRs apply;
+- what it will not do.
+
+## 4. Review changes before commit
+
+Run:
+
+```bash
+git status
+git diff --stat
+git diff
+```
+
+Reject or revert unrelated changes. Stop Codex if it adds SaaS, public signup, teams, payments, Kubernetes, microservices, Caddy/Nginx, or raw hidden reasoning storage.
+
+## 5. Run checks
+
+Preferred:
+
+```bash
+make check
+```
+
+If `make check` does not exist yet, run the closest available commands and ask Codex to add the Makefile target in the appropriate phase.
+
+## 6. Commit meaningfully
+
+Use Conventional Commits:
+
+```bash
+git add .
+git commit -m "feat(imports): validate GPT daily plan payloads"
+```
+
+Commit size guidance:
+
+- one concept per commit;
+- docs updates can be included with related code;
+- avoid giant mixed commits;
+- do not commit secrets, backups, exports, or logs.
+
+## 7. Merge into local
+
+After checks pass:
+
+```bash
+git switch local
+git merge --no-ff feature/<slug>
+```
+
+Delete short-lived branches after merge when no longer needed.
+
+## 8. Release to production main
+
+Only after production readiness:
+
+```bash
+git switch local
+make check
+git switch main
+git pull origin main
+git merge --no-ff local
+git push origin main
+```
+
+`main` is production. Do not merge experimental work into `main`.
+
+# Re-alignment prompt
+
+Use this when Codex drifts:
+
+```text
+Stop and re-align.
+
+Read:
+- AGENTS.md
+- PROJECT_CONTEXT_SHORT.md
+- docs/16_BEST_IMPLEMENTATION_ORDER.md
+- docs/adr/README.md
+
+Current task:
+[paste task]
+
+Rules:
+- Do not change architecture.
+- Follow accepted ADRs.
+- Keep Reset90 single-user/private.
+- Use Prisma, PostgreSQL, Docker Compose, Traefik, Authentik OIDC, and GPT machine ingest auth.
+- Store raw GPT imports before normalization.
+- Validate imports with JSON Schema/Zod.
+- Do not store hidden chain-of-thought.
+- Update PROJECT_CONTEXT_SHORT.md.
+
+Summarize the correct scope before editing files.
+```
+
+```
+
+
+---
+
+# FILE: docs/adr/0001-modular-monolith.md
+
+```text
+# ADR 0001: Use a Modular Monolith
+
+## Status
+Accepted
+
+## Context
+Reset90 is a private single-user self-hosted webapp. It does not need independent scaling, teams, billing, tenant isolation, or separate service ownership.
+
+## Decision
+Build one deployable web application service backed by PostgreSQL. Keep internal modules separated by domain, but do not split them into microservices.
+
+## Consequences
+This keeps development, deployment, debugging, backups, and Codex implementation simpler. If the app grows significantly, modules can later be extracted, but MVP should not pay that complexity cost.
+
+## Alternatives considered
+Microservices, separate API/backend/frontend repos, queues, Kubernetes. Rejected as over-engineering for MVP.
+
+```
+
+
+---
+
+# FILE: docs/adr/0002-postgresql-source-of-truth.md
+
+```text
+# ADR 0002: PostgreSQL Is the Source of Truth
+
+## Status
+Accepted
+
+## Context
+The app needs durable storage for daily plans, reflections, status, imports, context snapshots, decisions, and exports.
+
+## Decision
+Use PostgreSQL as the primary source of truth. Custom GPT conversations can generate and analyze data, but they are not the database.
+
+## Consequences
+The app remains independent from ChatGPT conversation history. Backups, exports, analytics, and recovery become reliable.
+
+## Alternatives considered
+Local files only, ChatGPT project history only, vector database as primary storage. Rejected because they are weaker for transactional product state.
+
+```
+
+
+---
+
+# FILE: docs/adr/0003-json-schema-import-contracts.md
+
+```text
+# ADR 0003: Use JSON Schema for GPT Import Contracts
+
+## Status
+Accepted
+
+## Context
+Custom GPT imports are generated by an LLM and must be deterministic enough for a database-backed app.
+
+## Decision
+Define canonical JSON Schema files for every import type. Validate every import before normalization. Store raw imports before processing.
+
+## Consequences
+Imports become testable, replayable, and versionable. Codex can implement validators and example payload tests.
+
+## Alternatives considered
+Free-form Markdown imports, loose JSON parsing, natural-language extraction inside the app. Rejected because they are fragile and hard to debug.
+
+```
+
+
+---
+
+# FILE: docs/adr/0004-separate-auth-boundaries.md
+
+```text
+# ADR 0004: Separate Browser Auth and GPT Ingest Auth
+
+## Status
+Accepted
+
+## Context
+The browser UI and GPT action endpoint have different trust boundaries.
+
+## Decision
+Use Authentik OIDC for browser/UI authentication. Use a separate machine-authenticated ingest channel for Custom GPT actions.
+
+## Consequences
+The app can secure browser sessions and machine imports independently. GPT cannot accidentally rely on browser cookies.
+
+## Alternatives considered
+Only Authentik forward-auth for everything, or only a shared app password. Rejected because ingest endpoints need API-specific controls and idempotency.
+
+```
+
+
+---
+
+# FILE: docs/adr/0005-observability-ladder.md
+
+```text
+# ADR 0005: Use an Observability Ladder
+
+## Status
+Accepted
+
+## Context
+Reset90 needs operational visibility, but full Prometheus/Grafana/OpenTelemetry from day one may overcomplicate MVP.
+
+## Decision
+Start with health endpoints, Docker health checks, and structured logs. Add Uptime Kuma and Dozzle for practical self-hosted monitoring. Add Prometheus/Grafana/OpenTelemetry later only if the app becomes operationally important enough.
+
+## Consequences
+MVP stays simple while still having a path to mature observability.
+
+## Alternatives considered
+No monitoring, or full observability stack immediately. Rejected because both extremes are wrong for a personal MVP.
+
+```
+
+
+---
+
+# FILE: docs/adr/0006-context-summaries-not-chain-of-thought.md
+
+```text
+# ADR 0006: Store Context Summaries, Not Hidden Chain-of-Thought
+
+## Status
+Accepted
+
+## Context
+The user wants the app to remember conversation and thinking context. Hidden model chain-of-thought is not available and should not be stored or requested.
+
+## Decision
+Store user-visible summaries: reasoning summaries, cleaned reflections, decisions, context snapshots, tags, and source import references. Do not store hidden chain-of-thought.
+
+## Consequences
+The app gets useful memory without depending on inaccessible private reasoning. GPT context packets remain compact and safe.
+
+## Alternatives considered
+Trying to store raw hidden reasoning. Rejected because it is not available, not appropriate, and unnecessary.
+
+```
+
+
+---
+
+# FILE: docs/adr/0007-prisma-orm.md
+
+```text
+# ADR 0007: Use Prisma ORM
+
+## Status
+
+Accepted
+
+## Context
+
+Reset90 needs typed PostgreSQL access and a migration workflow inside its Next.js modular monolith. Existing architecture docs allow Prisma or Drizzle but do not select one.
+
+## Decision
+
+Use Prisma ORM for schema management, migrations, and typed database access. Keep PostgreSQL as the source of truth. Database models and runtime connection wiring are deferred to the database scaffold task.
+
+## Consequences
+
+The app gets one documented schema and migration workflow with generated TypeScript types. Database access will depend on Prisma tooling and its PostgreSQL adapter.
+
+## Alternatives considered
+
+Drizzle ORM. It offers a lighter SQL-oriented API, but Prisma's schema and migration workflow is a better fit for this small single-service app and its planned Codex-driven implementation.
+
+```
+
+
+---
+
+# FILE: docs/adr/0008-main-production-local-dev-branch.md
+
+```text
+# ADR 0008: Use main as Production and local as Persistent Developer Branch
+
+## Status
+Accepted
+
+## Context
+The user wants a simple but explicit Git workflow where `main` represents production and `local` is a persistent developer-only integration branch. Codex may otherwise default to generic trunk-based or GitHub Flow assumptions.
+
+## Decision
+Use `main` as the production branch. Use `local` as the persistent developer-only branch for integrating completed work before production release. Use short-lived branches from `local` for normal work: `feature/<slug>`, `cleanup/<slug>`, `fix/<slug>`, `refactor/<slug>`, `chore/<slug>`, and `docs/<slug>`. Emergency production fixes may branch from `main`, then merge back into both `main` and `local`.
+
+## Consequences
+The workflow matches the user's preference and gives Codex a stable place for development work without treating every local experiment as production-ready. It is slightly less standard than pure trunk-based development, so documentation and branch hygiene matter.
+
+## Alternatives considered
+Pure trunk-based development directly on `main`, Git Flow with `develop` and release branches, and only local unpushed branches. Rejected because they either conflict with the user's requested model or add unnecessary complexity.
+
+```
+
+
+---
+
+# FILE: docs/adr/0009-custom-gpt-as-coach-webapp-as-dashboard.md
+
+```text
+# ADR 0009: Custom GPT Is the Coach, Webapp Is the Dashboard and Storage Layer
+
+## Status
+Accepted
+
+## Context
+Reset90 depends on a Custom GPT for daily planning, reflection cleanup, pattern analysis, and weekly review generation. The webapp should not accidentally become a full chatbot, LLM orchestration platform, or journaling AI product.
+
+## Decision
+Keep Custom GPT responsible for coaching, planning, interpretation, reflection cleanup, motivation, and pattern synthesis. Keep the webapp responsible for authenticated storage, dashboards, task/check-in execution, analytics, imports, exports, backups, and context packet generation.
+
+## Consequences
+The webapp remains simpler, private, and self-hostable. GPT behavior can evolve without requiring the app to host an LLM. The app must expose stable import/export contracts and store durable summaries so future GPT sessions can regain context.
+
+## Alternatives considered
+Embedding a full chat interface in the app, calling OpenAI directly from the app for every coaching function, or using only ChatGPT history as the app memory. Rejected because they increase scope, cost, privacy risk, and implementation complexity.
+
+```
+
+
+---
+
+# FILE: docs/adr/0010-minimum-standard-ideal-task-model.md
+
+```text
+# ADR 0010: Use Minimum, Standard, and Ideal Task Tiers
+
+## Status
+Accepted
+
+## Context
+The user wants Reset90 to work on low-energy days without creating all-or-nothing failure loops. A normal habit checklist would be too rigid and may reinforce shame after missed tasks.
+
+## Decision
+Every daily plan should support minimum, standard, and ideal task tiers. The Today Command Center should make the minimum version valid, visible, and easy to choose. Completion, analytics, and day status logic must treat minimum completion as real progress, not failure.
+
+## Consequences
+The app supports adaptive daily execution while preserving the fixed 90-day skeleton. Data modeling and UI must represent task tiers explicitly. Analytics should distinguish minimum days from abandoned days.
+
+## Alternatives considered
+Single fixed task list, points-only scoring, and strict streak-based completion. Rejected because they are less forgiving and do not match the reset design.
+
+```
+
+
+---
+
+# FILE: docs/adr/0011-recovery-days-instead-of-harsh-streaks.md
+
+```text
+# ADR 0011: Use Recovery Days Instead of Harsh Streak Failure
+
+## Status
+Accepted
+
+## Context
+Reset90 should help the user recover quickly after bad days. Harsh streak mechanics can turn one missed day into a longer collapse.
+
+## Decision
+Use recovery-aware day statuses instead of classic streak failure. Supported statuses are `GREEN`, `YELLOW`, `BLUE`, `RED`, `GOLD`, and `UNSET`. `BLUE` means intentional recovery. `GOLD` means comeback. Recovery credits may be limited and tracked, but the app must not say the user failed, wasted the day, or must restart from day one.
+
+## Consequences
+The app becomes behaviorally aligned with the reset goal. Recovery and comeback logic must be part of the data model, UI, analytics, and copy rules. The app can still show honesty through recovery usage and red days without shame language.
+
+## Alternatives considered
+Classic streak counters, hard resets, failure badges, and daily percentage-only scoring. Rejected because they create the wrong psychological pressure for this app.
+
+```
+
+
+---
+
+# FILE: docs/adr/0012-docker-compose-and-traefik-deployment.md
+
+```text
+# ADR 0012: Use Docker Compose and Traefik for Local and Production Deployment
+
+## Status
+Accepted
+
+## Context
+Reset90 is a private self-hosted app intended to run on the user's server. The user prefers practical self-hosting and already uses reverse-proxy style infrastructure. The implementation order assumes Traefik for production routing.
+
+## Decision
+Use Docker Compose for both local development and production deployment. Local is developer-only and may expose ports to the developer machine. Production is the live environment and should run behind Traefik with HTTPS labels, an external Traefik network, internal-only PostgreSQL, persistent volumes, health checks, and backup/restore scripts.
+
+## Consequences
+Deployment remains understandable and reproducible without Kubernetes. The app can be run locally and promoted to production with similar concepts. Production Compose must not expose PostgreSQL publicly and must not introduce Caddy or Nginx unless a future ADR supersedes this decision.
+
+## Alternatives considered
+Manual Node/PostgreSQL installation, Caddy or Nginx reverse proxy, Kubernetes, Docker Swarm, and serverless hosting. Rejected because Docker Compose plus Traefik best matches the project's current self-hosted scope.
+
+```
+
+
+---
+
+# FILE: docs/adr/0013-docs-as-code-codex-memory.md
+
+```text
+# ADR 0013: Use Docs-as-Code and Codex Handoff Docs as Project Memory
+
+## Status
+Accepted
+
+## Context
+Reset90 is being built through many Codex CLI sessions. Without stable docs, Codex may forget scope, duplicate decisions, or overbuild features.
+
+## Decision
+Keep product requirements, architecture, data model, API contracts, ADRs, implementation order, prompts, and operational guidance as Markdown docs in the repo. `AGENTS.md`, `PROJECT_CONTEXT_SHORT.md`, and `CODEX_START_HERE.md` are the high-frequency Codex context files. `ALL_FILES_READY_TO_SAVE.md` is archival and should not be read during normal implementation.
+
+## Consequences
+Codex can work with concise reusable context and update project state as implementation progresses. Documentation becomes part of the engineering workflow, not a separate afterthought. The user must keep `PROJECT_CONTEXT_SHORT.md` current after meaningful work.
+
+## Alternatives considered
+Relying on chat history only, storing all context in a single giant document, or keeping no project memory. Rejected because they waste tokens and make Codex less reliable across sessions.
+
+```
+
+
+---
+
+# FILE: docs/adr/README.md
+
+```text
+# ADR Index
+
+## Purpose
+Index Reset90 Architecture Decision Records and define the ADR reading rules for Codex CLI.
+
+## Scope
+Lists accepted ADRs, status meanings, and when Codex must read or create ADRs.
+
+## Assumptions
+Reset90 is a private single-user self-hosted app, but it still needs lightweight architectural memory because implementation will happen across multiple Codex sessions.
+
+## Success Criteria
+Codex can quickly locate the relevant decision record before changing architecture, data, auth, deployment, GPT integration, Git workflow, or core product behavior.
+
+## Deliverables
+ADR index, accepted decision list, and update rules.
+
+## Reading rule
+
+Read this file before architecture, deployment, database, auth, AI integration, context memory, Git workflow, or core product behavior work.
+
+Accepted ADRs are implementation constraints. Do not contradict them without asking the user first.
+
+## Accepted ADRs
+
+| ADR | Decision | Status |
+|---|---|---|
+| ADR-0001 | Use a modular monolith | Accepted |
+| ADR-0002 | PostgreSQL is the source of truth | Accepted |
+| ADR-0003 | Use JSON Schema for GPT import contracts | Accepted |
+| ADR-0004 | Separate browser auth and GPT ingest auth | Accepted |
+| ADR-0005 | Use an observability ladder | Accepted |
+| ADR-0006 | Store context summaries, not hidden chain-of-thought | Accepted |
+| ADR-0007 | Use Prisma ORM | Accepted |
+| ADR-0008 | Use `main` as production and `local` as persistent developer branch | Accepted |
+| ADR-0009 | Custom GPT is the coach; webapp is dashboard/storage | Accepted |
+| ADR-0010 | Use minimum/standard/ideal task tiers | Accepted |
+| ADR-0011 | Use recovery days instead of harsh streak failure | Accepted |
+| ADR-0012 | Use Docker Compose and Traefik for local/production deployment | Accepted |
+| ADR-0013 | Use docs-as-code and Codex handoff docs as project memory | Accepted |
+
+## Status definitions
+
+- `Accepted`: current implementation rule.
+- `Proposed`: discuss or confirm before implementing.
+- `Superseded`: do not follow; read the replacement ADR.
+- `Deprecated`: avoid for new work.
+- `Rejected`: considered and intentionally not used.
+
+## Update rule
+
+If implementation requires contradicting an accepted ADR, stop and ask the user. Do not silently rewrite the architecture.
+
+If a durable new architecture, product, security, deployment, data, or workflow decision is made, create a new ADR from `docs/adr/TEMPLATE.md`.
+
+```
+
+
+---
+
+# FILE: docs/adr/TEMPLATE.md
+
+```text
+# ADR Template
+
+## Purpose
+Provide a copyable template for future Reset90 Architecture Decision Records.
+
+## Scope
+Applies to new architecture, product, deployment, Git, security, data, or AI integration decisions.
+
+## Assumptions
+ADRs should be short, user-visible, and useful to Codex; they should not contain private hidden reasoning logs.
+
+## Success Criteria
+New ADRs are consistent and easy to review.
+
+## Deliverables
+Reusable ADR template.
+
+# ADR-NNNN: Title
+
+## Status
+Proposed | Accepted | Superseded | Deprecated | Rejected
+
+## Date
+YYYY-MM-DD
+
+## Context
+What problem, constraint, or recurring risk forced this decision?
+
+## Decision
+What is the decision?
+
+## ADR Reasoning
+Why is this the right tradeoff for Reset90? Keep this concise and user-visible.
+
+## Consequences
+What improves? What gets harder? What risks remain?
+
+## Alternatives Considered
+What other options were considered and rejected?
+
+## Implementation Notes
+What should Codex actually do in code/docs/scripts?
+
+## Review Trigger
+When should this ADR be revisited?
+
+```
+
+
+---
+
+# FILE: examples/.env.local.example
+
+```text
+# Local developer-only environment
+NODE_ENV=development
+AUTH_MODE=dev
+APP_URL=http://localhost:3000
+PORT=3000
+LOG_LEVEL=debug
+
+POSTGRES_USER=reset90
+POSTGRES_PASSWORD=reset90_dev_password
+POSTGRES_DB=reset90
+DATABASE_URL=postgresql://reset90:reset90_dev_password@localhost:5432/reset90
+
+GPT_INGEST_TOKEN=local-dev-token-change-me
+GPT_INGEST_MAX_BODY_BYTES=1048576
+
+EXPORT_DIR=./exports
+BACKUP_DIR=./backups
+
+APP_VERSION=0.1.0
+GIT_COMMIT=local
+
+```
+
+
+---
+
+# FILE: examples/.env.production.example
+
+```text
+# Production live environment - copy to .env.production and fill real values
+NODE_ENV=production
+AUTH_MODE=oidc
+APP_URL=https://reset90.example.com
+PORT=3000
+LOG_LEVEL=info
+
+POSTGRES_USER=reset90
+POSTGRES_PASSWORD=change-me-long-random-password
+POSTGRES_DB=reset90
+DATABASE_URL=postgresql://reset90:change-me-long-random-password@db:5432/reset90
+
+AUTHENTIK_ISSUER=https://auth.example.com/application/o/reset90/
+AUTHENTIK_CLIENT_ID=reset90
+AUTHENTIK_CLIENT_SECRET=change-me
+SESSION_SECRET=change-me-long-random-value
+
+GPT_INGEST_TOKEN=change-me-long-random-value
+GPT_INGEST_MAX_BODY_BYTES=1048576
+
+EXPORT_DIR=/app/exports
+BACKUP_DIR=/app/backups
+
+APP_VERSION=0.1.0
+GIT_COMMIT=production
+
+# Traefik production routing
+RESET90_HOST=reset90.example.com
+TRAEFIK_NETWORK=traefik_proxy
+TRAEFIK_ENTRYPOINT=websecure
+TRAEFIK_CERT_RESOLVER=letsencrypt
+
+```
+
+
+---
+
+# FILE: examples/.github/PULL_REQUEST_TEMPLATE.md
+
+```text
+# Pull Request Template
+
+    ## Purpose
+    Standardize review information for Reset90 changes.
+
+    ## Scope
+    - Applies to pull requests or self-review before merging branches.
+
+    ## Assumptions
+    - Even solo development benefits from a review checklist.
+
+    ## Success Criteria
+    - Every merge has clear scope, tests, deployment notes, and rollback notes.
+
+    ## Deliverables
+    - PR summary fields and checklist.
+
+    ## Summary
+
+What changed and why?
+
+## Scope
+
+- [ ] Product/UI
+- [ ] API
+- [ ] Database/migration
+- [ ] GPT import schema
+- [ ] Context memory
+- [ ] Scripts/deployment
+- [ ] Docs only
+
+## Testing
+
+- [ ] Lint passed
+- [ ] Format check passed
+- [ ] Typecheck passed
+- [ ] Tests passed
+- [ ] Build passed
+- [ ] Payload examples validated
+- [ ] Manual UI check done
+
+## Screenshots
+
+Add screenshots for UI changes.
+
+## Migration notes
+
+Does this include database migrations? If yes, explain.
+
+## Deployment notes
+
+Any production steps required?
+
+## Rollback notes
+
+How can this be reverted safely?
+
+## Checklist
+
+- [ ] No secrets committed
+- [ ] Docs updated if behavior changed
+- [ ] Logs do not expose sensitive data
+- [ ] GPT payload schemas updated if needed
+
+```
+
+
+---
+
+# FILE: examples/.github/workflows/ci.yml
+
+```yaml
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main, local]
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: reset90
+          POSTGRES_PASSWORD: reset90_dev_password
+          POSTGRES_DB: reset90_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      NODE_ENV: test
+      DATABASE_URL: postgresql://reset90:reset90_dev_password@localhost:5432/reset90_test
+      GPT_INGEST_TOKEN: test-token
+      SESSION_SECRET: test-session-secret
+      AUTH_MODE: dev
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run migrations
+        run: npm run db:migrate --if-present
+
+      - name: Lint
+        run: npm run lint --if-present
+
+      - name: Format check
+        run: npm run format:check --if-present
+
+      - name: Typecheck
+        run: npm run typecheck --if-present
+
+      - name: Test
+        run: npm test --if-present
+
+      - name: Validate GPT payload examples
+        run: npm run validate:payloads --if-present
+
+      - name: Build
+        run: npm run build --if-present
+
+```
+
+
+---
+
+# FILE: examples/Makefile
+
+```text
+SHELL := /usr/bin/env bash
+
+.PHONY: help setup-local install dev check lint format typecheck test build db-migrate db-seed db-reset db-backup db-restore validate-payloads prod-build prod-up prod-down prod-logs prod-health deploy-production export-full docs-bundle
+
+help:
+	@echo "Reset90 commands"
+	@echo "  make setup-local             Setup local developer environment"
+	@echo "  make dev                     Start local development"
+	@echo "  make check                   Run lint, typecheck, tests, build, payload validation"
+	@echo "  make db-backup               Create database backup"
+	@echo "  make db-restore FILE=x       Restore database backup"
+	@echo "  make deploy-production       Deploy production with backup and healthcheck"
+	@echo "  make docs-bundle             Generate all-in-one docs bundle"
+
+setup-local:
+	./scripts/setup-local.sh
+
+install:
+	npm install
+
+dev:
+	docker compose -f docker-compose.local.yml up -d db
+	npm run dev
+
+check: lint typecheck test validate-payloads build
+
+lint:
+	npm run lint
+
+format:
+	npm run format
+
+typecheck:
+	npm run typecheck
+
+test:
+	npm test
+
+build:
+	npm run build
+
+validate-payloads:
+	npm run validate:payloads
+
+db-migrate:
+	npm run db:migrate
+
+db-seed:
+	npm run db:seed
+
+db-reset:
+	npm run db:reset
+
+db-backup:
+	./scripts/backup-db.sh
+
+db-restore:
+	@if [ -z "$(FILE)" ]; then echo "Usage: make db-restore FILE=backup.sql.gz"; exit 1; fi
+	./scripts/restore-db.sh "$(FILE)"
+
+prod-build:
+	docker compose -f docker-compose.production.yml build
+
+prod-up:
+	docker compose -f docker-compose.production.yml up -d
+
+prod-down:
+	docker compose -f docker-compose.production.yml down
+
+prod-logs:
+	docker compose -f docker-compose.production.yml logs -f --tail=200 app
+
+prod-health:
+	./scripts/healthcheck.sh
+
+deploy-production:
+	./scripts/deploy-production.sh
+
+export-full:
+	./scripts/export-data.sh
+
+docs-bundle:
+	./scripts/generate-docs-bundle.sh
+
+```
+
+
+---
+
+# FILE: examples/daily_plan_payload.json
+
+```json
+{
+  "kind": "daily_plan",
+  "schema_version": "1.0",
+  "idempotency_key": "2026-07-01-day-1-morning-plan-v1",
+  "source": "custom_gpt",
+  "external_conversation_id": "chatgpt-project-reset90-main",
+  "payload": {
+    "date": "2026-07-01",
+    "day_number": 1,
+    "phase": "Clear the Fog",
+    "energy_level": "normal",
+    "mission": "Interrupt the drift with one body action, one focus action, and one reflection.",
+    "supportive_message": "Today does not need to repay yesterday. It only needs one honest start.",
+    "downshift_rule": "If energy drops, switch to the minimum plan without marking the day as failed.",
+    "non_negotiables": [
+      {
+        "title": "Move body in some form",
+        "domain": "body",
+        "tier": "non_negotiable",
+        "estimate_minutes": 10
+      },
+      {
+        "title": "Avoid porn spiral",
+        "domain": "digital",
+        "tier": "non_negotiable"
+      },
+      {
+        "title": "Complete evening GPT reflection",
+        "domain": "mood",
+        "tier": "non_negotiable",
+        "estimate_minutes": 5
+      }
+    ],
+    "minimum_plan": [
+      {
+        "title": "Stretch or walk for 10 minutes",
+        "domain": "body",
+        "tier": "minimum",
+        "estimate_minutes": 10,
+        "trigger": "After breakfast",
+        "why": "Rebuild body activation without pressure."
+      },
+      {
+        "title": "Do one 10-minute learning action",
+        "domain": "learning",
+        "tier": "minimum",
+        "estimate_minutes": 10,
+        "trigger": "Before entertainment",
+        "why": "Reduce learning resistance with a tiny start."
+      }
+    ],
+    "standard_plan": [
+      {
+        "title": "Run, swim, walk, or train for 30 minutes",
+        "domain": "body",
+        "tier": "standard",
+        "estimate_minutes": 30
+      },
+      {
+        "title": "Complete one work or study focus block",
+        "domain": "work",
+        "tier": "standard",
+        "estimate_minutes": 45
+      },
+      {
+        "title": "Do evening reflection with GPT",
+        "domain": "mood",
+        "tier": "standard",
+        "estimate_minutes": 10
+      }
+    ],
+    "ideal_plan": [
+      {
+        "title": "Add a second focus block or explain what you learned to GPT",
+        "domain": "learning",
+        "tier": "ideal",
+        "estimate_minutes": 45
+      },
+      {
+        "title": "Prepare tomorrow's first action",
+        "domain": "system",
+        "tier": "ideal",
+        "estimate_minutes": 10
+      }
+    ],
+    "context_summary": "Day 1 should be light. The goal is to interrupt drift and create a clean first data point, not to prove everything at once."
+  }
+}
+
+```
+
+
+---
+
+# FILE: examples/daily_reflection_payload.json
+
+```json
+{
+  "kind": "daily_reflection",
+  "schema_version": "1.0",
+  "idempotency_key": "2026-07-01-day-1-evening-reflection-v1",
+  "source": "custom_gpt",
+  "external_conversation_id": "chatgpt-project-reset90-evening",
+  "payload": {
+    "date": "2026-07-01",
+    "day_number": 1,
+    "day_status_recommendation": "yellow",
+    "summary": "The user completed the minimum version and avoided abandoning the day. The most important win was showing up despite fog.",
+    "scores": {
+      "mood": 5,
+      "fog": 7,
+      "loneliness": 6,
+      "self_criticism": 5,
+      "digital_control": 4,
+      "learning_resistance": 7,
+      "body_relationship": 5,
+      "work_confidence": 5
+    },
+    "what_happened": "The day started foggy and slow, but one small movement action helped create momentum.",
+    "what_worked": [
+      "Starting with a minimum task",
+      "Not trying to catch up all at once"
+    ],
+    "what_blocked_me": [
+      "Phone distraction",
+      "Resistance toward studying"
+    ],
+    "tomorrow_adjustment": "Put the learning action earlier and keep it at 10 minutes if resistance is high.",
+    "self_criticism_note": "Some thoughts about starting sooner appeared, but they did not fully derail the day.",
+    "context_items": [
+      {
+        "kind": "reasoning_summary",
+        "title": "Why Day 1 is yellow",
+        "summary": "Minimum actions were completed, so the day counts. The user did not need to force a standard day on the first day.",
+        "importance": 4,
+        "tags": [
+          "day-1",
+          "minimum",
+          "self-trust"
+        ]
+      }
+    ]
+  }
+}
+
+```
+
+
+---
+
+# FILE: examples/docker-compose.local.yml
+
+```yaml
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: reset90-db-local
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-reset90}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-reset90_dev_password}
+      POSTGRES_DB: ${POSTGRES_DB:-reset90}
+    ports:
+      - "5432:5432"
+    volumes:
+      - reset90_postgres_local:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-reset90} -d ${POSTGRES_DB:-reset90}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  reset90_postgres_local:
+
+```
+
+
+---
+
+# FILE: examples/docker-compose.production.yml
+
+```yaml
+services:
+  app:
+    image: reset90:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: reset90-app
+    restart: unless-stopped
+    env_file:
+      - .env.production
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - reset90_exports:/app/exports
+      - reset90_backups:/app/backups
+    networks:
+      - reset90_internal
+      - traefik
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=${TRAEFIK_NETWORK}"
+      - "traefik.http.routers.reset90.rule=Host(`${RESET90_HOST}`)"
+      - "traefik.http.routers.reset90.entrypoints=${TRAEFIK_ENTRYPOINT:-websecure}"
+      - "traefik.http.routers.reset90.tls=true"
+      - "traefik.http.routers.reset90.tls.certresolver=${TRAEFIK_CERT_RESOLVER:-letsencrypt}"
+      - "traefik.http.services.reset90.loadbalancer.server.port=3000"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/healthz || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+
+  db:
+    image: postgres:16-alpine
+    container_name: reset90-db
+    restart: unless-stopped
+    env_file:
+      - .env.production
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-reset90}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-reset90}
+    volumes:
+      - reset90_postgres:/var/lib/postgresql/data
+    networks:
+      - reset90_internal
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-reset90} -d ${POSTGRES_DB:-reset90}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  reset90_postgres:
+  reset90_exports:
+  reset90_backups:
+
+networks:
+  reset90_internal:
+    driver: bridge
+  traefik:
+    external: true
+    name: ${TRAEFIK_NETWORK:-traefik_proxy}
+
+```
+
+
+---
+
+# FILE: examples/schemas/context_packet.schema.json
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Context Packet",
+  "type": "object",
+  "required": [
+    "cycle",
+    "current_day",
+    "recent_summary",
+    "pinned_context"
+  ],
+  "properties": {
+    "cycle": {
+      "type": "object"
+    },
+    "current_day": {
+      "type": "object"
+    },
+    "recent_summary": {
+      "type": "string"
+    },
+    "pinned_context": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "open_decisions": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "recovery_state": {
+      "type": "object"
+    }
+  },
+  "additionalProperties": true
+}
+```
+
+
+---
+
+# FILE: examples/schemas/daily_plan.schema.json
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Daily Plan Payload",
+  "type": "object",
+  "required": [
+    "date",
+    "day_number",
+    "phase",
+    "mission",
+    "tasks"
+  ],
+  "properties": {
+    "date": {
+      "type": "string",
+      "format": "date"
+    },
+    "day_number": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 90
+    },
+    "phase": {
+      "type": "string"
+    },
+    "energy_level": {
+      "type": "string"
+    },
+    "mission": {
+      "type": "string"
+    },
+    "supportive_message": {
+      "type": "string"
+    },
+    "downshift_rule": {
+      "type": "string"
+    },
+    "tasks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "title",
+          "tier",
+          "domain"
+        ],
+        "properties": {
+          "title": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "tier": {
+            "type": "string",
+            "enum": [
+              "minimum",
+              "standard",
+              "ideal",
+              "non_negotiable",
+              "recovery"
+            ]
+          },
+          "domain": {
+            "type": "string",
+            "enum": [
+              "body",
+              "mood",
+              "digital",
+              "learning",
+              "work",
+              "environment",
+              "social",
+              "other"
+            ]
+          },
+          "estimated_minutes": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": true
+      }
+    }
+  },
+  "additionalProperties": true
+}
+```
+
+
+---
+
+# FILE: examples/schemas/daily_reflection.schema.json
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Daily Reflection Payload",
+  "type": "object",
+  "required": [
+    "date",
+    "summary"
+  ],
+  "properties": {
+    "date": {
+      "type": "string",
+      "format": "date"
+    },
+    "day_number": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 90
+    },
+    "summary": {
+      "type": "string"
+    },
+    "wins": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "blockers": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "tomorrow_adjustment": {
+      "type": "string"
+    },
+    "metrics": {
+      "type": "object"
+    }
+  },
+  "additionalProperties": true
+}
+```
+
+
+---
+
+# FILE: examples/schemas/import_envelope.schema.json
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://reset90.local/schemas/import_envelope.schema.json",
+  "title": "Reset90 Import Envelope",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "kind",
+    "source",
+    "idempotency_key",
+    "payload"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string"
+    },
+    "kind": {
+      "type": "string",
+      "enum": [
+        "daily_plan",
+        "daily_reflection",
+        "weekly_review",
+        "context_packet"
+      ]
+    },
+    "source": {
+      "type": "string",
+      "enum": [
+        "custom_gpt",
+        "manual",
+        "system"
+      ]
+    },
+    "idempotency_key": {
+      "type": "string",
+      "minLength": 8
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "payload": {
+      "type": "object"
+    }
+  },
+  "additionalProperties": false
+}
+```
+
+
+---
+
+# FILE: examples/schemas/weekly_review.schema.json
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Weekly Review Payload",
+  "type": "object",
+  "required": [
+    "week_number",
+    "summary"
+  ],
+  "properties": {
+    "week_number": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 13
+    },
+    "start_date": {
+      "type": "string",
+      "format": "date"
+    },
+    "end_date": {
+      "type": "string",
+      "format": "date"
+    },
+    "summary": {
+      "type": "string"
+    },
+    "wins": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "blockers": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "patterns": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "next_week_recommendations": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "additionalProperties": true
+}
+```
+
+
+---
+
+# FILE: examples/traefik/README.md
+
+```text
+# Traefik Production Notes
+
+## Purpose
+Document the expected Traefik assumptions for Reset90 production deployment.
+
+## Scope
+Covers labels, network assumptions, and environment variables for Docker Compose production deployment.
+
+## Assumptions
+A Traefik instance already exists on the host and listens on an external Docker network.
+
+## Success Criteria
+The app is exposed through Traefik over HTTPS while PostgreSQL remains internal-only.
+
+## Deliverables
+Traefik deployment assumptions and required environment variables.
+
+## Required variables
+
+```text
+RESET90_HOST=reset90.example.com
+TRAEFIK_NETWORK=traefik_proxy
+TRAEFIK_ENTRYPOINT=websecure
+TRAEFIK_CERT_RESOLVER=letsencrypt
+```
+
+## Rules
+
+- Attach the app service to the external Traefik network.
+- Do not expose PostgreSQL ports publicly.
+- Do not add Caddy or Nginx unless a future ADR supersedes ADR-0012.
+- Keep health checks enabled.
+
+```
+
+
+---
+
+# FILE: examples/weekly_review_payload.json
+
+```json
+{
+  "kind": "weekly_review",
+  "schema_version": "1.0",
+  "idempotency_key": "2026-07-07-week-1-review-v1",
+  "source": "custom_gpt",
+  "external_conversation_id": "chatgpt-project-reset90-weekly",
+  "payload": {
+    "week_number": 1,
+    "date_from": "2026-07-01",
+    "date_to": "2026-07-07",
+    "summary": "Week 1 was about interrupting drift and proving that minimum days still count.",
+    "wins": [
+      "Used minimum tasks instead of abandoning",
+      "Tracked energy honestly",
+      "Completed several body actions"
+    ],
+    "blockers": [
+      "Phone spirals",
+      "Learning resistance",
+      "Self-criticism about starting late"
+    ],
+    "patterns": [
+      {
+        "title": "Learning resistance rises when tasks are vague",
+        "evidence": "Days with smaller learning actions had better completion."
+      },
+      {
+        "title": "Movement improves clarity",
+        "evidence": "Body actions were often followed by lower fog ratings."
+      }
+    ],
+    "recommended_changes": [
+      "Make learning tasks concrete and small",
+      "Keep recovery mode visible",
+      "Use body movement earlier in the day"
+    ],
+    "next_week_commitments": [
+      "One body action daily",
+      "One 10-25 minute learning action daily",
+      "Evening reflection daily"
+    ],
+    "metrics": {
+      "green_days": 2,
+      "yellow_days": 3,
+      "blue_days": 1,
+      "red_days": 1,
+      "gold_days": 0,
+      "recovery_credits_used": 1
+    },
+    "context_snapshot": {
+      "title": "Week 1 Context Snapshot",
+      "summary": "The user responds better to small starts and calm structure than to strict pressure.",
+      "reasoning_summary": "Next week should keep learning and sport actions small enough to reduce resistance while still proving continuation.",
+      "tags": [
+        "week-1",
+        "snapshot",
+        "learning",
+        "body",
+        "recovery"
+      ]
+    }
+  }
+}
+
+```

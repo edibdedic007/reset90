@@ -1,0 +1,21 @@
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: reset90-db-local
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-reset90}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-reset90_dev_password}
+      POSTGRES_DB: ${POSTGRES_DB:-reset90}
+    ports:
+      - "5432:5432"
+    volumes:
+      - reset90_postgres_local:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-reset90} -d ${POSTGRES_DB:-reset90}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  reset90_postgres_local:

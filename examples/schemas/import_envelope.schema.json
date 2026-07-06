@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://reset90.local/schemas/import_envelope.schema.json",
+  "title": "Reset90 Import Envelope",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "kind",
+    "source",
+    "idempotency_key",
+    "payload"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string"
+    },
+    "kind": {
+      "type": "string",
+      "enum": [
+        "daily_plan",
+        "daily_reflection",
+        "weekly_review",
+        "context_packet"
+      ]
+    },
+    "source": {
+      "type": "string",
+      "enum": [
+        "custom_gpt",
+        "manual",
+        "system"
+      ]
+    },
+    "idempotency_key": {
+      "type": "string",
+      "minLength": 8
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "payload": {
+      "type": "object"
+    }
+  },
+  "additionalProperties": false
+}

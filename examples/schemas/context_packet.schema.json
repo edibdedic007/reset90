@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Context Packet",
+  "type": "object",
+  "required": [
+    "cycle",
+    "current_day",
+    "recent_summary",
+    "pinned_context"
+  ],
+  "properties": {
+    "cycle": {
+      "type": "object"
+    },
+    "current_day": {
+      "type": "object"
+    },
+    "recent_summary": {
+      "type": "string"
+    },
+    "pinned_context": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "open_decisions": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "recovery_state": {
+      "type": "object"
+    }
+  },
+  "additionalProperties": true
+}

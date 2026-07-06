@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Daily Reflection Payload",
+  "type": "object",
+  "required": [
+    "date",
+    "summary"
+  ],
+  "properties": {
+    "date": {
+      "type": "string",
+      "format": "date"
+    },
+    "day_number": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 90
+    },
+    "summary": {
+      "type": "string"
+    },
+    "wins": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "blockers": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "tomorrow_adjustment": {
+      "type": "string"
+    },
+    "metrics": {
+      "type": "object"
+    }
+  },
+  "additionalProperties": true
+}

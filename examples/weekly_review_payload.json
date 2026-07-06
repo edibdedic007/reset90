@@ -1,0 +1,63 @@
+{
+  "kind": "weekly_review",
+  "schema_version": "1.0",
+  "idempotency_key": "2026-07-07-week-1-review-v1",
+  "source": "custom_gpt",
+  "external_conversation_id": "chatgpt-project-reset90-weekly",
+  "payload": {
+    "week_number": 1,
+    "date_from": "2026-07-01",
+    "date_to": "2026-07-07",
+    "summary": "Week 1 was about interrupting drift and proving that minimum days still count.",
+    "wins": [
+      "Used minimum tasks instead of abandoning",
+      "Tracked energy honestly",
+      "Completed several body actions"
+    ],
+    "blockers": [
+      "Phone spirals",
+      "Learning resistance",
+      "Self-criticism about starting late"
+    ],
+    "patterns": [
+      {
+        "title": "Learning resistance rises when tasks are vague",
+        "evidence": "Days with smaller learning actions had better completion."
+      },
+      {
+        "title": "Movement improves clarity",
+        "evidence": "Body actions were often followed by lower fog ratings."
+      }
+    ],
+    "recommended_changes": [
+      "Make learning tasks concrete and small",
+      "Keep recovery mode visible",
+      "Use body movement earlier in the day"
+    ],
+    "next_week_commitments": [
+      "One body action daily",
+      "One 10-25 minute learning action daily",
+      "Evening reflection daily"
+    ],
+    "metrics": {
+      "green_days": 2,
+      "yellow_days": 3,
+      "blue_days": 1,
+      "red_days": 1,
+      "gold_days": 0,
+      "recovery_credits_used": 1
+    },
+    "context_snapshot": {
+      "title": "Week 1 Context Snapshot",
+      "summary": "The user responds better to small starts and calm structure than to strict pressure.",
+      "reasoning_summary": "Next week should keep learning and sport actions small enough to reduce resistance while still proving continuation.",
+      "tags": [
+        "week-1",
+        "snapshot",
+        "learning",
+        "body",
+        "recovery"
+      ]
+    }
+  }
+}
