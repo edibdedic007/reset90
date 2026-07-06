@@ -41,15 +41,15 @@ Reset90 is a private self-hosted 90-day reset command center. It receives struct
 
 ## Current implementation status
 
-Phase 1 stack scaffold complete. Next.js 16 App Router, TypeScript, Tailwind
-CSS, ESLint, Prettier, Vitest, pnpm lockfile, placeholder UI, and status routes
-are present. PostgreSQL and Prisma runtime wiring remain deferred to later
-phases.
+Phase 2 local development environment complete. Next.js 16 App Router,
+TypeScript, Tailwind CSS, ESLint, Prettier, Vitest, and pnpm tooling are
+present. Local PostgreSQL runs through Docker Compose with loopback-only port
+binding. Prisma runtime wiring remains deferred to Phase 3.
 
 ## Current branch/task
 
-`feature/app-scaffold` — Phase 1 stack scaffold complete. Await explicit
-approval before Phase 2 local development environment work.
+`chore/local-development-env` — Phase 2 local environment complete. Await
+explicit approval before Phase 3 database foundation work.
 
 ## Important decisions
 
@@ -69,13 +69,12 @@ approval before Phase 2 local development environment work.
 
 ## Next recommended tasks
 
-1. Review and commit Phase 1.
-2. Merge `feature/app-scaffold` into `local` when approved.
-3. Await explicit approval before Phase 2.
-4. Phase 2: local development environment.
-5. Phase 3: database/Prisma migrations and seed data.
-6. Phase 4: canonical GPT import schemas and validators.
-7. Phase 5: raw import storage and idempotency.
+1. Review and commit Phase 2.
+2. Merge `chore/local-development-env` into `local` when approved.
+3. Await explicit approval before Phase 3.
+4. Phase 3: database/Prisma migrations and seed data.
+5. Phase 4: canonical GPT import schemas and validators.
+6. Phase 5: raw import storage and idempotency.
 
 Use `docs/16_BEST_IMPLEMENTATION_ORDER.md` as the source of truth.
 
@@ -122,3 +121,5 @@ Accepted ADR baseline:
 2026-07-06 - feature/repo-foundation - verified Phase 0 repository/docs baseline and removed conflicting legacy ADR duplicates - `make check`, whitespace, inventory, ADR uniqueness, and JSON syntax checks passed - next step: await Phase 1 approval
 
 2026-07-07 - feature/app-scaffold - added Phase 1 Next.js/TypeScript/Tailwind app shell, pnpm tooling, tests, and `/api/health` plus placeholder `/api/ready` routes - format, lint, typecheck, tests, build, and live endpoint smoke checks passed - next step: review/commit and await Phase 2 approval
+
+2026-07-07 - chore/local-development-env - completed Phase 2 local PostgreSQL Compose workflow, pnpm setup, Make lifecycle targets, and clean-start docs - Compose validation, local setup/readiness, lifecycle targets, and `make check` passed - next step: review/commit and await Phase 3 approval

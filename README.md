@@ -28,6 +28,38 @@
 - Best implementation order and Codex execution runbook.
 - ADR process guide and accepted architecture decision records.
 
+## Local development
+
+Prerequisites:
+
+- Node.js 20.9 or newer;
+- pnpm 11;
+- Docker with Docker Compose v2.
+
+Start from a clean clone:
+
+```bash
+cp .env.local.example .env.local
+# Review developer-only placeholders in .env.local.
+make setup-local
+make dev
+```
+
+`make setup-local` installs locked pnpm dependencies, starts PostgreSQL, and
+waits for database readiness. The app runs at `http://localhost:3000`.
+PostgreSQL binds only to `127.0.0.1:5432` by default.
+
+Local dependency commands:
+
+```bash
+make dev-up
+make logs
+make dev-down
+```
+
+Run quality gates with `make check`. Never commit `.env.local`; use only
+developer/test data in this environment.
+
     ## Directory tree
 
 ```text
