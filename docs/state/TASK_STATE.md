@@ -1,30 +1,37 @@
 # Task State
 
-Last updated: 2026-07-06
+Last updated: 2026-07-07
 
 ## Current phase
 
-Phase 0 complete: repository/docs baseline verified. App implementation has not started.
+Phase 1 complete: application stack scaffold implemented and verified.
 
 ## Active task
 
-No active implementation phase. Await explicit user approval before Phase 1.
+No active implementation phase. Await explicit user approval before Phase 2.
 
 ## Current branch
 
 ```bash
-feature/repo-foundation
+feature/app-scaffold
 ```
 
 ## Next actions
 
-1. Review and commit Phase 0 changes.
+1. Review and commit Phase 1 changes.
 2. Merge the completed branch into `local` when approved.
-3. Await explicit approval before Phase 1.
-4. After approval, create `feature/app-scaffold` from `local`.
+3. Await explicit approval before Phase 2.
+4. After approval, create `chore/local-development-env` from `local`.
 
 ## Completed
 
+- Phase 1 Next.js 16 App Router, TypeScript, Tailwind CSS, pnpm, ESLint,
+  Prettier, and Vitest scaffold created.
+- Placeholder home page added without business features.
+- `GET /api/health` returns safe minimal JSON with HTTP 200.
+- `GET /api/ready` reports database not configured with HTTP 503.
+- Format, lint, typecheck, unit tests, production build, and live route smoke
+  checks passed.
 - Phase 0 repository/docs baseline verified.
 - `main`, `local`, and `feature/repo-foundation` branch roles confirmed.
 - Canonical 13-file ADR baseline verified; conflicting legacy duplicate-number ADRs removed.
@@ -41,7 +48,6 @@ feature/repo-foundation
 
 ## Open questions for Codex to resolve only when needed
 
-- Package manager: prefer `pnpm` unless repo constraints indicate otherwise.
 - OIDC library: choose after checking current Next.js compatibility during auth phase.
 - UI component library: use Tailwind and shadcn/ui-compatible components unless a documented decision changes this.
 - Production reverse proxy: Traefik is the documented default; adapt only if the user's server uses something else.

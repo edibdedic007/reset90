@@ -39,40 +39,40 @@ install:
 
 dev:
 	@if [ -f docker-compose.local.yml ]; then docker compose -f docker-compose.local.yml up -d db || docker compose -f docker-compose.local.yml up -d; fi
-	@if [ -f package.json ]; then npm run dev; else echo "No package.json yet. Scaffold app first."; fi
+	@if [ -f package.json ]; then pnpm dev; else echo "No package.json yet. Scaffold app first."; fi
 
 check quality-check:
 	./scripts/quality-check.sh
 
 lint:
-	@if [ -f package.json ]; then npm run lint --if-present; else echo "No package.json yet."; fi
+	@if [ -f package.json ]; then pnpm run lint --if-present; else echo "No package.json yet."; fi
 
 format:
-	@if [ -f package.json ]; then npm run format --if-present; else echo "No package.json yet."; fi
+	@if [ -f package.json ]; then pnpm run format --if-present; else echo "No package.json yet."; fi
 
 format-check:
-	@if [ -f package.json ]; then npm run format:check --if-present; else echo "No package.json yet."; fi
+	@if [ -f package.json ]; then pnpm run format:check --if-present; else echo "No package.json yet."; fi
 
 typecheck:
-	@if [ -f package.json ]; then npm run typecheck --if-present; else echo "No package.json yet."; fi
+	@if [ -f package.json ]; then pnpm run typecheck --if-present; else echo "No package.json yet."; fi
 
 test:
-	@if [ -f package.json ]; then npm test --if-present; else echo "No package.json yet."; fi
+	@if [ -f package.json ]; then pnpm run test --if-present; else echo "No package.json yet."; fi
 
 build:
-	@if [ -f package.json ]; then npm run build --if-present; else echo "No package.json yet."; fi
+	@if [ -f package.json ]; then pnpm run build --if-present; else echo "No package.json yet."; fi
 
 validate-payloads:
-	@if [ -f package.json ]; then npm run validate:payloads --if-present; else echo "No package.json yet."; fi
+	@if [ -f package.json ]; then pnpm run validate:payloads --if-present; else echo "No package.json yet."; fi
 
 db-migrate:
-	@if [ -f package.json ]; then npm run db:migrate --if-present; else echo "No package.json yet."; fi
+	@if [ -f package.json ]; then pnpm run db:migrate --if-present; else echo "No package.json yet."; fi
 
 db-seed:
-	@if [ -f package.json ]; then npm run db:seed --if-present; else echo "No package.json yet."; fi
+	@if [ -f package.json ]; then pnpm run db:seed --if-present; else echo "No package.json yet."; fi
 
 db-reset:
-	@if [ -f package.json ]; then npm run db:reset --if-present; else echo "No package.json yet."; fi
+	@if [ -f package.json ]; then pnpm run db:reset --if-present; else echo "No package.json yet."; fi
 
 env-check:
 	./scripts/env-check.sh .env.local

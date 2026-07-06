@@ -41,14 +41,15 @@ Reset90 is a private self-hosted 90-day reset command center. It receives struct
 
 ## Current implementation status
 
-Phase 0 repository/docs baseline verified. Canonical documentation, examples,
-operational scripts, and ADR set are present. App source code has not been
-scaffolded.
+Phase 1 stack scaffold complete. Next.js 16 App Router, TypeScript, Tailwind
+CSS, ESLint, Prettier, Vitest, pnpm lockfile, placeholder UI, and status routes
+are present. PostgreSQL and Prisma runtime wiring remain deferred to later
+phases.
 
 ## Current branch/task
 
-`feature/repo-foundation` — Phase 0 completion. `main` and `local` exist;
-normal work continues on short-lived branches from `local`.
+`feature/app-scaffold` — Phase 1 stack scaffold complete. Await explicit
+approval before Phase 2 local development environment work.
 
 ## Important decisions
 
@@ -62,15 +63,19 @@ normal work continues on short-lived branches from `local`.
 - Store conversation history, summaries, decisions, and context snapshots; do not store hidden chain-of-thought.
 - Recovery-aware statuses replace harsh streaks.
 - Export/backup must be available early.
+- Health endpoint: `GET /api/health` returns `200` with minimal JSON.
+- Readiness endpoint: `GET /api/ready` returns `503` until database wiring is
+  implemented.
 
 ## Next recommended tasks
 
-1. Await explicit approval before Phase 1.
-2. Phase 1: stack scaffold.
-3. Phase 2: local development environment.
-4. Phase 3: database/Prisma migrations and seed data.
-5. Phase 4: canonical GPT import schemas and validators.
-6. Phase 5: raw import storage and idempotency.
+1. Review and commit Phase 1.
+2. Merge `feature/app-scaffold` into `local` when approved.
+3. Await explicit approval before Phase 2.
+4. Phase 2: local development environment.
+5. Phase 3: database/Prisma migrations and seed data.
+6. Phase 4: canonical GPT import schemas and validators.
+7. Phase 5: raw import storage and idempotency.
 
 Use `docs/16_BEST_IMPLEMENTATION_ORDER.md` as the source of truth.
 
@@ -115,3 +120,5 @@ Accepted ADR baseline:
 ## Recent changes
 
 2026-07-06 - feature/repo-foundation - verified Phase 0 repository/docs baseline and removed conflicting legacy ADR duplicates - `make check`, whitespace, inventory, ADR uniqueness, and JSON syntax checks passed - next step: await Phase 1 approval
+
+2026-07-07 - feature/app-scaffold - added Phase 1 Next.js/TypeScript/Tailwind app shell, pnpm tooling, tests, and `/api/health` plus placeholder `/api/ready` routes - format, lint, typecheck, tests, build, and live endpoint smoke checks passed - next step: review/commit and await Phase 2 approval
