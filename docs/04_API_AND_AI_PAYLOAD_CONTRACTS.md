@@ -76,10 +76,10 @@ Rules:
 - Supported import kinds are `daily_plan`, `daily_reflection`, `weekly_review`,
   and `context_item`.
 - Current `schema_version` is exactly `1.0`; unsupported versions are rejected.
-- `idempotency_key` is required and unique.
+- `idempotency_key` is required and unique within its `source`.
 - Unknown envelope and payload fields are rejected.
 - Store full raw JSON in `imported_payloads.raw_json`.
-- If duplicate idempotency key arrives, return `200` with existing import reference, not a hard error.
+- If the same source and idempotency key arrive again, return `200` with the existing import reference, not a hard error.
 - Reject bodies over `GPT_INGEST_MAX_BODY_BYTES`.
 
 Canonical runtime schemas live in `src/server/imports/schemas/`. Committed Draft
@@ -88,6 +88,13 @@ definitions with `pnpm run generate:schemas`; do not hand-edit generated files.
 `make validate-payloads` validates all canonical examples and checks generated
 schema drift. Files under `examples/schemas/` remain pack-era references; use
 root `schemas/` for implementation and Custom GPT Action contracts.
+
+Phase 5 provides the service-layer `storeRawImport` boundary. It stores valid
+raw envelopes before normalization, stores identifiable invalid envelopes with
+safe validation metadata, and returns an existing import for duplicate
+`(source, idempotency_key)` values. Invalid inputs without trustworthy envelope
+metadata are rejected without a database write. No API endpoint or normalized
+domain mutation is part of this phase.
 
 ## Daily plan payload
 

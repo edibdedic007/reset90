@@ -225,12 +225,14 @@ Fields:
 - `external_conversation_id`
 - `raw_json`
 - `validation_status`
+- `processing_status`
+- `error_metadata` nullable, safe validation issue summaries only
 - `processed_at`
 - `created_at`
 
 Unique:
 
-- `idempotency_key`
+- `(source, idempotency_key)`
 
 ### context_items
 
@@ -282,3 +284,12 @@ JSON payload storage are enforced in PostgreSQL.
 Local seed data is idempotent. It creates one local user, one active cycle,
 three canonical phases, and exactly 90 unique day logs. Later phases extend
 these tables; Phase 3 does not normalize imported payloads.
+
+## Phase 5 raw import storage baseline
+
+Raw imports are validated and persisted through `storeRawImport` before any
+normalization. Valid imports use `VALID/PENDING`; identifiable invalid imports
+use `INVALID/REJECTED` with bounded issue code/path/message metadata. Duplicate
+`(source, idempotency_key)` requests return the existing import reference, and
+the database unique constraint protects concurrent requests. Raw payload text
+is stored in JSONB but is not copied into error metadata or logs.
