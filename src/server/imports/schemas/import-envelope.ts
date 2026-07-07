@@ -1,6 +1,11 @@
 import { z } from "zod";
 
-import { IMPORT_SCHEMA_VERSION, nonEmptyText, sourceSchema } from "./common";
+import {
+  IMPORT_SCHEMA_VERSION,
+  importKindSchema,
+  nonEmptyText,
+  sourceSchema,
+} from "./common";
 import { contextItemPayloadSchema } from "./context-item";
 import { dailyPlanPayloadSchema } from "./daily-plan";
 import { dailyReflectionPayloadSchema } from "./daily-reflection";
@@ -13,6 +18,11 @@ const envelopeFields = {
   external_conversation_id: nonEmptyText(500).optional(),
   created_at: z.iso.datetime({ offset: true }).optional(),
 };
+
+export const importEnvelopeMetadataSchema = z.object({
+  kind: importKindSchema,
+  ...envelopeFields,
+});
 
 export const dailyPlanImportSchema = z.strictObject({
   kind: z.literal("daily_plan"),

@@ -40,7 +40,7 @@ enum PayloadKind {
   DAILY_PLAN
   DAILY_REFLECTION
   WEEKLY_REVIEW
-  CONTEXT_SUMMARY
+  CONTEXT_ITEM
 
   @@map("payload_kind")
 }
@@ -51,6 +51,15 @@ enum ValidationStatus {
   INVALID
 
   @@map("validation_status")
+}
+
+enum ProcessingStatus {
+  PENDING
+  PROCESSED
+  REJECTED
+  FAILED
+
+  @@map("processing_status")
 }
 
 model User {
@@ -124,14 +133,17 @@ model ImportedPayload {
   id                     String           @id @default(uuid()) @db.Uuid
   kind                   PayloadKind
   schemaVersion          String           @map("schema_version")
-  idempotencyKey         String           @unique @map("idempotency_key")
+  idempotencyKey         String           @map("idempotency_key")
   source                 String
   externalConversationId String?          @map("external_conversation_id")
   rawJson                Json             @map("raw_json")
   validationStatus       ValidationStatus @default(PENDING) @map("validation_status")
+  processingStatus       ProcessingStatus @default(PENDING) @map("processing_status")
+  errorMetadata          Json?            @map("error_metadata")
   processedAt            DateTime?        @map("processed_at")
   createdAt              DateTime         @default(now()) @map("created_at")
 
+  @@unique([source, idempotencyKey])
   @@index([kind, createdAt])
   @@map("imported_payloads")
 }

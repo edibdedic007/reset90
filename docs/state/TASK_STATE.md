@@ -4,28 +4,42 @@ Last updated: 2026-07-07
 
 ## Current phase
 
-Phase 4 complete: canonical GPT import schemas, runtime validators, generated
-JSON Schema contracts, example validation, and invalid fixture tests verified.
+Phase 5 complete: raw GPT import persistence, validation/processing states,
+safe error metadata, and source-scoped idempotency verified.
 
 ## Active task
 
-No active implementation phase. Await explicit user approval before Phase 5.
+No active implementation phase. Await explicit user approval before Phase 6.
 
 ## Current branch
 
 ```bash
-feature/gpt-payload-validation
+feature/raw-import-storage
 ```
 
 ## Next actions
 
-1. Review and commit Phase 4 changes.
+1. Review and commit Phase 5 changes.
 2. Merge the completed branch into `local` when approved.
-3. Await explicit approval before Phase 5.
-4. After approval, create `feature/raw-import-storage` from `local`.
+3. Await explicit approval before Phase 6.
+4. After approval, create `feature/gpt-ingest-endpoint` from `local`.
 
 ## Completed
 
+- `storeRawImport` validates canonical envelopes and persists raw JSON before
+  any normalized domain mutation.
+- Valid imports use `VALID/PENDING`; identifiable invalid imports use
+  `INVALID/REJECTED` with bounded safe issue metadata.
+- `(source, idempotency_key)` is unique in Prisma and PostgreSQL; duplicate and
+  concurrent requests return the existing import reference.
+- Context payload persistence now uses the canonical `CONTEXT_ITEM` enum value.
+- Prisma migration tracking includes the Phase 3 baseline and Phase 5 schema
+  migration; both migrations are applied locally.
+- Live DB smoke verified valid, invalid, and duplicate storage while reset cycle
+  and day log counts remained `1` and `90`; temporary rows were removed.
+- `make check` passed: formatting, lint, typecheck, 27 tests, payload/schema
+  drift validation, production build, Prisma validation, shell syntax, and
+  whitespace checks.
 - Zod 4.4 validates strict `1.0` import envelopes for daily plans, daily
   reflections, weekly reviews, and context items.
 - Payload schemas enforce day ranges, task-group tiers, score ranges, supported

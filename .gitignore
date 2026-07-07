@@ -42,6 +42,7 @@ uploads/
 *.p12
 *.sql
 *.sql.gz
+!prisma/migrations/**/*.sql
 production-db-export*
 journal-dump*
 private-export*

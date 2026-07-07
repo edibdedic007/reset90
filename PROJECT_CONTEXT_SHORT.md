@@ -41,15 +41,15 @@ Reset90 is a private self-hosted 90-day reset command center. It receives struct
 
 ## Current implementation status
 
-Phase 4 GPT payload validation complete. Strict Zod 4 schemas validate versioned
-daily plan, daily reflection, weekly review, context item, and discriminated
-import envelopes. Draft 2020-12 JSON Schemas are generated from the same runtime
-definitions, and example validation/schema drift checks run in `make check`.
+Phase 5 raw import storage complete. Valid and identifiable invalid GPT import
+envelopes are stored as raw JSON with separate validation/processing states,
+safe error metadata, and source-scoped idempotency. No normalization or ingest
+endpoint exists yet.
 
 ## Current branch/task
 
-`feature/gpt-payload-validation` — Phase 4 canonical GPT payload schemas and
-validators complete. Await explicit approval before Phase 5 raw import storage.
+`feature/raw-import-storage` — Phase 5 raw import storage and idempotency service
+complete. Await explicit approval before Phase 6 GPT ingest endpoint work.
 
 ## Important decisions
 
@@ -64,6 +64,10 @@ validators complete. Await explicit approval before Phase 5 raw import storage.
   generated Draft 2020-12 contracts live in root `schemas/`.
 - Import schemas reject unknown fields and unsupported schema versions before
   any future database mutation.
+- Raw import uniqueness is `(source, idempotency_key)`; duplicate requests return
+  the existing import reference, including concurrent unique-constraint races.
+- Valid raw imports remain `VALID/PENDING` until later normalization; identifiable
+  invalid imports are stored `INVALID/REJECTED` with safe issue metadata.
 - Store conversation history, summaries, decisions, and context snapshots; do not store hidden chain-of-thought.
 - Recovery-aware statuses replace harsh streaks.
 - Export/backup must be available early.
@@ -73,10 +77,10 @@ validators complete. Await explicit approval before Phase 5 raw import storage.
 
 ## Next recommended tasks
 
-1. Review and commit Phase 4.
-2. Merge `feature/gpt-payload-validation` into `local` when approved.
-3. Await explicit approval before Phase 5.
-4. Phase 5: raw import storage and idempotency.
+1. Review and commit Phase 5.
+2. Merge `feature/raw-import-storage` into `local` when approved.
+3. Await explicit approval before Phase 6.
+4. Phase 6: machine-authenticated GPT ingest endpoint.
 
 Use `docs/16_BEST_IMPLEMENTATION_ORDER.md` as the source of truth.
 
@@ -129,3 +133,5 @@ Accepted ADR baseline:
 2026-07-07 - feature/database-foundation - added Prisma/PostgreSQL schema, first migration, idempotent 90-day seed, cycle logic tests, and database readiness - migration, repeated seed, row-count checks, route smoke test, and app quality gates passed - next step: review/commit and await Phase 4 approval
 
 2026-07-07 - feature/gpt-payload-validation - added strict Zod import envelopes and payload schemas, generated Draft 2020-12 contracts, example validation, and invalid fixture tests - `make check` passed with 22 tests and production build - next step: review/commit and await Phase 5 approval
+
+2026-07-07 - feature/raw-import-storage - added raw valid/invalid import persistence, safe validation metadata, processing states, and source-scoped idempotency with race handling - migration, live DB smoke, and `make check` passed with 27 tests and production build - next step: review/commit and await Phase 6 approval
