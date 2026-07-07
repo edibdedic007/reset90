@@ -15,6 +15,7 @@ help:
 	@echo "  make dev-down                Stop local PostgreSQL"
 	@echo "  make logs                    Follow local PostgreSQL logs"
 	@echo "  make check                   Run available quality gates"
+	@echo "  make validate-payloads       Validate canonical GPT payload examples"
 	@echo "  make env-check               Validate .env.local baseline keys"
 	@echo "  make prod-check              Validate .env.production baseline keys/placeholders"
 	@echo "  make db-backup               Create database backup"

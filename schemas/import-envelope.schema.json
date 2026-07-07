@@ -1,0 +1,805 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://reset90.local/schemas/import-envelope.schema.json",
+  "oneOf": [
+    {
+      "type": "object",
+      "properties": {
+        "kind": { "type": "string", "const": "daily_plan" },
+        "schema_version": { "type": "string", "const": "1.0" },
+        "idempotency_key": {
+          "type": "string",
+          "minLength": 8,
+          "maxLength": 200,
+          "pattern": "\\S"
+        },
+        "source": {
+          "type": "string",
+          "enum": ["custom_gpt", "manual", "system"]
+        },
+        "external_conversation_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500,
+          "pattern": "\\S"
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+        },
+        "payload": {
+          "type": "object",
+          "properties": {
+            "date": {
+              "type": "string",
+              "format": "date",
+              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+            },
+            "day_number": { "type": "integer", "minimum": 1, "maximum": 90 },
+            "phase": {
+              "type": "string",
+              "enum": [
+                "Clear the Fog",
+                "Rebuild Momentum",
+                "Prove Continuation"
+              ]
+            },
+            "energy_level": {
+              "type": "string",
+              "enum": ["low", "normal", "high", "recovery"]
+            },
+            "mission": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 1000,
+              "pattern": "\\S"
+            },
+            "supportive_message": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 2000,
+              "pattern": "\\S"
+            },
+            "downshift_rule": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 1000,
+              "pattern": "\\S"
+            },
+            "non_negotiables": {
+              "maxItems": 20,
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "title": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200,
+                    "pattern": "\\S"
+                  },
+                  "domain": {
+                    "type": "string",
+                    "enum": [
+                      "body",
+                      "mood",
+                      "digital",
+                      "learning",
+                      "work",
+                      "system",
+                      "environment",
+                      "social",
+                      "other"
+                    ]
+                  },
+                  "estimate_minutes": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 1440
+                  },
+                  "trigger": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 500,
+                    "pattern": "\\S"
+                  },
+                  "why": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1000,
+                    "pattern": "\\S"
+                  },
+                  "tier": { "type": "string", "const": "non_negotiable" }
+                },
+                "required": ["title", "domain", "tier"],
+                "additionalProperties": false
+              }
+            },
+            "minimum_plan": {
+              "maxItems": 30,
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "title": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200,
+                    "pattern": "\\S"
+                  },
+                  "domain": {
+                    "type": "string",
+                    "enum": [
+                      "body",
+                      "mood",
+                      "digital",
+                      "learning",
+                      "work",
+                      "system",
+                      "environment",
+                      "social",
+                      "other"
+                    ]
+                  },
+                  "estimate_minutes": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 1440
+                  },
+                  "trigger": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 500,
+                    "pattern": "\\S"
+                  },
+                  "why": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1000,
+                    "pattern": "\\S"
+                  },
+                  "tier": { "type": "string", "const": "minimum" }
+                },
+                "required": ["title", "domain", "tier"],
+                "additionalProperties": false
+              }
+            },
+            "standard_plan": {
+              "maxItems": 30,
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "title": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200,
+                    "pattern": "\\S"
+                  },
+                  "domain": {
+                    "type": "string",
+                    "enum": [
+                      "body",
+                      "mood",
+                      "digital",
+                      "learning",
+                      "work",
+                      "system",
+                      "environment",
+                      "social",
+                      "other"
+                    ]
+                  },
+                  "estimate_minutes": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 1440
+                  },
+                  "trigger": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 500,
+                    "pattern": "\\S"
+                  },
+                  "why": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1000,
+                    "pattern": "\\S"
+                  },
+                  "tier": { "type": "string", "const": "standard" }
+                },
+                "required": ["title", "domain", "tier"],
+                "additionalProperties": false
+              }
+            },
+            "ideal_plan": {
+              "maxItems": 30,
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "title": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200,
+                    "pattern": "\\S"
+                  },
+                  "domain": {
+                    "type": "string",
+                    "enum": [
+                      "body",
+                      "mood",
+                      "digital",
+                      "learning",
+                      "work",
+                      "system",
+                      "environment",
+                      "social",
+                      "other"
+                    ]
+                  },
+                  "estimate_minutes": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 1440
+                  },
+                  "trigger": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 500,
+                    "pattern": "\\S"
+                  },
+                  "why": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1000,
+                    "pattern": "\\S"
+                  },
+                  "tier": { "type": "string", "const": "ideal" }
+                },
+                "required": ["title", "domain", "tier"],
+                "additionalProperties": false
+              }
+            },
+            "context_summary": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4000,
+              "pattern": "\\S"
+            }
+          },
+          "required": [
+            "date",
+            "day_number",
+            "phase",
+            "energy_level",
+            "mission",
+            "supportive_message",
+            "downshift_rule",
+            "non_negotiables",
+            "minimum_plan",
+            "standard_plan",
+            "ideal_plan",
+            "context_summary"
+          ],
+          "additionalProperties": false,
+          "title": "Reset90 Daily Plan Payload"
+        }
+      },
+      "required": [
+        "kind",
+        "schema_version",
+        "idempotency_key",
+        "source",
+        "payload"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "kind": { "type": "string", "const": "daily_reflection" },
+        "schema_version": { "type": "string", "const": "1.0" },
+        "idempotency_key": {
+          "type": "string",
+          "minLength": 8,
+          "maxLength": 200,
+          "pattern": "\\S"
+        },
+        "source": {
+          "type": "string",
+          "enum": ["custom_gpt", "manual", "system"]
+        },
+        "external_conversation_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500,
+          "pattern": "\\S"
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+        },
+        "payload": {
+          "type": "object",
+          "properties": {
+            "date": {
+              "type": "string",
+              "format": "date",
+              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+            },
+            "day_number": { "type": "integer", "minimum": 1, "maximum": 90 },
+            "day_status_recommendation": {
+              "type": "string",
+              "enum": ["green", "yellow", "blue", "red", "gold", "unset"]
+            },
+            "summary": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4000,
+              "pattern": "\\S"
+            },
+            "scores": {
+              "type": "object",
+              "properties": {
+                "mood": { "type": "integer", "minimum": 1, "maximum": 10 },
+                "fog": { "type": "integer", "minimum": 1, "maximum": 10 },
+                "loneliness": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 10
+                },
+                "self_criticism": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 10
+                },
+                "digital_control": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 10
+                },
+                "learning_resistance": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 10
+                },
+                "body_relationship": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 10
+                },
+                "work_confidence": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 10
+                }
+              },
+              "required": [
+                "mood",
+                "fog",
+                "loneliness",
+                "self_criticism",
+                "digital_control",
+                "learning_resistance",
+                "body_relationship",
+                "work_confidence"
+              ],
+              "additionalProperties": false
+            },
+            "what_happened": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 8000,
+              "pattern": "\\S"
+            },
+            "what_worked": {
+              "maxItems": 30,
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 1000,
+                "pattern": "\\S"
+              }
+            },
+            "what_blocked_me": {
+              "maxItems": 30,
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 1000,
+                "pattern": "\\S"
+              }
+            },
+            "tomorrow_adjustment": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 2000,
+              "pattern": "\\S"
+            },
+            "self_criticism_note": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 2000,
+              "pattern": "\\S"
+            },
+            "context_items": {
+              "maxItems": 30,
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "conversation",
+                      "task_summary",
+                      "decision_log",
+                      "daily_summary",
+                      "weekly_summary",
+                      "context_snapshot",
+                      "reasoning_summary"
+                    ]
+                  },
+                  "title": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200,
+                    "pattern": "\\S"
+                  },
+                  "summary": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 4000,
+                    "pattern": "\\S"
+                  },
+                  "importance": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 5
+                  },
+                  "tags": {
+                    "default": [],
+                    "maxItems": 20,
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 80,
+                      "pattern": "\\S"
+                    }
+                  },
+                  "source_ref": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 500,
+                    "pattern": "\\S"
+                  },
+                  "is_sensitive": { "type": "boolean" }
+                },
+                "required": ["kind", "title", "summary", "importance", "tags"],
+                "additionalProperties": false,
+                "title": "Reset90 Context Item Payload"
+              }
+            }
+          },
+          "required": [
+            "date",
+            "day_number",
+            "day_status_recommendation",
+            "summary",
+            "scores",
+            "what_happened",
+            "what_worked",
+            "what_blocked_me",
+            "tomorrow_adjustment",
+            "self_criticism_note",
+            "context_items"
+          ],
+          "additionalProperties": false,
+          "title": "Reset90 Daily Reflection Payload"
+        }
+      },
+      "required": [
+        "kind",
+        "schema_version",
+        "idempotency_key",
+        "source",
+        "payload"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "kind": { "type": "string", "const": "weekly_review" },
+        "schema_version": { "type": "string", "const": "1.0" },
+        "idempotency_key": {
+          "type": "string",
+          "minLength": 8,
+          "maxLength": 200,
+          "pattern": "\\S"
+        },
+        "source": {
+          "type": "string",
+          "enum": ["custom_gpt", "manual", "system"]
+        },
+        "external_conversation_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500,
+          "pattern": "\\S"
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+        },
+        "payload": {
+          "type": "object",
+          "properties": {
+            "week_number": { "type": "integer", "minimum": 1, "maximum": 13 },
+            "date_from": {
+              "type": "string",
+              "format": "date",
+              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+            },
+            "date_to": {
+              "type": "string",
+              "format": "date",
+              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+            },
+            "summary": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 6000,
+              "pattern": "\\S"
+            },
+            "wins": {
+              "maxItems": 50,
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 1000,
+                "pattern": "\\S"
+              }
+            },
+            "blockers": {
+              "maxItems": 50,
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 1000,
+                "pattern": "\\S"
+              }
+            },
+            "patterns": {
+              "maxItems": 30,
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "title": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 300,
+                    "pattern": "\\S"
+                  },
+                  "evidence": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 2000,
+                    "pattern": "\\S"
+                  }
+                },
+                "required": ["title", "evidence"],
+                "additionalProperties": false
+              }
+            },
+            "recommended_changes": {
+              "maxItems": 30,
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 1000,
+                "pattern": "\\S"
+              }
+            },
+            "next_week_commitments": {
+              "maxItems": 30,
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 1000,
+                "pattern": "\\S"
+              }
+            },
+            "metrics": {
+              "type": "object",
+              "properties": {
+                "green_days": { "type": "integer", "minimum": 0, "maximum": 7 },
+                "yellow_days": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 7
+                },
+                "blue_days": { "type": "integer", "minimum": 0, "maximum": 7 },
+                "red_days": { "type": "integer", "minimum": 0, "maximum": 7 },
+                "gold_days": { "type": "integer", "minimum": 0, "maximum": 7 },
+                "recovery_credits_used": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 90
+                }
+              },
+              "required": [
+                "green_days",
+                "yellow_days",
+                "blue_days",
+                "red_days",
+                "gold_days",
+                "recovery_credits_used"
+              ],
+              "additionalProperties": false
+            },
+            "context_snapshot": {
+              "type": "object",
+              "properties": {
+                "title": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200,
+                  "pattern": "\\S"
+                },
+                "summary": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 4000,
+                  "pattern": "\\S"
+                },
+                "reasoning_summary": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 4000,
+                  "pattern": "\\S"
+                },
+                "tags": {
+                  "maxItems": 30,
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 80,
+                    "pattern": "\\S"
+                  }
+                }
+              },
+              "required": ["title", "summary", "reasoning_summary", "tags"],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "week_number",
+            "date_from",
+            "date_to",
+            "summary",
+            "wins",
+            "blockers",
+            "patterns",
+            "recommended_changes",
+            "next_week_commitments",
+            "metrics",
+            "context_snapshot"
+          ],
+          "additionalProperties": false,
+          "title": "Reset90 Weekly Review Payload"
+        }
+      },
+      "required": [
+        "kind",
+        "schema_version",
+        "idempotency_key",
+        "source",
+        "payload"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "kind": { "type": "string", "const": "context_item" },
+        "schema_version": { "type": "string", "const": "1.0" },
+        "idempotency_key": {
+          "type": "string",
+          "minLength": 8,
+          "maxLength": 200,
+          "pattern": "\\S"
+        },
+        "source": {
+          "type": "string",
+          "enum": ["custom_gpt", "manual", "system"]
+        },
+        "external_conversation_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500,
+          "pattern": "\\S"
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+        },
+        "payload": {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "conversation",
+                "task_summary",
+                "decision_log",
+                "daily_summary",
+                "weekly_summary",
+                "context_snapshot",
+                "reasoning_summary"
+              ]
+            },
+            "title": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200,
+              "pattern": "\\S"
+            },
+            "summary": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4000,
+              "pattern": "\\S"
+            },
+            "importance": { "type": "integer", "minimum": 1, "maximum": 5 },
+            "tags": {
+              "default": [],
+              "maxItems": 20,
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 80,
+                "pattern": "\\S"
+              }
+            },
+            "source_ref": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 500,
+              "pattern": "\\S"
+            },
+            "is_sensitive": { "type": "boolean" }
+          },
+          "required": ["kind", "title", "summary", "importance", "tags"],
+          "additionalProperties": false,
+          "title": "Reset90 Context Item Payload"
+        }
+      },
+      "required": [
+        "kind",
+        "schema_version",
+        "idempotency_key",
+        "source",
+        "payload"
+      ],
+      "additionalProperties": false
+    }
+  ],
+  "title": "Reset90 Import Envelope"
+}

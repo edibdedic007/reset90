@@ -73,10 +73,21 @@ All GPT imports use:
 Rules:
 
 - `kind` determines payload schema.
+- Supported import kinds are `daily_plan`, `daily_reflection`, `weekly_review`,
+  and `context_item`.
+- Current `schema_version` is exactly `1.0`; unsupported versions are rejected.
 - `idempotency_key` is required and unique.
+- Unknown envelope and payload fields are rejected.
 - Store full raw JSON in `imported_payloads.raw_json`.
 - If duplicate idempotency key arrives, return `200` with existing import reference, not a hard error.
 - Reject bodies over `GPT_INGEST_MAX_BODY_BYTES`.
+
+Canonical runtime schemas live in `src/server/imports/schemas/`. Committed Draft
+2020-12 JSON Schemas live in `schemas/` and are generated from those Zod
+definitions with `pnpm run generate:schemas`; do not hand-edit generated files.
+`make validate-payloads` validates all canonical examples and checks generated
+schema drift. Files under `examples/schemas/` remain pack-era references; use
+root `schemas/` for implementation and Custom GPT Action contracts.
 
 ## Daily plan payload
 
@@ -174,6 +185,21 @@ Context payloads may include:
 - `reasoning_summary` as a user-visible rationale only.
 
 Do not request or store raw hidden internal reasoning logs.
+
+Canonical standalone context imports use `kind: "context_item"` and this
+payload shape:
+
+```json
+{
+  "kind": "reasoning_summary",
+  "title": "Why the minimum plan counts",
+  "summary": "User-visible rationale only.",
+  "importance": 4,
+  "tags": ["minimum", "continuity"],
+  "source_ref": "optional-visible-source-reference",
+  "is_sensitive": false
+}
+```
 
 ## Response examples
 

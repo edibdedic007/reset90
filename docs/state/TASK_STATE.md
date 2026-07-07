@@ -4,28 +4,43 @@ Last updated: 2026-07-07
 
 ## Current phase
 
-Phase 3 complete: Prisma/PostgreSQL database foundation, migration, seed data,
-cycle logic, and readiness check implemented and verified.
+Phase 4 complete: canonical GPT import schemas, runtime validators, generated
+JSON Schema contracts, example validation, and invalid fixture tests verified.
 
 ## Active task
 
-No active implementation phase. Await explicit user approval before Phase 4.
+No active implementation phase. Await explicit user approval before Phase 5.
 
 ## Current branch
 
 ```bash
-feature/database-foundation
+feature/gpt-payload-validation
 ```
 
 ## Next actions
 
-1. Review and commit Phase 3 changes.
+1. Review and commit Phase 4 changes.
 2. Merge the completed branch into `local` when approved.
-3. Await explicit approval before Phase 4.
-4. After approval, create `feature/gpt-payload-validation` from `local`.
+3. Await explicit approval before Phase 5.
+4. After approval, create `feature/raw-import-storage` from `local`.
 
 ## Completed
 
+- Zod 4.4 validates strict `1.0` import envelopes for daily plans, daily
+  reflections, weekly reviews, and context items.
+- Payload schemas enforce day ranges, task-group tiers, score ranges, supported
+  context kinds, bounded text/list fields, and no unknown properties.
+- User-visible `reasoning_summary` context is supported; hidden
+  `chain_of_thought` fields are rejected.
+- Draft 2020-12 JSON Schemas are generated from the runtime Zod source and
+  committed under root `schemas/`.
+- `make validate-payloads` validates all three canonical example envelopes and
+  detects generated-schema drift.
+- Valid/invalid import fixtures have unit coverage without database mutation or
+  an ingest endpoint.
+- `make check` passed: frozen dependency install, format, lint, typecheck, 22
+  tests, payload/schema validation, production build, Prisma validation, shell
+  syntax checks, and whitespace check.
 - Prisma 7.8 and the PostgreSQL driver adapter provide typed database access.
 - Initial migration creates `users`, `reset_cycles`, `reset_phases`,
   `day_logs`, and `imported_payloads` with relational/uniqueness constraints.

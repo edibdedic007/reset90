@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://reset90.local/schemas/context-item.schema.json",
+  "type": "object",
+  "properties": {
+    "kind": {
+      "type": "string",
+      "enum": [
+        "conversation",
+        "task_summary",
+        "decision_log",
+        "daily_summary",
+        "weekly_summary",
+        "context_snapshot",
+        "reasoning_summary"
+      ]
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200,
+      "pattern": "\\S"
+    },
+    "summary": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4000,
+      "pattern": "\\S"
+    },
+    "importance": { "type": "integer", "minimum": 1, "maximum": 5 },
+    "tags": {
+      "default": [],
+      "maxItems": 20,
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 80,
+        "pattern": "\\S"
+      }
+    },
+    "source_ref": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 500,
+      "pattern": "\\S"
+    },
+    "is_sensitive": { "type": "boolean" }
+  },
+  "required": ["kind", "title", "summary", "importance", "tags"],
+  "additionalProperties": false,
+  "title": "Reset90 Context Item Payload"
+}
