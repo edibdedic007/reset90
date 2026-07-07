@@ -20,8 +20,10 @@
     "db:seed": "prisma db seed",
     "db:reset": "prisma migrate reset --force",
     "db:validate": "prisma validate",
-    "format": "prettier --write package.json pnpm-workspace.yaml eslint.config.mjs next.config.ts postcss.config.mjs prisma.config.ts tsconfig.json \"prisma/**/*.ts\" \"src/**/*.{ts,tsx,css}\" \"tests/**/*.ts\"",
-    "format:check": "prettier --check package.json pnpm-workspace.yaml eslint.config.mjs next.config.ts postcss.config.mjs prisma.config.ts tsconfig.json \"prisma/**/*.ts\" \"src/**/*.{ts,tsx,css}\" \"tests/**/*.ts\""
+    "generate:schemas": "node --import tsx scripts/validate-payloads.ts --write",
+    "validate:payloads": "node --import tsx scripts/validate-payloads.ts",
+    "format": "prettier --write package.json pnpm-workspace.yaml eslint.config.mjs next.config.ts postcss.config.mjs prisma.config.ts tsconfig.json \"prisma/**/*.ts\" \"schemas/**/*.json\" \"scripts/**/*.ts\" \"src/**/*.{ts,tsx,css}\" \"tests/**/*.ts\"",
+    "format:check": "prettier --check package.json pnpm-workspace.yaml eslint.config.mjs next.config.ts postcss.config.mjs prisma.config.ts tsconfig.json \"prisma/**/*.ts\" \"schemas/**/*.json\" \"scripts/**/*.ts\" \"src/**/*.{ts,tsx,css}\" \"tests/**/*.ts\""
   },
   "dependencies": {
     "@prisma/adapter-pg": "7.8.0",
@@ -30,7 +32,8 @@
     "next": "16.2.10",
     "pg": "8.22.0",
     "react": "19.2.7",
-    "react-dom": "19.2.7"
+    "react-dom": "19.2.7",
+    "zod": "4.4.3"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "4.3.2",

@@ -1,0 +1,257 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://reset90.local/schemas/daily-plan.schema.json",
+  "type": "object",
+  "properties": {
+    "date": {
+      "type": "string",
+      "format": "date",
+      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+    },
+    "day_number": { "type": "integer", "minimum": 1, "maximum": 90 },
+    "phase": {
+      "type": "string",
+      "enum": ["Clear the Fog", "Rebuild Momentum", "Prove Continuation"]
+    },
+    "energy_level": {
+      "type": "string",
+      "enum": ["low", "normal", "high", "recovery"]
+    },
+    "mission": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1000,
+      "pattern": "\\S"
+    },
+    "supportive_message": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2000,
+      "pattern": "\\S"
+    },
+    "downshift_rule": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1000,
+      "pattern": "\\S"
+    },
+    "non_negotiables": {
+      "maxItems": 20,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "pattern": "\\S"
+          },
+          "domain": {
+            "type": "string",
+            "enum": [
+              "body",
+              "mood",
+              "digital",
+              "learning",
+              "work",
+              "system",
+              "environment",
+              "social",
+              "other"
+            ]
+          },
+          "estimate_minutes": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1440
+          },
+          "trigger": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500,
+            "pattern": "\\S"
+          },
+          "why": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1000,
+            "pattern": "\\S"
+          },
+          "tier": { "type": "string", "const": "non_negotiable" }
+        },
+        "required": ["title", "domain", "tier"],
+        "additionalProperties": false
+      }
+    },
+    "minimum_plan": {
+      "maxItems": 30,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "pattern": "\\S"
+          },
+          "domain": {
+            "type": "string",
+            "enum": [
+              "body",
+              "mood",
+              "digital",
+              "learning",
+              "work",
+              "system",
+              "environment",
+              "social",
+              "other"
+            ]
+          },
+          "estimate_minutes": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1440
+          },
+          "trigger": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500,
+            "pattern": "\\S"
+          },
+          "why": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1000,
+            "pattern": "\\S"
+          },
+          "tier": { "type": "string", "const": "minimum" }
+        },
+        "required": ["title", "domain", "tier"],
+        "additionalProperties": false
+      }
+    },
+    "standard_plan": {
+      "maxItems": 30,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "pattern": "\\S"
+          },
+          "domain": {
+            "type": "string",
+            "enum": [
+              "body",
+              "mood",
+              "digital",
+              "learning",
+              "work",
+              "system",
+              "environment",
+              "social",
+              "other"
+            ]
+          },
+          "estimate_minutes": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1440
+          },
+          "trigger": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500,
+            "pattern": "\\S"
+          },
+          "why": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1000,
+            "pattern": "\\S"
+          },
+          "tier": { "type": "string", "const": "standard" }
+        },
+        "required": ["title", "domain", "tier"],
+        "additionalProperties": false
+      }
+    },
+    "ideal_plan": {
+      "maxItems": 30,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "pattern": "\\S"
+          },
+          "domain": {
+            "type": "string",
+            "enum": [
+              "body",
+              "mood",
+              "digital",
+              "learning",
+              "work",
+              "system",
+              "environment",
+              "social",
+              "other"
+            ]
+          },
+          "estimate_minutes": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1440
+          },
+          "trigger": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500,
+            "pattern": "\\S"
+          },
+          "why": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1000,
+            "pattern": "\\S"
+          },
+          "tier": { "type": "string", "const": "ideal" }
+        },
+        "required": ["title", "domain", "tier"],
+        "additionalProperties": false
+      }
+    },
+    "context_summary": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4000,
+      "pattern": "\\S"
+    }
+  },
+  "required": [
+    "date",
+    "day_number",
+    "phase",
+    "energy_level",
+    "mission",
+    "supportive_message",
+    "downshift_rule",
+    "non_negotiables",
+    "minimum_plan",
+    "standard_plan",
+    "ideal_plan",
+    "context_summary"
+  ],
+  "additionalProperties": false,
+  "title": "Reset90 Daily Plan Payload"
+}

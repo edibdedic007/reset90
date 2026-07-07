@@ -41,15 +41,15 @@ Reset90 is a private self-hosted 90-day reset command center. It receives struct
 
 ## Current implementation status
 
-Phase 3 database foundation complete. Prisma 7.8 uses PostgreSQL through the
-node-postgres driver adapter. The first migration creates users, reset cycles,
-reset phases, day logs, and raw imported payload storage. Idempotent seed data
-creates one active cycle, three canonical phases, and 90 unique day logs.
+Phase 4 GPT payload validation complete. Strict Zod 4 schemas validate versioned
+daily plan, daily reflection, weekly review, context item, and discriminated
+import envelopes. Draft 2020-12 JSON Schemas are generated from the same runtime
+definitions, and example validation/schema drift checks run in `make check`.
 
 ## Current branch/task
 
-`feature/database-foundation` — Phase 3 database foundation complete. Await
-explicit approval before Phase 4 GPT payload validation.
+`feature/gpt-payload-validation` — Phase 4 canonical GPT payload schemas and
+validators complete. Await explicit approval before Phase 5 raw import storage.
 
 ## Important decisions
 
@@ -60,6 +60,10 @@ explicit approval before Phase 4 GPT payload validation.
 - Custom GPT is the coach, planner, interpreter, and analyst.
 - Webapp is the storage, dashboard, tracker, analytics, and export layer.
 - Store raw GPT payloads first, then normalized data.
+- Canonical runtime import contracts live in `src/server/imports/schemas/`;
+  generated Draft 2020-12 contracts live in root `schemas/`.
+- Import schemas reject unknown fields and unsupported schema versions before
+  any future database mutation.
 - Store conversation history, summaries, decisions, and context snapshots; do not store hidden chain-of-thought.
 - Recovery-aware statuses replace harsh streaks.
 - Export/backup must be available early.
@@ -69,11 +73,10 @@ explicit approval before Phase 4 GPT payload validation.
 
 ## Next recommended tasks
 
-1. Review and commit Phase 3.
-2. Merge `feature/database-foundation` into `local` when approved.
-3. Await explicit approval before Phase 4.
-4. Phase 4: canonical GPT import schemas and validators.
-5. Phase 5: raw import storage and idempotency.
+1. Review and commit Phase 4.
+2. Merge `feature/gpt-payload-validation` into `local` when approved.
+3. Await explicit approval before Phase 5.
+4. Phase 5: raw import storage and idempotency.
 
 Use `docs/16_BEST_IMPLEMENTATION_ORDER.md` as the source of truth.
 
@@ -124,3 +127,5 @@ Accepted ADR baseline:
 2026-07-07 - chore/local-development-env - completed Phase 2 local PostgreSQL Compose workflow, pnpm setup, Make lifecycle targets, and clean-start docs - Compose validation, local setup/readiness, lifecycle targets, and `make check` passed - next step: review/commit and await Phase 3 approval
 
 2026-07-07 - feature/database-foundation - added Prisma/PostgreSQL schema, first migration, idempotent 90-day seed, cycle logic tests, and database readiness - migration, repeated seed, row-count checks, route smoke test, and app quality gates passed - next step: review/commit and await Phase 4 approval
+
+2026-07-07 - feature/gpt-payload-validation - added strict Zod import envelopes and payload schemas, generated Draft 2020-12 contracts, example validation, and invalid fixture tests - `make check` passed with 22 tests and production build - next step: review/commit and await Phase 5 approval
