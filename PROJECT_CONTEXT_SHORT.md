@@ -41,15 +41,14 @@ Reset90 is a private self-hosted 90-day reset command center. It receives struct
 
 ## Current implementation status
 
-Phase 7 daily plan normalization complete. Valid `daily_plan` imports create or
-replace one normalized plan per active day plus ordered tier/domain tasks. Raw
-imports remain linked, processing status is durable, and repeated imports do
-not accumulate tasks.
+Phase 8 browser authentication complete. The UI is protected by Auth.js with
+Authentik OIDC in production mode, local dev auth persists a single development
+user, and GPT ingest remains on its separate bearer-token boundary.
 
 ## Current branch/task
 
-`feature/daily-plan-normalization` — Phase 7 normalized daily plans/tasks
-complete. Await explicit approval before Phase 8 browser authentication.
+`feature/authentik-oidc` — Phase 8 browser authentication with Authentik OIDC
+complete. Await review/commit and explicit approval before Phase 9.
 
 ## Important decisions
 
@@ -71,6 +70,13 @@ complete. Await explicit approval before Phase 8 browser authentication.
   with safe issue metadata.
 - GPT imports use a dedicated `GPT_INGEST_TOKEN`; browser/AuthentiK sessions are
   neither required nor accepted as the endpoint auth boundary.
+- Browser UI uses Auth.js with Authentik OIDC when `AUTH_MODE=oidc`.
+  Production auth env uses `AUTH_SECRET`, `AUTH_AUTHENTIK_ID`,
+  `AUTH_AUTHENTIK_SECRET`, `AUTH_AUTHENTIK_ISSUER`, and
+  `AUTH_TRUST_HOST=true`.
+- `AUTH_MODE=dev` persists a single local development user with
+  `authentik_subject=local-dev-user`; no public signup or multi-user account
+  management exists.
 - `POST /api/gpt/import` requires JSON plus a matching `Idempotency-Key` header,
   enforces `GPT_INGEST_MAX_BODY_BYTES`, and returns created/duplicate/validation
   results without exposing raw payloads or secrets.
@@ -93,10 +99,9 @@ complete. Await explicit approval before Phase 8 browser authentication.
 
 ## Next recommended tasks
 
-1. Review and commit Phase 7.
-2. Merge `feature/daily-plan-normalization` into `local` when approved.
-3. Await explicit approval before Phase 8.
-4. Phase 8: browser authentication with Authentik OIDC.
+1. Review and commit Phase 8.
+2. Merge `feature/authentik-oidc` into `local` when approved.
+3. Await explicit approval before Phase 9.
 
 Use `docs/16_BEST_IMPLEMENTATION_ORDER.md` as the source of truth.
 
@@ -155,3 +160,5 @@ Accepted ADR baseline:
 2026-07-07 - feature/gpt-ingest-endpoint - added machine-authenticated GPT import HTTP boundary with byte limits, matching idempotency headers, raw storage, duplicate-safe responses, and process-local rate limiting - `make check` passed with 37 tests and production build - next step: review/commit and await Phase 7 approval
 
 2026-07-08 - feature/daily-plan-normalization - added normalized daily plans/tasks, active-day matching, warnings, deterministic same-day replacement, durable processing results, and endpoint integration - migration, cleaned-up live DB smoke, and `make check` passed with 44 tests and production build - next step: review/commit and await Phase 8 approval
+
+2026-07-08 - feature/authentik-oidc - added Auth.js/AuthentiK browser authentication, production OIDC env placeholders, dev auth user persistence, UI route protection, and tests while keeping GPT ingest token-only - `make check` passed outside the restricted sandbox with 52 tests and production build; example env checks passed - next step: review/commit Phase 8 and await explicit Phase 9 approval

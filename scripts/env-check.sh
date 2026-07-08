@@ -18,7 +18,7 @@ for key in "${required[@]}"; do
 done
 
 if [[ "$ENV_FILE" == *production* ]]; then
-  prod_required=(AUTH_MODE AUTHENTIK_ISSUER AUTHENTIK_CLIENT_ID AUTHENTIK_CLIENT_SECRET SESSION_SECRET)
+  prod_required=(AUTH_MODE AUTH_SECRET AUTH_AUTHENTIK_ID AUTH_AUTHENTIK_SECRET AUTH_AUTHENTIK_ISSUER AUTH_TRUST_HOST)
   for key in "${prod_required[@]}"; do
     if ! grep -qE "^${key}=" "$ENV_FILE"; then
       echo "Missing production key $key in $ENV_FILE"

@@ -4,28 +4,43 @@ Last updated: 2026-07-08
 
 ## Current phase
 
-Phase 7 complete: valid daily plans normalize into one plan per active day and
-ordered tier/domain tasks with deterministic re-import behavior.
+Phase 8 complete: browser authentication with Authentik OIDC protects the UI
+while GPT ingest remains on separate machine-token auth.
 
 ## Active task
 
-No active implementation phase. Await explicit user approval before Phase 8.
+No active implementation phase. Await explicit user approval before Phase 9.
 
 ## Current branch
 
 ```bash
-feature/daily-plan-normalization
+feature/authentik-oidc
 ```
 
 ## Next actions
 
-1. Review and commit Phase 7 changes.
+1. Review and commit Phase 8 changes.
 2. Merge the completed branch into `local` when approved.
-3. Await explicit approval before Phase 8.
-4. After approval, create `feature/authentik-oidc` from `local`.
+3. Await explicit approval before Phase 9.
 
 ## Completed
 
+- Auth.js (`next-auth`) provides browser session handling with the Authentik
+  OIDC provider in `AUTH_MODE=oidc`.
+- Browser routes are protected through Next proxy/auth callbacks; `/api/gpt/import`
+  remains outside browser auth and still requires the dedicated GPT bearer token.
+- `AUTH_MODE=dev` creates or updates a single local development user with
+  `authentik_subject=local-dev-user`.
+- Production examples use `AUTH_SECRET`, `AUTH_AUTHENTIK_ID`,
+  `AUTH_AUTHENTIK_SECRET`, `AUTH_AUTHENTIK_ISSUER`, and
+  `AUTH_TRUST_HOST=true`; production env checks enforce the required keys.
+- Auth config and user persistence tests cover auth mode defaults, OIDC env
+  validation, public GPT ingest boundary, secure-cookie rules, and user upsert.
+- `make check` passed outside the restricted sandbox: frozen dependency install,
+  formatting, lint, typecheck, 52 tests, payload/schema drift validation,
+  production build, Prisma validation, shell syntax, and whitespace checks.
+- `.env.local.example` and `.env.production.example` pass `scripts/env-check.sh`
+  with the Phase 8 auth variable names.
 - `daily_plans` and `tasks` persist the normalized plan, raw import link,
   supportive content, warnings, task tier/domain, execution fields, and order.
 - Daily plans resolve an active `day_log` by exact date, day number, and phase;
@@ -125,7 +140,6 @@ feature/daily-plan-normalization
 
 ## Open questions for Codex to resolve only when needed
 
-- OIDC library: choose after checking current Next.js compatibility during auth phase.
 - UI component library: use Tailwind and shadcn/ui-compatible components unless a documented decision changes this.
 - Production reverse proxy: Traefik is the documented default; adapt only if the user's server uses something else.
 

@@ -94,8 +94,10 @@ Database migrations and seed data begin in Phase 3.
 
 Local auth:
 
-- Use `AUTH_MODE=dev` initially.
-- Add Authentik OIDC after core MVP works.
+- Use `AUTH_MODE=dev` for local browser development. This creates or updates a
+  single local development user.
+- To test OIDC locally, set `AUTH_MODE=oidc` and fill the Auth.js/AuthentiK
+  variables from `.env.local.example`.
 
 ## Production setup
 
@@ -112,6 +114,10 @@ Production requirements:
 
 - HTTPS only;
 - Authentik OIDC for UI;
+- Auth.js session secret in `AUTH_SECRET`;
+- `AUTH_AUTHENTIK_ID`, `AUTH_AUTHENTIK_SECRET`, and
+  `AUTH_AUTHENTIK_ISSUER` from the Authentik provider;
+- `AUTH_TRUST_HOST=true` behind the trusted Traefik route;
 - separate GPT ingest token;
 - no dev auth;
 - logs retained but scrubbed;
