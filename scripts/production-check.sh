@@ -25,4 +25,9 @@ if ! grep -qE '^AUTH_MODE=oidc$' "$ENV_FILE"; then
   exit 1
 fi
 
+if ! grep -qE '^AUTH_TRUST_HOST=true$' "$ENV_FILE"; then
+  echo "AUTH_TRUST_HOST must be true in production."
+  exit 1
+fi
+
 echo "Production preflight passed at env-file level. Add app-specific checks after scaffold."

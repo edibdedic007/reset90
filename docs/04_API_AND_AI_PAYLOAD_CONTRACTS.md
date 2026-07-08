@@ -31,8 +31,11 @@
 
 Browser UI:
 
-- production: Authentik OIDC session;
-- local: `AUTH_MODE=dev` can create a local development user.
+- production: Auth.js session backed by Authentik OIDC;
+- local: `AUTH_MODE=dev` creates or updates a local development user;
+- OIDC mode requires `AUTH_SECRET`, `AUTH_AUTHENTIK_ID`,
+  `AUTH_AUTHENTIK_SECRET`, `AUTH_AUTHENTIK_ISSUER`, and
+  `AUTH_TRUST_HOST=true` in production.
 
 GPT ingest:
 
@@ -114,6 +117,12 @@ responses include `normalized_records`; a safe normalization mismatch returns
 `422 normalization_error` with the retained raw import reference. Repeating an
 already processed import does not recreate tasks. A pending duplicate is safe
 to retry through normalization.
+
+Phase 8 protects browser UI routes with Auth.js and Authentik OIDC in
+`AUTH_MODE=oidc`. `AUTH_MODE=dev` keeps local browser access available by
+persisting a single `local-dev-user`. `/api/gpt/import` remains outside browser
+session auth and still requires only the dedicated GPT bearer token plus the
+idempotency header.
 
 ## Daily plan payload
 
