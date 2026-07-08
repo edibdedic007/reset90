@@ -1,5 +1,10 @@
 import { createHash, timingSafeEqual } from "node:crypto";
 
+import {
+  type DailyPlanNormalizationDatabase,
+  type DailyPlanNormalizationResult,
+  normalizeDailyPlanImport,
+} from "./normalize-daily-plan";
 import type { RawImportDatabase } from "./store";
 import { storeRawImport } from "./store";
 
@@ -19,10 +24,17 @@ export type GptImportRateLimiter = {
   check: () => RateLimitResult;
 };
 
+export type GptImportDatabase = RawImportDatabase &
+  DailyPlanNormalizationDatabase;
+
 export type GptImportHandlerDependencies = {
   env: GptImportEnvironment;
-  getDatabase: () => RawImportDatabase;
+  getDatabase: () => GptImportDatabase;
   rateLimiter: GptImportRateLimiter;
+  normalizeDailyPlan?: (
+    database: DailyPlanNormalizationDatabase,
+    importedPayloadId: string,
+  ) => Promise<DailyPlanNormalizationResult>;
 };
 
 type BodyReadResult =
@@ -133,6 +145,21 @@ function envelopeIdempotencyKey(input: unknown): string | null {
   return typeof key === "string" ? key : null;
 }
 
+function normalizationFailureResponse(
+  importedPayloadId: string,
+  result: Extract<DailyPlanNormalizationResult, { status: "failed" }>,
+) {
+  return jsonResponse(
+    {
+      ok: false,
+      error: "normalization_error",
+      code: result.code,
+      imported_payload_id: importedPayloadId,
+    },
+    422,
+  );
+}
+
 export function createGptImportRateLimiter(
   now: () => number = Date.now,
 ): GptImportRateLimiter {
@@ -221,20 +248,53 @@ export async function handleGptImport(
   }
 
   try {
-    const result = await storeRawImport(dependencies.getDatabase(), rawInput);
+    const database = dependencies.getDatabase();
+    const result = await storeRawImport(database, rawInput);
+    const normalizeDailyPlan =
+      dependencies.normalizeDailyPlan ?? normalizeDailyPlanImport;
 
     if (result.status === "created") {
+      const normalization = await normalizeDailyPlan(
+        database,
+        result.importedPayloadId,
+      );
+      if (normalization.status === "failed") {
+        return normalizationFailureResponse(
+          result.importedPayloadId,
+          normalization,
+        );
+      }
+
       return jsonResponse(
         {
           ok: true,
           status: "created",
           imported_payload_id: result.importedPayloadId,
+          ...(normalization.status === "processed"
+            ? { normalized_records: ["daily_plan", "tasks"] }
+            : {}),
         },
         201,
       );
     }
 
     if (result.status === "duplicate") {
+      if (
+        result.validationStatus === "VALID" &&
+        result.processingStatus === "PENDING"
+      ) {
+        const normalization = await normalizeDailyPlan(
+          database,
+          result.importedPayloadId,
+        );
+        if (normalization.status === "failed") {
+          return normalizationFailureResponse(
+            result.importedPayloadId,
+            normalization,
+          );
+        }
+      }
+
       return jsonResponse(
         {
           ok: true,

@@ -43,6 +43,7 @@ export const dailyPlanPayloadSchema = z
     energy_level: z.enum(["low", "normal", "high", "recovery"]),
     mission: nonEmptyText(1_000),
     supportive_message: nonEmptyText(2_000),
+    warnings: z.array(nonEmptyText(500)).max(20).default([]),
     downshift_rule: nonEmptyText(1_000),
     non_negotiables: z.array(nonNegotiableTaskSchema).max(20),
     minimum_plan: z.array(minimumTaskSchema).max(30),

@@ -41,15 +41,15 @@ Reset90 is a private self-hosted 90-day reset command center. It receives struct
 
 ## Current implementation status
 
-Phase 6 GPT ingest endpoint complete. `POST /api/gpt/import` uses dedicated
-bearer-token auth, streamed body limits, canonical validation, raw storage,
-source-scoped idempotency, and a basic process-local rate guard. No normalized
-domain mutation exists yet.
+Phase 7 daily plan normalization complete. Valid `daily_plan` imports create or
+replace one normalized plan per active day plus ordered tier/domain tasks. Raw
+imports remain linked, processing status is durable, and repeated imports do
+not accumulate tasks.
 
 ## Current branch/task
 
-`feature/gpt-ingest-endpoint` — Phase 6 machine-authenticated GPT ingest endpoint
-complete. Await explicit approval before Phase 7 daily-plan normalization.
+`feature/daily-plan-normalization` — Phase 7 normalized daily plans/tasks
+complete. Await explicit approval before Phase 8 browser authentication.
 
 ## Important decisions
 
@@ -66,8 +66,9 @@ complete. Await explicit approval before Phase 7 daily-plan normalization.
   any future database mutation.
 - Raw import uniqueness is `(source, idempotency_key)`; duplicate requests return
   the existing import reference, including concurrent unique-constraint races.
-- Valid raw imports remain `VALID/PENDING` until later normalization; identifiable
-  invalid imports are stored `INVALID/REJECTED` with safe issue metadata.
+- Valid daily plan imports advance from `VALID/PENDING` to
+  `VALID/PROCESSED`; identifiable invalid imports remain `INVALID/REJECTED`
+  with safe issue metadata.
 - GPT imports use a dedicated `GPT_INGEST_TOKEN`; browser/AuthentiK sessions are
   neither required nor accepted as the endpoint auth boundary.
 - `POST /api/gpt/import` requires JSON plus a matching `Idempotency-Key` header,
@@ -75,6 +76,14 @@ complete. Await explicit approval before Phase 7 daily-plan normalization.
   results without exposing raw payloads or secrets.
 - A 60-request/minute process-local guard protects the single-instance endpoint;
   shared/distributed limiting remains a later production-hardening concern.
+- Daily plans match an active day by date, day number, and phase; missing
+  targets produce bounded `FAILED` metadata without losing the raw import.
+- One plan exists per day. Reprocessing the same raw import is a no-op; a new
+  same-day import transactionally replaces plan fields and tasks.
+- Normalized plans store mission, supportive message, warnings, downshift rule,
+  context summary, source/schema version, and their raw import link.
+- Imported plan `energy_level` is validated but does not overwrite the later
+  user-selected `day_logs.energy_level` check-in state.
 - Store conversation history, summaries, decisions, and context snapshots; do not store hidden chain-of-thought.
 - Recovery-aware statuses replace harsh streaks.
 - Export/backup must be available early.
@@ -84,10 +93,10 @@ complete. Await explicit approval before Phase 7 daily-plan normalization.
 
 ## Next recommended tasks
 
-1. Review and commit Phase 6.
-2. Merge `feature/gpt-ingest-endpoint` into `local` when approved.
-3. Await explicit approval before Phase 7.
-4. Phase 7: daily-plan normalization into plans and tasks.
+1. Review and commit Phase 7.
+2. Merge `feature/daily-plan-normalization` into `local` when approved.
+3. Await explicit approval before Phase 8.
+4. Phase 8: browser authentication with Authentik OIDC.
 
 Use `docs/16_BEST_IMPLEMENTATION_ORDER.md` as the source of truth.
 
@@ -144,3 +153,5 @@ Accepted ADR baseline:
 2026-07-07 - feature/raw-import-storage - added raw valid/invalid import persistence, safe validation metadata, processing states, and source-scoped idempotency with race handling - migration, live DB smoke, and `make check` passed with 27 tests and production build - next step: review/commit and await Phase 6 approval
 
 2026-07-07 - feature/gpt-ingest-endpoint - added machine-authenticated GPT import HTTP boundary with byte limits, matching idempotency headers, raw storage, duplicate-safe responses, and process-local rate limiting - `make check` passed with 37 tests and production build - next step: review/commit and await Phase 7 approval
+
+2026-07-08 - feature/daily-plan-normalization - added normalized daily plans/tasks, active-day matching, warnings, deterministic same-day replacement, durable processing results, and endpoint integration - migration, cleaned-up live DB smoke, and `make check` passed with 44 tests and production build - next step: review/commit and await Phase 8 approval

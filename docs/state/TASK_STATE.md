@@ -1,31 +1,47 @@
 # Task State
 
-Last updated: 2026-07-07
+Last updated: 2026-07-08
 
 ## Current phase
 
-Phase 6 complete: machine-authenticated GPT ingest endpoint, request safety
-limits, raw storage, and duplicate-safe HTTP responses verified.
+Phase 7 complete: valid daily plans normalize into one plan per active day and
+ordered tier/domain tasks with deterministic re-import behavior.
 
 ## Active task
 
-No active implementation phase. Await explicit user approval before Phase 7.
+No active implementation phase. Await explicit user approval before Phase 8.
 
 ## Current branch
 
 ```bash
-feature/gpt-ingest-endpoint
+feature/daily-plan-normalization
 ```
 
 ## Next actions
 
-1. Review and commit Phase 6 changes.
+1. Review and commit Phase 7 changes.
 2. Merge the completed branch into `local` when approved.
-3. Await explicit approval before Phase 7.
-4. After approval, create `feature/daily-plan-normalization` from `local`.
+3. Await explicit approval before Phase 8.
+4. After approval, create `feature/authentik-oidc` from `local`.
 
 ## Completed
 
+- `daily_plans` and `tasks` persist the normalized plan, raw import link,
+  supportive content, warnings, task tier/domain, execution fields, and order.
+- Daily plans resolve an active `day_log` by exact date, day number, and phase;
+  unmatched targets mark the raw import `FAILED` with safe bounded metadata.
+- Same raw imports are no-ops after processing; new same-day imports replace the
+  plan and full task set transactionally instead of accumulating duplicates.
+- The GPT endpoint normalizes a newly stored daily plan and returns
+  `normalized_records`; pending duplicates safely retry normalization.
+- Daily plan `warnings` are optional in the canonical contract and normalize to
+  an empty list when omitted; generated JSON Schemas remain current.
+- Phase 7 migration applied locally. Live example smoke created 10 ordered
+  tasks, loaded the plan through its raw import relation, then removed all
+  temporary plan/import/task rows and restored prior Day 1 text.
+- `make check` passed outside the restricted sandbox: formatting, lint,
+  typecheck, 44 tests, payload/schema drift validation, production build,
+  Prisma validation, shell syntax, and whitespace checks.
 - `POST /api/gpt/import` authenticates only with the dedicated
   `GPT_INGEST_TOKEN`; browser Authentik sessions are not required.
 - Authenticated requests require JSON and a matching `Idempotency-Key` header,

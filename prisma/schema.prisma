@@ -62,6 +62,29 @@ enum ProcessingStatus {
   @@map("processing_status")
 }
 
+enum FocusDomain {
+  BODY
+  MOOD
+  DIGITAL
+  LEARNING
+  WORK
+  SYSTEM
+  ENVIRONMENT
+  SOCIAL
+  OTHER
+
+  @@map("focus_domain")
+}
+
+enum TaskTier {
+  NON_NEGOTIABLE
+  MINIMUM
+  STANDARD
+  IDEAL
+
+  @@map("task_tier")
+}
+
 model User {
   id               String       @id @default(uuid()) @db.Uuid
   authentikSubject String       @unique @map("authentik_subject")
@@ -122,6 +145,7 @@ model DayLog {
   updatedAt         DateTime     @updatedAt @map("updated_at")
   cycle             ResetCycle   @relation(fields: [cycleId], references: [id], onDelete: Cascade)
   phase             ResetPhase   @relation(fields: [phaseId], references: [id], onDelete: Restrict)
+  dailyPlan         DailyPlan?
 
   @@unique([cycleId, date])
   @@unique([cycleId, dayNumber])
@@ -142,8 +166,52 @@ model ImportedPayload {
   errorMetadata          Json?            @map("error_metadata")
   processedAt            DateTime?        @map("processed_at")
   createdAt              DateTime         @default(now()) @map("created_at")
+  dailyPlan              DailyPlan?
 
   @@unique([source, idempotencyKey])
   @@index([kind, createdAt])
   @@map("imported_payloads")
+}
+
+model DailyPlan {
+  id                String          @id @default(uuid()) @db.Uuid
+  dayLogId          String          @unique @map("day_log_id") @db.Uuid
+  importedPayloadId String          @unique @map("imported_payload_id") @db.Uuid
+  source            String
+  schemaVersion     String          @map("schema_version")
+  mission           String
+  supportiveMessage String          @map("supportive_message")
+  warnings          Json
+  downshiftRule     String          @map("downshift_rule")
+  contextSummary    String          @map("context_summary")
+  createdAt         DateTime        @default(now()) @map("created_at")
+  updatedAt         DateTime        @updatedAt @map("updated_at")
+  dayLog            DayLog          @relation(fields: [dayLogId], references: [id], onDelete: Cascade)
+  importedPayload   ImportedPayload @relation(fields: [importedPayloadId], references: [id], onDelete: Restrict)
+  tasks             Task[]
+
+  @@map("daily_plans")
+}
+
+model Task {
+  id              String      @id @default(uuid()) @db.Uuid
+  dailyPlanId     String      @map("daily_plan_id") @db.Uuid
+  title           String
+  description     String?
+  domain          FocusDomain
+  tier            TaskTier
+  estimateMinutes Int?        @map("estimate_minutes")
+  trigger         String?
+  why             String?
+  completedAt     DateTime?   @map("completed_at")
+  skippedAt       DateTime?   @map("skipped_at")
+  notes           String?
+  sortOrder       Int         @map("sort_order")
+  createdAt       DateTime    @default(now()) @map("created_at")
+  updatedAt       DateTime    @updatedAt @map("updated_at")
+  dailyPlan       DailyPlan   @relation(fields: [dailyPlanId], references: [id], onDelete: Cascade)
+
+  @@index([dailyPlanId, tier, sortOrder])
+  @@index([domain])
+  @@map("tasks")
 }

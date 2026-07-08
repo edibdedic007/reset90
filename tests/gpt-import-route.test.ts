@@ -6,10 +6,10 @@ import weeklyReview from "../examples/weekly_review_payload.json";
 import type { ImportedPayload, Prisma } from "../src/generated/prisma/client";
 import {
   createGptImportRateLimiter,
+  type GptImportDatabase,
   type GptImportHandlerDependencies,
   handleGptImport,
 } from "../src/server/imports/http";
-import type { RawImportDatabase } from "../src/server/imports/store";
 
 const TOKEN = "test-gpt-ingest-token";
 
@@ -60,13 +60,13 @@ function createTestDatabase() {
   const database = {
     importedPayload: { findUnique, create },
     dayLog: { update: domainMutation },
-  } as unknown as RawImportDatabase;
+  } as unknown as GptImportDatabase;
 
   return { database, rows, create, domainMutation };
 }
 
 function createDependencies(
-  database: RawImportDatabase,
+  database: GptImportDatabase,
   overrides: Partial<GptImportHandlerDependencies> = {},
 ): GptImportHandlerDependencies {
   return {
@@ -76,6 +76,7 @@ function createDependencies(
     },
     getDatabase: () => database,
     rateLimiter: { check: () => ({ allowed: true }) },
+    normalizeDailyPlan: async () => ({ status: "not_applicable" }),
     ...overrides,
   };
 }
@@ -199,6 +200,51 @@ describe("GPT import HTTP boundary", () => {
       processingStatus: "REJECTED",
     });
     expect(domainMutation).not.toHaveBeenCalled();
+  });
+
+  it("normalizes a newly stored daily plan", async () => {
+    const { database } = createTestDatabase();
+    const normalizeDailyPlan = vi.fn().mockResolvedValue({
+      status: "processed",
+      dailyPlanId: "plan-1",
+      taskCount: 10,
+    });
+
+    const response = await handleGptImport(
+      createRequest(dailyPlan),
+      createDependencies(database, { normalizeDailyPlan }),
+    );
+
+    expect(response.status).toBe(201);
+    await expect(responseJson(response)).resolves.toEqual({
+      ok: true,
+      status: "created",
+      imported_payload_id: "import-1",
+      normalized_records: ["daily_plan", "tasks"],
+    });
+    expect(normalizeDailyPlan).toHaveBeenCalledWith(database, "import-1");
+  });
+
+  it("returns a safe normalization error while preserving raw import reference", async () => {
+    const { database } = createTestDatabase();
+
+    const response = await handleGptImport(
+      createRequest(dailyPlan),
+      createDependencies(database, {
+        normalizeDailyPlan: async () => ({
+          status: "failed",
+          code: "day_log_not_found",
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(422);
+    await expect(responseJson(response)).resolves.toEqual({
+      ok: false,
+      error: "normalization_error",
+      code: "day_log_not_found",
+      imported_payload_id: "import-1",
+    });
   });
 
   it("returns the existing import for a duplicate idempotency key", async () => {
