@@ -41,15 +41,15 @@ Reset90 is a private self-hosted 90-day reset command center. It receives struct
 
 ## Current implementation status
 
-Phase 5 raw import storage complete. Valid and identifiable invalid GPT import
-envelopes are stored as raw JSON with separate validation/processing states,
-safe error metadata, and source-scoped idempotency. No normalization or ingest
-endpoint exists yet.
+Phase 6 GPT ingest endpoint complete. `POST /api/gpt/import` uses dedicated
+bearer-token auth, streamed body limits, canonical validation, raw storage,
+source-scoped idempotency, and a basic process-local rate guard. No normalized
+domain mutation exists yet.
 
 ## Current branch/task
 
-`feature/raw-import-storage` — Phase 5 raw import storage and idempotency service
-complete. Await explicit approval before Phase 6 GPT ingest endpoint work.
+`feature/gpt-ingest-endpoint` — Phase 6 machine-authenticated GPT ingest endpoint
+complete. Await explicit approval before Phase 7 daily-plan normalization.
 
 ## Important decisions
 
@@ -68,6 +68,13 @@ complete. Await explicit approval before Phase 6 GPT ingest endpoint work.
   the existing import reference, including concurrent unique-constraint races.
 - Valid raw imports remain `VALID/PENDING` until later normalization; identifiable
   invalid imports are stored `INVALID/REJECTED` with safe issue metadata.
+- GPT imports use a dedicated `GPT_INGEST_TOKEN`; browser/AuthentiK sessions are
+  neither required nor accepted as the endpoint auth boundary.
+- `POST /api/gpt/import` requires JSON plus a matching `Idempotency-Key` header,
+  enforces `GPT_INGEST_MAX_BODY_BYTES`, and returns created/duplicate/validation
+  results without exposing raw payloads or secrets.
+- A 60-request/minute process-local guard protects the single-instance endpoint;
+  shared/distributed limiting remains a later production-hardening concern.
 - Store conversation history, summaries, decisions, and context snapshots; do not store hidden chain-of-thought.
 - Recovery-aware statuses replace harsh streaks.
 - Export/backup must be available early.
@@ -77,10 +84,10 @@ complete. Await explicit approval before Phase 6 GPT ingest endpoint work.
 
 ## Next recommended tasks
 
-1. Review and commit Phase 5.
-2. Merge `feature/raw-import-storage` into `local` when approved.
-3. Await explicit approval before Phase 6.
-4. Phase 6: machine-authenticated GPT ingest endpoint.
+1. Review and commit Phase 6.
+2. Merge `feature/gpt-ingest-endpoint` into `local` when approved.
+3. Await explicit approval before Phase 7.
+4. Phase 7: daily-plan normalization into plans and tasks.
 
 Use `docs/16_BEST_IMPLEMENTATION_ORDER.md` as the source of truth.
 
@@ -135,3 +142,5 @@ Accepted ADR baseline:
 2026-07-07 - feature/gpt-payload-validation - added strict Zod import envelopes and payload schemas, generated Draft 2020-12 contracts, example validation, and invalid fixture tests - `make check` passed with 22 tests and production build - next step: review/commit and await Phase 5 approval
 
 2026-07-07 - feature/raw-import-storage - added raw valid/invalid import persistence, safe validation metadata, processing states, and source-scoped idempotency with race handling - migration, live DB smoke, and `make check` passed with 27 tests and production build - next step: review/commit and await Phase 6 approval
+
+2026-07-07 - feature/gpt-ingest-endpoint - added machine-authenticated GPT import HTTP boundary with byte limits, matching idempotency headers, raw storage, duplicate-safe responses, and process-local rate limiting - `make check` passed with 37 tests and production build - next step: review/commit and await Phase 7 approval

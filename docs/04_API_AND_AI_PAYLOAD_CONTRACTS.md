@@ -37,6 +37,7 @@ Browser UI:
 GPT ingest:
 
 - `Authorization: Bearer <GPT_INGEST_TOKEN>` for MVP;
+- `Idempotency-Key` header matching the envelope `idempotency_key`;
 - optional HMAC signature later;
 - no export/delete/admin permissions.
 
@@ -81,6 +82,8 @@ Rules:
 - Store full raw JSON in `imported_payloads.raw_json`.
 - If the same source and idempotency key arrive again, return `200` with the existing import reference, not a hard error.
 - Reject bodies over `GPT_INGEST_MAX_BODY_BYTES`.
+- Require `Content-Type: application/json`.
+- Reject missing or mismatched `Idempotency-Key` headers before storage.
 
 Canonical runtime schemas live in `src/server/imports/schemas/`. Committed Draft
 2020-12 JSON Schemas live in `schemas/` and are generated from those Zod
@@ -95,6 +98,15 @@ safe validation metadata, and returns an existing import for duplicate
 `(source, idempotency_key)` values. Invalid inputs without trustworthy envelope
 metadata are rejected without a database write. No API endpoint or normalized
 domain mutation is part of this phase.
+
+Phase 6 exposes `POST /api/gpt/import` with dedicated bearer-token auth; it does
+not use or require a browser Authentik session. The route streams and caps the
+body before JSON parsing, validates the canonical envelope, then delegates raw
+storage to `storeRawImport`. It applies a basic process-local cap of 60
+authenticated requests per minute and returns `429` with `Retry-After` when the
+cap is exceeded. This limiter is a single-instance safety guard; production
+hardening may replace it with a shared limiter if deployment becomes
+multi-instance.
 
 ## Daily plan payload
 
@@ -216,8 +228,7 @@ Created:
 {
   "ok": true,
   "status": "created",
-  "imported_payload_id": "uuid",
-  "normalized_records": ["daily_plan", "tasks"]
+  "imported_payload_id": "uuid"
 }
 ```
 
@@ -240,3 +251,17 @@ Validation error:
   "details": []
 }
 ```
+
+HTTP status behavior:
+
+| Status | Meaning |
+|---|---|
+| `201` | Raw import created. |
+| `200` | Duplicate key; existing import returned. |
+| `400` | Invalid JSON or missing/mismatched idempotency header. |
+| `401` | Missing or invalid GPT bearer token. |
+| `413` | Body exceeds `GPT_INGEST_MAX_BODY_BYTES`. |
+| `415` | Content type is not JSON. |
+| `422` | Canonical envelope or payload validation failed. |
+| `429` | Process-local authenticated request cap exceeded. |
+| `503` | Token/DB service configuration is unavailable. |

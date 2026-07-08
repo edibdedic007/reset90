@@ -4,28 +4,42 @@ Last updated: 2026-07-07
 
 ## Current phase
 
-Phase 5 complete: raw GPT import persistence, validation/processing states,
-safe error metadata, and source-scoped idempotency verified.
+Phase 6 complete: machine-authenticated GPT ingest endpoint, request safety
+limits, raw storage, and duplicate-safe HTTP responses verified.
 
 ## Active task
 
-No active implementation phase. Await explicit user approval before Phase 6.
+No active implementation phase. Await explicit user approval before Phase 7.
 
 ## Current branch
 
 ```bash
-feature/raw-import-storage
+feature/gpt-ingest-endpoint
 ```
 
 ## Next actions
 
-1. Review and commit Phase 5 changes.
+1. Review and commit Phase 6 changes.
 2. Merge the completed branch into `local` when approved.
-3. Await explicit approval before Phase 6.
-4. After approval, create `feature/gpt-ingest-endpoint` from `local`.
+3. Await explicit approval before Phase 7.
+4. After approval, create `feature/daily-plan-normalization` from `local`.
 
 ## Completed
 
+- `POST /api/gpt/import` authenticates only with the dedicated
+  `GPT_INGEST_TOKEN`; browser Authentik sessions are not required.
+- Authenticated requests require JSON and a matching `Idempotency-Key` header,
+  stream through `GPT_INGEST_MAX_BODY_BYTES`, and receive safe status-specific
+  responses.
+- Valid imports return HTTP 201, duplicates return the existing import with HTTP
+  200, and invalid canonical payloads return HTTP 422 without domain mutation.
+- The endpoint uses a basic 60-request/minute process-local limiter with
+  `Retry-After`; shared limiting remains deferred unless deployment scales out.
+- Route integration tests cover missing/bad tokens, valid storage, invalid
+  payloads, duplicate keys, body limits, idempotency mismatch, and rate limiting.
+- `make check` passed outside the restricted sandbox: formatting, lint,
+  typecheck, 37 tests, payload/schema drift validation, production build, Prisma
+  validation, shell syntax, and whitespace checks.
 - `storeRawImport` validates canonical envelopes and persists raw JSON before
   any normalized domain mutation.
 - Valid imports use `VALID/PENDING`; identifiable invalid imports use
