@@ -37,6 +37,7 @@ Browser UI:
 GPT ingest:
 
 - `Authorization: Bearer <GPT_INGEST_TOKEN>` for MVP;
+- `Idempotency-Key` header matching the envelope `idempotency_key`;
 - optional HMAC signature later;
 - no export/delete/admin permissions.
 
@@ -81,6 +82,8 @@ Rules:
 - Store full raw JSON in `imported_payloads.raw_json`.
 - If the same source and idempotency key arrive again, return `200` with the existing import reference, not a hard error.
 - Reject bodies over `GPT_INGEST_MAX_BODY_BYTES`.
+- Require `Content-Type: application/json`.
+- Reject missing or mismatched `Idempotency-Key` headers before storage.
 
 Canonical runtime schemas live in `src/server/imports/schemas/`. Committed Draft
 2020-12 JSON Schemas live in `schemas/` and are generated from those Zod
@@ -96,6 +99,22 @@ safe validation metadata, and returns an existing import for duplicate
 metadata are rejected without a database write. No API endpoint or normalized
 domain mutation is part of this phase.
 
+Phase 6 exposes `POST /api/gpt/import` with dedicated bearer-token auth; it does
+not use or require a browser Authentik session. The route streams and caps the
+body before JSON parsing, validates the canonical envelope, then delegates raw
+storage to `storeRawImport`. It applies a basic process-local cap of 60
+authenticated requests per minute and returns `429` with `Retry-After` when the
+cap is exceeded. This limiter is a single-instance safety guard; production
+hardening may replace it with a shared limiter if deployment becomes
+multi-instance.
+
+Phase 7 normalizes valid `daily_plan` imports after raw storage. The plan must
+match one active `day_log` by date, day number, and phase. Successful daily plan
+responses include `normalized_records`; a safe normalization mismatch returns
+`422 normalization_error` with the retained raw import reference. Repeating an
+already processed import does not recreate tasks. A pending duplicate is safe
+to retry through normalization.
+
 ## Daily plan payload
 
 Fields inside `payload`:
@@ -108,6 +127,7 @@ Fields inside `payload`:
   "energy_level": "normal",
   "mission": "Interrupt drift with one body action, one focus action, and one reflection.",
   "supportive_message": "Today does not need to repay yesterday.",
+  "warnings": ["If energy falls, use the minimum plan."],
   "downshift_rule": "If energy drops, switch to minimum plan.",
   "non_negotiables": [],
   "minimum_plan": [],
@@ -240,3 +260,28 @@ Validation error:
   "details": []
 }
 ```
+
+Normalization error:
+
+```json
+{
+  "ok": false,
+  "error": "normalization_error",
+  "code": "day_log_not_found",
+  "imported_payload_id": "uuid"
+}
+```
+
+HTTP status behavior:
+
+| Status | Meaning |
+|---|---|
+| `201` | Raw import created. |
+| `200` | Duplicate key; existing import returned. |
+| `400` | Invalid JSON or missing/mismatched idempotency header. |
+| `401` | Missing or invalid GPT bearer token. |
+| `413` | Body exceeds `GPT_INGEST_MAX_BODY_BYTES`. |
+| `415` | Content type is not JSON. |
+| `422` | Canonical validation failed, or a daily plan could not match its active day. |
+| `429` | Process-local authenticated request cap exceeded. |
+| `503` | Token/DB service configuration is unavailable. |

@@ -11,6 +11,9 @@
     "energy_level": "normal",
     "mission": "Interrupt the drift with one body action, one focus action, and one reflection.",
     "supportive_message": "Today does not need to repay yesterday. It only needs one honest start.",
+    "warnings": [
+      "If energy falls, use the minimum plan instead of abandoning the day."
+    ],
     "downshift_rule": "If energy drops, switch to the minimum plan without marking the day as failed.",
     "non_negotiables": [
       {

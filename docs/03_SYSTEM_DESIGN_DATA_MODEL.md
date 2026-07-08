@@ -51,11 +51,11 @@ erDiagram
 ## Core enums
 
 ```text
-FocusDomain = BODY | MOOD | DIGITAL | LEARNING | WORK | SYSTEM | SOCIAL | RECOVERY
+FocusDomain = BODY | MOOD | DIGITAL | LEARNING | WORK | SYSTEM | ENVIRONMENT | SOCIAL | OTHER
 TaskTier = NON_NEGOTIABLE | MINIMUM | STANDARD | IDEAL
 EnergyLevel = BURNED_OUT | LOW | NORMAL | HIGH | RESTLESS_CHAOTIC
 DayStatus = GREEN | YELLOW | BLUE | RED | GOLD | UNSET
-PayloadKind = DAILY_PLAN | DAILY_REFLECTION | WEEKLY_REVIEW | CONTEXT_SUMMARY
+PayloadKind = DAILY_PLAN | DAILY_REFLECTION | WEEKLY_REVIEW | CONTEXT_ITEM
 ContextKind = CONVERSATION | TASK_SUMMARY | DECISION_LOG | DAILY_SUMMARY | WEEKLY_SUMMARY | CONTEXT_SNAPSHOT | REASONING_SUMMARY
 RecoveryType = PLANNED | EMERGENCY_RESET | DOWNSHIFT | COMEBACK
 ```
@@ -136,9 +136,12 @@ Fields:
 - `source`
 - `schema_version`
 - `mission`
+- `supportive_message`
+- `warnings`
 - `downshift_rule`
 - `context_summary`
 - `created_at`
+- `updated_at`
 
 ### tasks
 
@@ -157,6 +160,8 @@ Fields:
 - `skipped_at`
 - `notes`
 - `sort_order`
+- `created_at`
+- `updated_at`
 
 ### checkins
 
@@ -293,3 +298,16 @@ use `INVALID/REJECTED` with bounded issue code/path/message metadata. Duplicate
 `(source, idempotency_key)` requests return the existing import reference, and
 the database unique constraint protects concurrent requests. Raw payload text
 is stored in JSONB but is not copied into error metadata or logs.
+
+## Phase 7 daily plan normalization baseline
+
+Valid `DAILY_PLAN` imports normalize transactionally into one `daily_plans`
+record per `day_log` plus ordered `tasks`. Date, day number, phase name, and an
+active cycle must all identify the same day. Each normalized plan links to the
+raw import that produced its current contents; mission and supportive message
+are also copied onto `day_logs` for later dashboard reads.
+
+Reprocessing an already processed raw import is a no-op. A new valid import for
+the same day replaces the plan contents and task set in one transaction, so
+revisions are deterministic and cannot accumulate duplicate tasks. Missing day
+targets mark the raw import `FAILED` with a bounded safe error code.

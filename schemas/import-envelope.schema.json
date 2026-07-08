@@ -61,6 +61,17 @@
               "maxLength": 2000,
               "pattern": "\\S"
             },
+            "warnings": {
+              "default": [],
+              "maxItems": 20,
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 500,
+                "pattern": "\\S"
+              }
+            },
             "downshift_rule": {
               "type": "string",
               "minLength": 1,
@@ -277,6 +288,7 @@
             "energy_level",
             "mission",
             "supportive_message",
+            "warnings",
             "downshift_rule",
             "non_negotiables",
             "minimum_plan",

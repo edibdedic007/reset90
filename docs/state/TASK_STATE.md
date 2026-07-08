@@ -1,31 +1,61 @@
 # Task State
 
-Last updated: 2026-07-07
+Last updated: 2026-07-08
 
 ## Current phase
 
-Phase 5 complete: raw GPT import persistence, validation/processing states,
-safe error metadata, and source-scoped idempotency verified.
+Phase 7 complete: valid daily plans normalize into one plan per active day and
+ordered tier/domain tasks with deterministic re-import behavior.
 
 ## Active task
 
-No active implementation phase. Await explicit user approval before Phase 6.
+No active implementation phase. Await explicit user approval before Phase 8.
 
 ## Current branch
 
 ```bash
-feature/raw-import-storage
+feature/daily-plan-normalization
 ```
 
 ## Next actions
 
-1. Review and commit Phase 5 changes.
+1. Review and commit Phase 7 changes.
 2. Merge the completed branch into `local` when approved.
-3. Await explicit approval before Phase 6.
-4. After approval, create `feature/gpt-ingest-endpoint` from `local`.
+3. Await explicit approval before Phase 8.
+4. After approval, create `feature/authentik-oidc` from `local`.
 
 ## Completed
 
+- `daily_plans` and `tasks` persist the normalized plan, raw import link,
+  supportive content, warnings, task tier/domain, execution fields, and order.
+- Daily plans resolve an active `day_log` by exact date, day number, and phase;
+  unmatched targets mark the raw import `FAILED` with safe bounded metadata.
+- Same raw imports are no-ops after processing; new same-day imports replace the
+  plan and full task set transactionally instead of accumulating duplicates.
+- The GPT endpoint normalizes a newly stored daily plan and returns
+  `normalized_records`; pending duplicates safely retry normalization.
+- Daily plan `warnings` are optional in the canonical contract and normalize to
+  an empty list when omitted; generated JSON Schemas remain current.
+- Phase 7 migration applied locally. Live example smoke created 10 ordered
+  tasks, loaded the plan through its raw import relation, then removed all
+  temporary plan/import/task rows and restored prior Day 1 text.
+- `make check` passed outside the restricted sandbox: formatting, lint,
+  typecheck, 44 tests, payload/schema drift validation, production build,
+  Prisma validation, shell syntax, and whitespace checks.
+- `POST /api/gpt/import` authenticates only with the dedicated
+  `GPT_INGEST_TOKEN`; browser Authentik sessions are not required.
+- Authenticated requests require JSON and a matching `Idempotency-Key` header,
+  stream through `GPT_INGEST_MAX_BODY_BYTES`, and receive safe status-specific
+  responses.
+- Valid imports return HTTP 201, duplicates return the existing import with HTTP
+  200, and invalid canonical payloads return HTTP 422 without domain mutation.
+- The endpoint uses a basic 60-request/minute process-local limiter with
+  `Retry-After`; shared limiting remains deferred unless deployment scales out.
+- Route integration tests cover missing/bad tokens, valid storage, invalid
+  payloads, duplicate keys, body limits, idempotency mismatch, and rate limiting.
+- `make check` passed outside the restricted sandbox: formatting, lint,
+  typecheck, 37 tests, payload/schema drift validation, production build, Prisma
+  validation, shell syntax, and whitespace checks.
 - `storeRawImport` validates canonical envelopes and persists raw JSON before
   any normalized domain mutation.
 - Valid imports use `VALID/PENDING`; identifiable invalid imports use
