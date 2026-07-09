@@ -41,14 +41,16 @@ Reset90 is a private self-hosted 90-day reset command center. It receives struct
 
 ## Current implementation status
 
-Phase 8 browser authentication complete. The UI is protected by Auth.js with
-Authentik OIDC in production mode, local dev auth persists a single development
-user, and GPT ingest remains on its separate bearer-token boundary.
+Phase 9 Today Command Center complete. The authenticated home page shows the
+active day, imported plan, tiered tasks, recovery credit summary, task progress,
+energy, and calm execution copy. Browser-session APIs update task completion
+and today's energy while GPT ingest remains on its separate bearer-token
+boundary.
 
 ## Current branch/task
 
-`feature/authentik-oidc` — Phase 8 browser authentication with Authentik OIDC
-complete. Await review/commit and explicit approval before Phase 9.
+`feature/today-command-center` — Phase 9 Today Command Center UI complete.
+Await review/commit and explicit approval before Phase 10.
 
 ## Important decisions
 
@@ -90,6 +92,14 @@ complete. Await review/commit and explicit approval before Phase 9.
   context summary, source/schema version, and their raw import link.
 - Imported plan `energy_level` is validated but does not overwrite the later
   user-selected `day_logs.energy_level` check-in state.
+- `GET /api/dashboard/today` returns the signed-in user's current active-cycle
+  day and grouped imported plan tasks.
+- `PATCH /api/tasks/:id` completes or uncompletes only tasks owned by the
+  signed-in user's active cycle.
+- `PATCH /api/dashboard/today/energy` updates today's `day_logs.energy_level`
+  with the supported energy enum or clears it to null.
+- Local seed data now uses the same dev Authentik subject as local browser auth
+  so the seeded active cycle appears in the dashboard.
 - Store conversation history, summaries, decisions, and context snapshots; do not store hidden chain-of-thought.
 - Recovery-aware statuses replace harsh streaks.
 - Export/backup must be available early.
@@ -99,9 +109,9 @@ complete. Await review/commit and explicit approval before Phase 9.
 
 ## Next recommended tasks
 
-1. Review and commit Phase 8.
-2. Merge `feature/authentik-oidc` into `local` when approved.
-3. Await explicit approval before Phase 9.
+1. Review and commit Phase 9.
+2. Merge `feature/today-command-center` into `local` when approved.
+3. Await explicit approval before Phase 10.
 
 Use `docs/16_BEST_IMPLEMENTATION_ORDER.md` as the source of truth.
 
@@ -162,3 +172,5 @@ Accepted ADR baseline:
 2026-07-08 - feature/daily-plan-normalization - added normalized daily plans/tasks, active-day matching, warnings, deterministic same-day replacement, durable processing results, and endpoint integration - migration, cleaned-up live DB smoke, and `make check` passed with 44 tests and production build - next step: review/commit and await Phase 8 approval
 
 2026-07-08 - feature/authentik-oidc - added Auth.js/AuthentiK browser authentication, production OIDC env placeholders, dev auth user persistence, UI route protection, and tests while keeping GPT ingest token-only - `make check` passed outside the restricted sandbox with 52 tests and production build; example env checks passed - next step: review/commit Phase 8 and await explicit Phase 9 approval
+
+2026-07-08 - feature/today-command-center - added Today Command Center UI, browser dashboard API, task completion API/UI, energy API/UI, dev seed auth alignment, and focused dashboard tests - `make check` passed outside the restricted sandbox with 56 tests and production build - next step: review/commit Phase 9 and await explicit Phase 10 approval

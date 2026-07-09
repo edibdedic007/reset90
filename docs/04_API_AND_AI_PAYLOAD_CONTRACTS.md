@@ -52,7 +52,8 @@ GPT ingest:
 | GET | `/api/dashboard/today` | user | Current day dashboard data. |
 | POST | `/api/gpt/import` | GPT token | Import daily plan/reflection/weekly review/context payload. |
 | POST | `/api/checkins` | user | Create manual check-in. |
-| PATCH | `/api/tasks/:id` | user | Complete/skip/update task. |
+| PATCH | `/api/tasks/:id` | user | Complete or uncomplete a task. |
+| PATCH | `/api/dashboard/today/energy` | user | Update current day energy level. |
 | POST | `/api/recovery/start` | user | Start recovery mode for a day. |
 | GET | `/api/analytics/90-day` | user | Grid and trends. |
 | GET | `/api/context` | user | List/search context items. |
@@ -117,6 +118,16 @@ responses include `normalized_records`; a safe normalization mismatch returns
 `422 normalization_error` with the retained raw import reference. Repeating an
 already processed import does not recreate tasks. A pending duplicate is safe
 to retry through normalization.
+
+Phase 9 exposes browser-session APIs for the Today Command Center.
+`GET /api/dashboard/today` returns the signed-in user's active cycle, current
+UTC day, imported daily plan, grouped tasks, energy, status, and recovery credit
+summary. `PATCH /api/tasks/:id` accepts `{ "completed": boolean }` and only
+updates tasks belonging to the signed-in user's active cycle. Completing a task
+sets `completed_at` and clears `skipped_at`; uncompleting clears
+`completed_at`. `PATCH /api/dashboard/today/energy` accepts
+`{ "energyLevel": EnergyLevel | null }` and updates today's `day_logs` row.
+These browser APIs do not accept `GPT_INGEST_TOKEN`.
 
 Phase 8 protects browser UI routes with Auth.js and Authentik OIDC in
 `AUTH_MODE=oidc`. `AUTH_MODE=dev` keeps local browser access available by

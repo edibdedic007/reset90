@@ -96,6 +96,16 @@ Task card should show:
 - trigger;
 - why.
 
+Phase 9 implementation baseline:
+
+- Today Command Center is the first screen after browser auth.
+- The header shows Day X/90, phase, status, recovery credits, energy, and task progress.
+- Imported daily plan sections show mission, supportive message, downshift rule, context, warnings, non-negotiables, minimum, standard, and ideal tasks.
+- Task completion is a checkbox toggle; minimum completion remains valid progress.
+- Energy is a segmented control using the supported `EnergyLevel` values.
+- If no plan is imported for the current day, the page keeps the active day visible and still allows energy updates.
+- Recovery workflow entry and check-in history remain later phases.
+
 ## Recovery mode flow
 
 Entry points:

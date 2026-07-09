@@ -1,66 +1,92 @@
+import Link from "next/link";
+
 import { signOut } from "@/auth";
+import { TodayCommandCenter } from "@/components/today-command-center";
 import type { BrowserUserSession } from "@/server/auth/session";
+import type { TodayDashboard } from "@/server/dashboard/today";
 
 type AppShellProps = {
+  dashboard: TodayDashboard;
   session: BrowserUserSession;
 };
 
-export function AppShell({ session }: AppShellProps) {
+const navigationItems = [
+  "Today",
+  "90 Days",
+  "Reviews",
+  "Context",
+  "Analytics",
+  "Settings",
+];
+
+export function AppShell({ dashboard, session }: AppShellProps) {
   const displayName =
     session.displayName ?? session.email ?? session.authentikSubject;
 
   return (
-    <main className="mx-auto flex min-h-screen w-full max-w-5xl items-center px-6 py-16 sm:px-10">
-      <section className="w-full rounded-3xl border border-[var(--border)] bg-[var(--surface)]/90 p-8 shadow-2xl shadow-black/20 sm:p-12">
-        <p className="mb-5 text-sm font-semibold tracking-[0.24em] text-[var(--accent)] uppercase">
-          Private · Self-hosted · Single-user
-        </p>
-        <h1 className="max-w-3xl text-4xl font-semibold tracking-tight sm:text-6xl">
-          Reset90 app shell is ready.
-        </h1>
-        <p className="mt-6 max-w-2xl text-lg leading-8 text-[var(--muted)]">
-          Foundation only. Daily plans, tracking, recovery, and analytics arrive
-          in later approved phases.
-        </p>
-        <div className="mt-8 flex flex-wrap items-center gap-3 text-sm text-[var(--muted)]">
-          <span className="rounded-full border border-[var(--border)] px-4 py-2">
-            Signed in as {displayName}
-          </span>
-          {session.isDev ? (
-            <span className="rounded-full border border-[var(--border)] px-4 py-2">
-              Dev auth
-            </span>
-          ) : (
-            <form
-              action={async () => {
-                "use server";
-                await signOut({ redirectTo: "/" });
-              }}
+    <main className="min-h-screen bg-[var(--background)]">
+      <header className="border-b border-[var(--border)] bg-[var(--surface)]">
+        <div className="mx-auto flex w-full max-w-7xl flex-col gap-4 px-4 py-4 sm:px-6 lg:flex-row lg:items-center lg:justify-between lg:px-8">
+          <div className="flex flex-wrap items-center gap-4">
+            <Link className="text-xl font-semibold" href="/">
+              Reset90
+            </Link>
+            <nav
+              aria-label="Primary navigation"
+              className="flex flex-wrap gap-1"
             >
-              <button
-                className="rounded-full border border-[var(--border)] px-4 py-2 hover:border-[var(--accent)] hover:text-[var(--foreground)]"
-                type="submit"
+              {navigationItems.map((item) =>
+                item === "Today" ? (
+                  <Link
+                    aria-current="page"
+                    className="rounded-lg px-3 py-2 text-sm text-[var(--foreground)] aria-[current=page]:bg-[var(--surface-alt)]"
+                    href="/"
+                    key={item}
+                  >
+                    {item}
+                  </Link>
+                ) : (
+                  <span
+                    aria-disabled="true"
+                    className="rounded-lg px-3 py-2 text-sm text-[var(--muted)]"
+                    key={item}
+                  >
+                    {item}
+                  </span>
+                ),
+              )}
+            </nav>
+          </div>
+          <div className="flex flex-wrap items-center gap-3 text-sm text-[var(--muted)]">
+            <span className="rounded-lg border border-[var(--border)] px-3 py-2">
+              {displayName}
+            </span>
+            {session.isDev ? (
+              <span className="rounded-lg border border-[var(--border)] px-3 py-2">
+                Dev auth
+              </span>
+            ) : (
+              <form
+                action={async () => {
+                  "use server";
+                  await signOut({ redirectTo: "/" });
+                }}
               >
-                Sign out
-              </button>
-            </form>
-          )}
+                <button
+                  className="rounded-lg border border-[var(--border)] px-3 py-2 hover:border-[var(--accent)] hover:text-[var(--foreground)]"
+                  type="submit"
+                >
+                  Sign out
+                </button>
+              </form>
+            )}
+          </div>
         </div>
-        <div className="mt-10 flex flex-wrap gap-3 text-sm text-[var(--muted)]">
-          <a
-            className="rounded-full border border-[var(--border)] px-4 py-2 hover:border-[var(--accent)] hover:text-[var(--foreground)]"
-            href="/api/health"
-          >
-            Health endpoint
-          </a>
-          <a
-            className="rounded-full border border-[var(--border)] px-4 py-2 hover:border-[var(--accent)] hover:text-[var(--foreground)]"
-            href="/api/ready"
-          >
-            Readiness endpoint
-          </a>
-        </div>
-      </section>
+      </header>
+
+      <div className="mx-auto w-full max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
+        <TodayCommandCenter initialDashboard={dashboard} />
+      </div>
     </main>
   );
 }

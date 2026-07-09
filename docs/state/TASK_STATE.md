@@ -4,27 +4,45 @@ Last updated: 2026-07-08
 
 ## Current phase
 
-Phase 8 complete: browser authentication with Authentik OIDC protects the UI
-while GPT ingest remains on separate machine-token auth.
+Phase 9 complete: Today Command Center displays the signed-in user's active day
+and imported plan, and supports task completion plus energy updates.
 
 ## Active task
 
-No active implementation phase. Await explicit user approval before Phase 9.
+No active implementation phase. Await explicit user approval before Phase 10.
 
 ## Current branch
 
 ```bash
-feature/authentik-oidc
+feature/today-command-center
 ```
 
 ## Next actions
 
-1. Review and commit Phase 8 changes.
+1. Review and commit Phase 9 changes.
 2. Merge the completed branch into `local` when approved.
-3. Await explicit approval before Phase 9.
+3. Await explicit approval before Phase 10.
 
 ## Completed
 
+- Today Command Center replaces the placeholder shell with authenticated
+  dashboard navigation, current Day X/90, phase, day status, recovery credit
+  summary, energy, task progress, mission, support copy, downshift rule,
+  context, warnings, and tasks grouped by non-negotiable/minimum/standard/ideal.
+- `GET /api/dashboard/today` returns the signed-in user's active-cycle current
+  UTC day, imported plan, and grouped task data.
+- `PATCH /api/tasks/:id` completes or uncompletes only tasks belonging to the
+  signed-in user's active cycle; completion sets `completed_at` and clears
+  `skipped_at`.
+- `PATCH /api/dashboard/today/energy` updates today's `day_logs.energy_level`
+  using supported energy values or null.
+- Local seed data now uses the same dev Authentik subject as local browser auth
+  so the seeded active cycle appears for the dev dashboard user.
+- UX/API docs describe the Phase 9 browser API and Today Command Center
+  baseline.
+- `make check` passed outside the restricted sandbox: frozen dependency install,
+  formatting, lint, typecheck, 56 tests, payload/schema drift validation,
+  production build, Prisma validation, shell syntax, and whitespace checks.
 - Auth.js (`next-auth`) provides browser session handling with the Authentik
   OIDC provider in `AUTH_MODE=oidc`.
 - Browser routes are protected through Next proxy/auth callbacks; `/api/gpt/import`
