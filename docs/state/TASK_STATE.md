@@ -1,29 +1,53 @@
 # Task State
 
-Last updated: 2026-07-08
+Last updated: 2026-07-10
 
 ## Current phase
 
-Phase 9 complete: Today Command Center displays the signed-in user's active day
-and imported plan, and supports task completion plus energy updates.
+Phase 10 complete: authenticated current-day check-ins persist energy and eight
+validated state scores, sync day energy, and appear on the Today dashboard.
 
 ## Active task
 
-No active implementation phase. Await explicit user approval before Phase 10.
+No active implementation phase. Await explicit user approval before Phase 11.
 
 ## Current branch
 
 ```bash
-feature/today-command-center
+feature/checkins
 ```
 
 ## Next actions
 
-1. Review and commit Phase 9 changes.
+1. Review and commit Phase 10 changes.
 2. Merge the completed branch into `local` when approved.
-3. Await explicit approval before Phase 10.
+3. Await explicit approval before Phase 11.
 
 ## Completed
+
+- `checkins` stores append-only morning, midday, evening, and manual snapshots
+  linked to `day_logs`, with energy, eight required 1-10 scores, and an optional
+  500-character note.
+- PostgreSQL enforces score ranges and indexes latest-first day reads; the
+  additive Phase 10 migration is applied locally.
+- `POST /api/checkins` uses browser auth, derives the signed-in user's active
+  current UTC day server-side, rejects unknown/invalid fields, and creates the
+  check-in plus day-energy update in one transaction.
+- Today dashboard data includes the latest check-in or null even without an
+  imported plan; the quick form exposes clear score directions and calm copy.
+- Focused check-in/dashboard tests cover all four kinds, strict validation,
+  active-day ownership, no-day behavior, transaction writes, and latest reads.
+- Live smoke returned `200` for `/`, `400` for an invalid check-in, `201` for a
+  valid check-in, and `200` with matching latest state from
+  `/api/dashboard/today`; day status stayed `UNSET`, and smoke data was removed
+  with prior null energy restored.
+- Production Playwright smoke at 390px submitted the slider form, kept it open
+  during edits, displayed the latest card and visible success confirmation,
+  updated header energy, and reported no console or page errors; its row was
+  removed and cleanup was verified.
+- `make check` passed outside the restricted sandbox: frozen dependency install,
+  formatting, lint, typecheck, 72 tests, payload/schema drift validation,
+  production build, Prisma validation, shell syntax, and whitespace checks.
 
 - Today Command Center replaces the placeholder shell with authenticated
   dashboard navigation, current Day X/90, phase, day status, recovery credit

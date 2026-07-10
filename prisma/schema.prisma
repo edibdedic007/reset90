@@ -85,6 +85,15 @@ enum TaskTier {
   @@map("task_tier")
 }
 
+enum CheckinKind {
+  MORNING
+  MIDDAY
+  EVENING
+  MANUAL
+
+  @@map("checkin_kind")
+}
+
 model User {
   id               String       @id @default(uuid()) @db.Uuid
   authentikSubject String       @unique @map("authentik_subject")
@@ -146,6 +155,7 @@ model DayLog {
   cycle             ResetCycle   @relation(fields: [cycleId], references: [id], onDelete: Cascade)
   phase             ResetPhase   @relation(fields: [phaseId], references: [id], onDelete: Restrict)
   dailyPlan         DailyPlan?
+  checkins          Checkin[]
 
   @@unique([cycleId, date])
   @@unique([cycleId, dayNumber])
@@ -214,4 +224,25 @@ model Task {
   @@index([dailyPlanId, tier, sortOrder])
   @@index([domain])
   @@map("tasks")
+}
+
+model Checkin {
+  id                      String      @id @default(uuid()) @db.Uuid
+  dayLogId                String      @map("day_log_id") @db.Uuid
+  kind                    CheckinKind
+  timestamp               DateTime    @default(now())
+  energyLevel             EnergyLevel @map("energy_level")
+  moodScore               Int         @map("mood_score")
+  fogScore                Int         @map("fog_score")
+  lonelinessScore         Int         @map("loneliness_score")
+  selfCriticismScore      Int         @map("self_criticism_score")
+  digitalControlScore     Int         @map("digital_control_score")
+  learningResistanceScore Int         @map("learning_resistance_score")
+  bodyRelationshipScore   Int         @map("body_relationship_score")
+  workConfidenceScore     Int         @map("work_confidence_score")
+  note                    String?
+  dayLog                  DayLog      @relation(fields: [dayLogId], references: [id], onDelete: Cascade)
+
+  @@index([dayLogId, timestamp])
+  @@map("checkins")
 }

@@ -2,6 +2,8 @@
 
 import { useMemo, useState } from "react";
 
+import { CheckinForm } from "@/components/checkin-form";
+import type { DayCheckin } from "@/server/checkins";
 import type {
   TodayDashboard,
   TodayTask,
@@ -104,6 +106,24 @@ function replaceEnergy(
       ...dashboard.day,
       energyLevel,
     },
+  };
+}
+
+function replaceLatestCheckin(
+  dashboard: TodayDashboard,
+  checkin: DayCheckin,
+): TodayDashboard {
+  if (dashboard.status !== "ready") {
+    return dashboard;
+  }
+
+  return {
+    ...dashboard,
+    day: {
+      ...dashboard.day,
+      energyLevel: checkin.energyLevel,
+    },
+    latestCheckin: checkin,
   };
 }
 
@@ -387,6 +407,13 @@ export function TodayCommandCenter({
           {notice}
         </p>
       ) : null}
+
+      <CheckinForm
+        latestCheckin={dashboard.latestCheckin}
+        onCreated={(checkin) =>
+          setDashboard((current) => replaceLatestCheckin(current, checkin))
+        }
+      />
 
       {plan === null ? (
         <section className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-6">
