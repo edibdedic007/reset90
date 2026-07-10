@@ -119,6 +119,7 @@ model ResetCycle {
   user                User         @relation(fields: [userId], references: [id], onDelete: Cascade)
   phases              ResetPhase[]
   dayLogs             DayLog[]
+  recoveryEvents      RecoveryEvent[]
 
   @@unique([userId, name])
   @@index([userId, status])
@@ -156,6 +157,7 @@ model DayLog {
   phase             ResetPhase   @relation(fields: [phaseId], references: [id], onDelete: Restrict)
   dailyPlan         DailyPlan?
   checkins          Checkin[]
+  recoveryEvent     RecoveryEvent?
 
   @@unique([cycleId, date])
   @@unique([cycleId, dayNumber])
@@ -245,4 +247,19 @@ model Checkin {
 
   @@index([dayLogId, timestamp])
   @@map("checkins")
+}
+
+model RecoveryEvent {
+  id                String     @id @default(uuid()) @db.Uuid
+  cycleId           String     @map("cycle_id") @db.Uuid
+  dayLogId          String     @unique @map("day_log_id") @db.Uuid
+  selectedActionIds Json       @default("[]") @map("selected_action_ids")
+  startedAt         DateTime   @default(now()) @map("started_at")
+  completedAt       DateTime?  @map("completed_at")
+  creditConsumedAt  DateTime?  @map("credit_consumed_at")
+  cycle             ResetCycle @relation(fields: [cycleId], references: [id], onDelete: Cascade)
+  dayLog            DayLog     @relation(fields: [dayLogId], references: [id], onDelete: Cascade)
+
+  @@index([cycleId, creditConsumedAt])
+  @@map("recovery_events")
 }

@@ -75,6 +75,16 @@ Reset90 is a private self-hosted 90-day reset dashboard that receives plans and 
 | Red | Abandoned/no useful reset data; not a moral label. |
 | Gold | Comeback day after red/blue or major resistance. |
 
+Phase 11 status rules are deterministic. Minimum, standard, and ideal are
+alternative modes: a normal result needs all non-negotiables and every task in
+one non-empty qualifying tier, with no skipped task counting as complete.
+Recovery needs at least three of five fixed reset actions, including one
+physical/basic action and one forward-facing action. A credited recovery is
+blue; an uncredited qualifying recovery remains allowed and is yellow. Gold
+needs a normal completion immediately after a finalized red or blue day.
+Current incomplete and future days remain unset; only elapsed unqualified UTC
+days become red. No status resets the cycle or restarts the user at day one.
+
 ## Non-goals
 
 - Generic habit tracker clone.

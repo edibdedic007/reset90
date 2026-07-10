@@ -27,11 +27,13 @@ shame-based streaks.
 - Authenticated Today Command Center with task completion and energy updates.
 - Morning, midday, evening, and manual check-ins with eight required 1-10 scores,
   optional notes, transactional energy sync, and latest-state dashboard reads.
+- Recovery events, derived recovery credits, deterministic UTC day statuses, and
+  a current-day Reset Me Now flow.
 
 ## Current boundary
 
-Phase 10 is complete and merged to `local`. Phase 11 has not started. Recovery
-mode and calculated day status remain deferred to Phase 11.
+Phase 11 implements recovery mode and deterministic day-status calculation.
+Phase 12 grid, analytics, reviews, notifications, and overrides remain deferred.
 
 ## Durable implementation rules
 

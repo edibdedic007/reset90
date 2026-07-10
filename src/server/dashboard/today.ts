@@ -7,6 +7,12 @@ import type {
 } from "@/generated/prisma/enums";
 import { checkinSelect, toDayCheckin, type DayCheckin } from "../checkins";
 import { normalizeUtcDate } from "../db/cycle";
+import {
+  reconcileDayStatusInTransaction,
+  reconcileElapsedDayStatuses,
+  toRecoveryEventSummary,
+  type RecoveryEventSummary,
+} from "../recovery/service";
 
 export const ENERGY_LEVELS = [
   "BURNED_OUT",
@@ -25,7 +31,7 @@ export const TASK_TIERS = [
 
 export type TodayDashboardDatabase = Pick<
   PrismaClient,
-  "dayLog" | "resetCycle" | "task"
+  "dayLog" | "resetCycle" | "task" | "recoveryEvent" | "$transaction"
 >;
 
 export type TodayTask = {
@@ -59,6 +65,7 @@ export type TodayDaySummary = {
     name: string;
     description: string | null;
   };
+  recoveryEvent: RecoveryEventSummary | null;
 };
 
 export type TodayPlan = {
@@ -91,7 +98,8 @@ export type TodayDashboard =
     };
 
 export type TaskCompletionResult =
-  { status: "not_found" } | { status: "updated"; task: TodayTask };
+  | { status: "not_found" }
+  | { status: "updated"; task: TodayTask; dayStatus: DayStatus };
 
 export type TodayEnergyResult =
   | { status: "not_found" }
@@ -166,8 +174,9 @@ function summarizeCycle(cycle: {
   id: string;
   name: string;
   recoveryCreditLimit: number;
+  recoveryEvents: { id: string }[];
 }): TodayCycleSummary {
-  const recoveryCreditsUsed = 0;
+  const recoveryCreditsUsed = cycle.recoveryEvents.length;
 
   return {
     id: cycle.id,
@@ -193,6 +202,8 @@ export async function getTodayDashboard(
   const today = normalizeUtcDate(now);
   const todayIso = toIsoDate(today);
 
+  await reconcileElapsedDayStatuses(database, userId, now);
+
   const cycle = await database.resetCycle.findFirst({
     where: { userId, status: "ACTIVE" },
     orderBy: { startDate: "desc" },
@@ -200,6 +211,10 @@ export async function getTodayDashboard(
       id: true,
       name: true,
       recoveryCreditLimit: true,
+      recoveryEvents: {
+        where: { creditConsumedAt: { not: null } },
+        select: { id: true },
+      },
       dayLogs: {
         where: { date: today },
         take: 1,
@@ -234,6 +249,14 @@ export async function getTodayDashboard(
             take: 1,
             select: checkinSelect,
           },
+          recoveryEvent: {
+            select: {
+              id: true,
+              selectedActionIds: true,
+              completedAt: true,
+              creditConsumedAt: true,
+            },
+          },
         },
       },
     },
@@ -261,6 +284,9 @@ export async function getTodayDashboard(
       status: dayLog.status,
       energyLevel: dayLog.energyLevel,
       phase: dayLog.phase,
+      recoveryEvent: dayLog.recoveryEvent
+        ? toRecoveryEventSummary(dayLog.recoveryEvent)
+        : null,
     },
     plan: dayLog.dailyPlan
       ? {
@@ -284,31 +310,49 @@ export async function setTaskCompletion(
   completed: boolean,
   now = new Date(),
 ): Promise<TaskCompletionResult> {
+  const today = normalizeUtcDate(now);
   const task = await database.task.findFirst({
     where: {
       id: taskId,
       dailyPlan: {
         dayLog: {
+          date: today,
           cycle: { userId, status: "ACTIVE" },
         },
       },
     },
-    select: { id: true },
+    select: {
+      id: true,
+      dailyPlan: { select: { dayLog: { select: { id: true } } } },
+    },
   });
 
   if (!task) {
     return { status: "not_found" };
   }
 
-  const updatedTask = await database.task.update({
-    where: { id: task.id },
-    data: completed
-      ? { completedAt: now, skippedAt: null }
-      : { completedAt: null },
-    select: taskSelect,
+  const result = await database.$transaction(async (transaction) => {
+    const updatedTask = await transaction.task.update({
+      where: { id: task.id },
+      data: completed
+        ? { completedAt: now, skippedAt: null }
+        : { completedAt: null },
+      select: taskSelect,
+    });
+    const dayStatus = await reconcileDayStatusInTransaction(
+      transaction,
+      task.dailyPlan.dayLog.id,
+      now,
+    );
+
+    return { updatedTask, dayStatus: dayStatus ?? "UNSET" };
   });
 
-  return { status: "updated", task: toTask(updatedTask) };
+  return {
+    status: "updated",
+    task: toTask(result.updatedTask),
+    dayStatus: result.dayStatus,
+  };
 }
 
 export async function setTodayEnergy(

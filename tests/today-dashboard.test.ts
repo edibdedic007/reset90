@@ -42,6 +42,7 @@ function createDashboardDatabase() {
     id: "cycle-1",
     name: "Reset90 Local Cycle",
     recoveryCreditLimit: 6,
+    recoveryEvents: [],
     dayLogs: [
       {
         id: "day-3",
@@ -81,6 +82,7 @@ function createDashboardDatabase() {
           ],
         },
         checkins: [latestCheckin],
+        recoveryEvent: null,
       },
     ],
   });
@@ -89,7 +91,13 @@ function createDashboardDatabase() {
     database: {
       resetCycle: { findFirst: resetCycleFindFirst },
       task: { findFirst: vi.fn(), update: vi.fn() },
-      dayLog: { findFirst: vi.fn(), update: vi.fn() },
+      dayLog: {
+        findFirst: vi.fn(),
+        findMany: vi.fn().mockResolvedValue([]),
+        update: vi.fn(),
+      },
+      recoveryEvent: { findUnique: vi.fn() },
+      $transaction: vi.fn(),
     } as unknown as TodayDashboardDatabase,
     resetCycleFindFirst,
   };
@@ -158,13 +166,34 @@ describe("today dashboard", () => {
   });
 
   it("updates task completion only after finding an active user-owned task", async () => {
-    const taskFindFirst = vi.fn().mockResolvedValue({ id: "task-1" });
+    const taskFindFirst = vi.fn().mockResolvedValue({
+      id: "task-1",
+      dailyPlan: { dayLog: { id: "day-3" } },
+    });
     const taskUpdate = vi.fn().mockResolvedValue({
       ...baseTask,
       completedAt: NOW,
     });
     const database = {
       task: { findFirst: taskFindFirst, update: taskUpdate },
+      $transaction: vi.fn(async (callback) =>
+        callback({
+          task: { update: taskUpdate },
+          dayLog: {
+            findUnique: vi.fn().mockResolvedValue({
+              id: "day-3",
+              cycleId: "cycle-1",
+              date: TODAY,
+              status: "UNSET",
+              dailyPlan: { tasks: [] },
+              recoveryEvent: null,
+            }),
+            findFirst: vi.fn().mockResolvedValue(null),
+            update: vi.fn(),
+          },
+        }),
+      ),
+      recoveryEvent: { findUnique: vi.fn() },
     } as unknown as TodayDashboardDatabase;
 
     const result = await setTaskCompletion(
@@ -180,11 +209,15 @@ describe("today dashboard", () => {
         id: "task-1",
         dailyPlan: {
           dayLog: {
+            date: TODAY,
             cycle: { userId: "user-1", status: "ACTIVE" },
           },
         },
       },
-      select: { id: true },
+      select: {
+        id: true,
+        dailyPlan: { select: { dayLog: { select: { id: true } } } },
+      },
     });
     expect(taskUpdate).toHaveBeenCalledWith({
       where: { id: "task-1" },
@@ -197,6 +230,7 @@ describe("today dashboard", () => {
         ...baseTask,
         completedAt: "2026-07-08T12:34:00.000Z",
       },
+      dayStatus: "UNSET",
     });
   });
 
@@ -205,6 +239,8 @@ describe("today dashboard", () => {
     const taskUpdate = vi.fn();
     const database = {
       task: { findFirst: taskFindFirst, update: taskUpdate },
+      $transaction: vi.fn(),
+      recoveryEvent: { findUnique: vi.fn() },
     } as unknown as TodayDashboardDatabase;
 
     await expect(

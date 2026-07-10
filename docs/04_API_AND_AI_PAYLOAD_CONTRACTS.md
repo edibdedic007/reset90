@@ -55,6 +55,7 @@ GPT ingest:
 | PATCH | `/api/tasks/:id` | user | Complete or uncomplete a task. |
 | PATCH | `/api/dashboard/today/energy` | user | Update current day energy level. |
 | POST | `/api/recovery/start` | user | Start recovery mode for a day. |
+| POST | `/api/recovery/complete` | user | Complete current-day recovery actions. |
 | GET | `/api/analytics/90-day` | user | Grid and trends. |
 | GET | `/api/context` | user | List/search context items. |
 | GET | `/api/export/full` | user | Full JSON export. |
@@ -134,6 +135,15 @@ to the signed-in user's active-cycle current UTC day; callers cannot choose a
 user, day, or timestamp. Creation also updates `day_logs.energy_level` in the
 same database transaction. `GET /api/dashboard/today` now includes the latest
 check-in or `null`, even when no daily plan exists.
+
+Phase 11 adds browser-session `POST /api/recovery/start` and
+`POST /api/recovery/complete`. Both derive signed-in user, active cycle, and
+current UTC day server-side. Start is idempotent and returns the existing event
+for that day. Complete accepts only configured action IDs and requires at least
+three actions including physical/basic and forward-facing coverage. Completion,
+derived credit consumption, and day-status persistence share one transaction;
+repeating completion returns the immutable completed event without consuming
+another credit. Browser recovery APIs never accept `GPT_INGEST_TOKEN`.
 
 Check-in request:
 

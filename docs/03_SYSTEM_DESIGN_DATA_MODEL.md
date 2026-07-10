@@ -189,6 +189,24 @@ self-criticism, and learning resistance. Notes are optional and limited to 500
 characters at the API boundary. Check-ins are append-only; more than one entry
 of the same kind may exist for a day.
 
+### recovery_events
+
+Fields:
+
+- `id`
+- `cycle_id`
+- `day_log_id`
+- `selected_action_ids`
+- `started_at`
+- `completed_at`
+- `credit_consumed_at`
+
+`day_log_id` is unique, so one day has at most one recovery event. Incomplete
+events remain resumable; completed events are immutable. Credit usage is
+derived from completed events with non-null `credit_consumed_at`; no mutable
+remaining-credit value exists. The Phase 11 migration only adds this table and
+does not rewrite historical day statuses.
+
 ### daily_reflections
 
 Fields:
@@ -328,3 +346,10 @@ scores and an optional short note. Creation and the matching
 `(day_log_id, timestamp)` index supports latest-first dashboard reads without
 restricting repeat entries. PostgreSQL check constraints enforce the score
 range. Day status and recovery calculation remain outside Phase 10.
+
+## Phase 11 recovery baseline
+
+Phase 11 adds `recovery_events` and a centralized transactional reconciliation
+service. It owns recovery completion, derived credit use, status persistence,
+and bounded lazy reconciliation of elapsed unset days. The pure status
+calculator has no database access; routes and UI do not duplicate its rules.
