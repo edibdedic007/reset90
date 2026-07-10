@@ -11,7 +11,6 @@
 .github/workflows/ci.yml
 .gitignore
 AGENTS.md
-ALL_FILES_READY_TO_SAVE.md
 CODEX_START_HERE.md
 Makefile
 PACK_TREE.txt
@@ -56,6 +55,7 @@ docs/adr/TEMPLATE.md
 docs/state/DECISIONS_INDEX.md
 docs/state/INCIDENTS.md
 docs/state/README.md
+docs/state/COMPLETED_PHASES.md
 docs/state/SESSION_LOG.md
 docs/state/TASK_STATE.md
 examples/.env.local.example
@@ -85,6 +85,7 @@ examples/traefik/README.md
 examples/weekly_review_payload.json
 scripts/backup-db.sh
 scripts/codex-context.sh
+scripts/codex-phase.sh
 scripts/codex-session-start.sh
 scripts/create-branch.sh
 scripts/deploy-production.sh

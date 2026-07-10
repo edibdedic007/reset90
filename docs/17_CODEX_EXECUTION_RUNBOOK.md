@@ -1,21 +1,9 @@
 # 17 - Codex Execution Runbook
 
 ## Purpose
-Define the repeatable Codex CLI execution loop for building Reset90 from the documentation pack without scope creep.
 
-## Scope
-Covers how to start a task, choose a branch, feed Codex context, review changes, run checks, commit, merge, update docs, and stop when scope drifts.
-
-## Assumptions
-The repository contains this handoff pack, the user will work locally with Git, and `docs/16_BEST_IMPLEMENTATION_ORDER.md` is the source of truth for build order.
-
-## Success Criteria
-Each Codex session produces one small, reviewable increment; accepted ADRs remain respected; `PROJECT_CONTEXT_SHORT.md` stays current; `main` remains production-ready.
-
-## Deliverables
-Task loop, branch loop, prompt pattern, review checklist, commit checklist, and troubleshooting prompts.
-
-# Codex execution loop
+Define a repeatable, bounded Codex CLI loop that produces one reviewable change
+without reloading the entire Reset90 documentation pack.
 
 ## 1. Start from the right branch
 
@@ -27,137 +15,106 @@ git pull origin local
 git switch -c feature/<slug>
 ```
 
-Use `cleanup/<slug>`, `fix/<slug>`, `refactor/<slug>`, `chore/<slug>`, or `docs/<slug>` when that better matches the work.
+Use `fix/`, `refactor/`, `chore/`, `cleanup/`, `docs/`, or `test/` when more
+accurate.
 
-Emergency production fixes may branch from `main`, then merge back into both `main` and `local`.
-
-## 2. Give Codex minimal context
-
-Use this pattern:
-
-```text
-Read first:
-- AGENTS.md
-- PROJECT_CONTEXT_SHORT.md
-- CODEX_START_HERE.md
-
-Then read only the relevant phase in:
-- docs/16_BEST_IMPLEMENTATION_ORDER.md
-
-Also read relevant ADRs from docs/adr/ before editing.
-
-Current task:
-[paste one phase or one subtask]
-
-Rules:
-- Keep changes small.
-- Do not build unrelated features.
-- Follow accepted ADRs.
-- Run checks.
-- Update PROJECT_CONTEXT_SHORT.md.
-```
-
-Do not feed `ALL_FILES_READY_TO_SAVE.md` to Codex during implementation.
-
-## 3. Require a plan before edits
-
-Ask Codex to summarize:
-
-- files it expects to touch;
-- checks it will run;
-- assumptions;
-- which ADRs apply;
-- what it will not do.
-
-## 4. Review changes before commit
-
-Run:
+## 2. Load compact context
 
 ```bash
-git status
+make session
+```
+
+Codex then reads only:
+
+```text
+AGENTS.md
+.codex/generated/session_context.md
+```
+
+Do not also read the source files embedded in the packet. Do not read the
+all-in-one docs export, transcripts, full lockfiles, generated schemas, or
+examples unless the task directly requires them.
+
+## 3. Retrieve one phase
+
+```bash
+make phase PHASE=<number>
+```
+
+Never open all of `docs/16_BEST_IMPLEMENTATION_ORDER.md` for normal phase work.
+Use `docs/00_PACK_INDEX.md` only to select the smallest relevant reference docs.
+Use `docs/state/DECISIONS_INDEX.md` to locate specific ADRs.
+
+## 4. Bound the task before edits
+
+Codex must state:
+
+- exact scope and non-goals;
+- expected changed files;
+- relevant ADRs;
+- focused checks;
+- final quality gate.
+
+Subagents may be used for clearly independent, bounded work or parallel
+verification. Scope each one to specific questions/files and avoid duplicate
+repo-wide scans. Do not load graphify, install optional tools, or run browser
+automation unless the task requires them or the user explicitly asks.
+
+## 5. Implement and validate
+
+Use targeted file reads. If output is truncated, narrow the query instead of
+rereading a large file in chunks. Run focused tests while editing.
+
+After the last meaningful implementation edit:
+
+```bash
+make check
+```
+
+Run the full gate once. A second run is justified only if later edits can affect
+it.
+
+## 6. Update compact state
+
+Keep `docs/state/TASK_STATE.md` current-only. Append history through:
+
+```bash
+make update-task-state MSG="summary; checks run; next step"
+```
+
+This replaces the latest handoff in `TASK_STATE.md` and appends to
+`SESSION_LOG.md`.
+
+## 7. Review and commit
+
+```bash
+git status --short --branch
 git diff --stat
+git diff --check
 git diff
+git add -A
+git commit -m "type(scope): short summary"
 ```
 
-Reject or revert unrelated changes. Stop Codex if it adds SaaS, public signup, teams, payments, Kubernetes, microservices, Caddy/Nginx, or raw hidden reasoning storage.
+Reject unrelated changes, generated exports, transcripts, secrets, and private
+data.
 
-## 5. Run checks
+## 8. Merge and stop
 
-Preferred:
-
-```bash
-make check
-```
-
-If `make check` does not exist yet, run the closest available commands and ask Codex to add the Makefile target in the appropriate phase.
-
-## 6. Commit meaningfully
-
-Use Conventional Commits:
-
-```bash
-git add .
-git commit -m "feat(imports): validate GPT daily plan payloads"
-```
-
-Commit size guidance:
-
-- one concept per commit;
-- docs updates can be included with related code;
-- avoid giant mixed commits;
-- do not commit secrets, backups, exports, or logs.
-
-## 7. Merge into local
-
-After checks pass:
+After approval:
 
 ```bash
 git switch local
-git merge --no-ff feature/<slug>
+git merge --no-ff <work-branch>
 ```
 
-Delete short-lived branches after merge when no longer needed.
+Stop after the requested phase. Do not begin the next phase without explicit
+approval.
 
-## 8. Release to production main
-
-Only after production readiness:
-
-```bash
-git switch local
-make check
-git switch main
-git pull origin main
-git merge --no-ff local
-git push origin main
-```
-
-`main` is production. Do not merge experimental work into `main`.
-
-# Re-alignment prompt
-
-Use this when Codex drifts:
+## Re-alignment prompt
 
 ```text
-Stop and re-align.
-
-Read:
-- AGENTS.md
-- PROJECT_CONTEXT_SHORT.md
-- docs/16_BEST_IMPLEMENTATION_ORDER.md
-- docs/adr/README.md
-
-Current task:
-[paste task]
-
-Rules:
-- Do not change architecture.
-- Follow accepted ADRs.
-- Keep Reset90 single-user/private.
-- Use Prisma, PostgreSQL, Docker Compose, Traefik, Authentik OIDC, and GPT machine ingest auth.
-- Store raw GPT imports before normalization.
-- Validate imports with JSON Schema/Zod.
-- Do not store hidden chain-of-thought.
-- Update PROJECT_CONTEXT_SHORT.md.
-
-Summarize the correct scope before editing files.
+Stop and re-align. Run make session, read only AGENTS.md and the generated
+session context, then run make phase PHASE=<N>. Restate scope, changed files,
+ADRs, checks, and non-goals. Do not load broad skills or start optional QA.
 ```

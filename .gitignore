@@ -46,3 +46,8 @@ uploads/
 production-db-export*
 journal-dump*
 private-export*
+
+# Generated documentation/session artifacts
+ALL_FILES_READY_TO_SAVE.md
+codex-*.jsonl
+.codex/sessions/

@@ -2,6 +2,7 @@
 set -euo pipefail
 
 OUT=".codex/generated/session_context.md"
+TMP="${OUT}.tmp"
 mkdir -p .codex/generated
 
 {
@@ -9,44 +10,33 @@ mkdir -p .codex/generated
   echo
   echo "Generated: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
   echo
-  echo "## Git"
+  echo "## Working tree"
   echo
   echo '```text'
   echo "branch=$(git branch --show-current 2>/dev/null || echo unknown)"
   git status --short 2>/dev/null || true
   echo '```'
   echo
-  echo "## Standing rules"
-  sed -n '1,220p' AGENTS.md 2>/dev/null || true
-  echo
-  echo "## Start-here summary"
-  sed -n '1,180p' CODEX_START_HERE.md 2>/dev/null || true
-  echo
   echo "## Project context"
-  sed -n '1,220p' PROJECT_CONTEXT_SHORT.md 2>/dev/null || true
   echo
-  echo "## Operational task state"
-  sed -n '1,220p' docs/state/TASK_STATE.md 2>/dev/null || true
+  cat PROJECT_CONTEXT_SHORT.md
   echo
-  echo "## Decision index"
-  sed -n '1,220p' docs/state/DECISIONS_INDEX.md 2>/dev/null || true
+  echo "## Current task"
   echo
-  echo "## ADR index"
-  sed -n '1,200p' docs/adr/README.md 2>/dev/null || true
+  cat docs/state/TASK_STATE.md
   echo
-  echo "## Implementation phases"
-  grep -nE "^## |^### Phase|^Phase [0-9]" docs/16_BEST_IMPLEMENTATION_ORDER.md 2>/dev/null || true
+  echo "## Recent handoffs"
   echo
-  echo "## Recent session log"
-  tail -n 80 docs/state/SESSION_LOG.md 2>/dev/null || true
+  grep -E '^- [0-9]{4}-[0-9]{2}-[0-9]{2}T' docs/state/SESSION_LOG.md 2>/dev/null | tail -n 3 || true
   echo
-  echo "## Docs map"
-  find . -maxdepth 4 -type f \
-    ! -path './.git/*' \
-    ! -path './node_modules/*' \
-    ! -path './ALL_FILES_READY_TO_SAVE.md' \
-    ! -path './.codex/generated/session_context.md' \
-    | sort | sed 's#^./##'
-} > "$OUT"
+  echo "## Retrieval rules"
+  echo
+  echo "- Standing instructions: read AGENTS.md once; it is not duplicated here."
+  echo "- Exact phase: run make phase PHASE=<number>; never read the whole roadmap."
+  echo "- Document selection: consult docs/00_PACK_INDEX.md only when needed."
+  echo "- ADRs: use docs/state/DECISIONS_INDEX.md, then read only relevant ADRs."
+  echo "- Do not read generated exports, transcripts, archives, lockfiles, or examples unless directly required."
+} > "$TMP"
 
-echo "Wrote $OUT"
+mv "$TMP" "$OUT"
+echo "Wrote $OUT ($(wc -l < "$OUT") lines, $(wc -c < "$OUT") bytes)"

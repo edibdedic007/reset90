@@ -1,113 +1,68 @@
 # 12 - Codex Prompts
 
-    ## Purpose
-    Provide copyable prompts for Codex CLI that are scoped, reusable, and token-efficient.
+## Purpose
 
-    ## Scope
-    - Prompts for setup, planning, implementation, review, debugging, docs, and deployment.
-- Designed for Codex CLI interactive and exec-style use.
-- Prompts reference specific docs instead of the full pack.
+Provide copyable prompts that use the repository's compact context workflow.
 
-    ## Assumptions
-    - Codex has access to the repository files.
-- User can paste prompts into Codex CLI.
-- Codex should inspect the repo before editing.
-- The best output comes from small tasks.
-
-    ## Success Criteria
-    - Prompts reduce repeated context.
-- Codex makes small, reviewable changes.
-- Codex follows branch and commit rules.
-- Codex asks less often for missing requirements already documented.
-
-    ## Deliverables
-    - Startup prompt.
-- Planning prompt.
-- Implementation prompts by phase.
-- Review/debug prompts.
-- Docs and release prompts.
-
-    ## Session startup prompt
+## Session startup
 
 ```text
-Read AGENTS.md, PROJECT_CONTEXT_SHORT.md, CODEX_START_HERE.md, and docs/00_PACK_INDEX.md only. Summarize the current project rules in 10 bullets, inspect the repo, tell me the current branch/status, and recommend the next smallest implementation task. Do not edit files yet.
+Run make session. Read only AGENTS.md and .codex/generated/session_context.md.
+Inspect the branch and working tree. Summarize the current boundary, active task,
+relevant ADRs, expected files, checks, and non-goals. Do not edit yet.
 ```
 
-## Repo foundation prompt
+## Implement one phase
 
 ```text
-Read AGENTS.md, PROJECT_CONTEXT_SHORT.md, docs/02_SYSTEM_ARCHITECTURE.md, docs/07_ENVIRONMENTS_DEPLOYMENT.md, docs/08_AUTOMATION_AND_SCRIPTS.md, docs/10_GIT_WORKFLOW.md, and docs/11_IMPLEMENTATION_PLAN.md.
+Start only Phase <N>.
 
-Create or update branch feature/repo-foundation from local. Implement Phase 0 only: Next.js + TypeScript + Tailwind skeleton, PostgreSQL local Docker Compose, ORM setup, .env examples, Makefile, health endpoint, and CI workflow. Keep changes small. Do not implement product features yet. Run available checks and report commands/results.
+Run make session and read only AGENTS.md plus the generated session context.
+Run make phase PHASE=<N>; do not open the full implementation roadmap. Read only
+the task-relevant docs and specific accepted ADRs.
+
+Before editing, list exact files, assumptions, focused checks, final quality gate,
+and explicit non-goals.
+
+Subagents are allowed for clearly independent, bounded work or parallel
+verification. Give each one a narrow question and file scope; avoid duplicate
+repo-wide scans. Do not load graphify, install optional tools, run browser
+automation, or add extra review loops unless this phase requires them or I ask.
+Use targeted reads and do not reread unchanged files.
+
+Implement only this phase. Run focused checks, then make check once after the
+last meaningful edit. Update compact state and directly relevant docs, show git
+status, suggest a Conventional Commit message, and stop before Phase <N+1>.
 ```
 
-## Data model prompt
+## Debug one failure
 
 ```text
-Read AGENTS.md, PROJECT_CONTEXT_SHORT.md, docs/03_SYSTEM_DESIGN_DATA_MODEL.md, docs/05_CONTEXT_MEMORY_DESIGN.md, and docs/11_IMPLEMENTATION_PLAN.md.
-
-Create branch feature/core-data-model from local. Implement Phase 1 database schema and migrations for Reset90. Include seed data for one active 90-day cycle and default phases. Add tests for day number and phase calculation. Do not build UI features in this task.
+Read only the failing output, AGENTS.md, the generated session context, and the
+smallest relevant source/doc files. Diagnose the failure, make the smallest fix,
+and rerun the failing command. Do not refactor unrelated code or run the entire
+gate until the focused failure passes.
 ```
 
-## GPT import prompt
+## Review current changes
 
 ```text
-Read AGENTS.md, PROJECT_CONTEXT_SHORT.md, docs/04_API_AND_AI_PAYLOAD_CONTRACTS.md, docs/03_SYSTEM_DESIGN_DATA_MODEL.md, and the example JSON payloads.
-
-Create branch feature/gpt-import from local. Implement /api/gpt/import with bearer-token auth, body size limit, Zod validation, raw payload storage, idempotency, and daily_plan normalization. Add tests and a validate-payloads script. Do not implement reflection or weekly review imports unless the daily plan import is complete and tested first.
+Review only the current diff against AGENTS.md and relevant ADRs. Check scope,
+security, migration safety, tests, and directly affected docs. Do not scan the
+whole repository or edit unless asked.
 ```
 
-## UX/dashboard prompt
+## Documentation update
 
 ```text
-Read AGENTS.md, PROJECT_CONTEXT_SHORT.md, docs/01_PRODUCT_REQUIREMENTS.md, docs/06_UX_FLOWS.md, docs/13_INSPIRATIONS.md, and docs/11_IMPLEMENTATION_PLAN.md.
-
-Create branch feature/today-dashboard from local. Build the Today Command Center UI for phone and desktop. Use seed/imported data. Include Day X/90, phase, energy selector, mission, non-negotiables, minimum/standard/ideal tasks, and Reset Me Now entry point. Avoid shame-based copy.
+Update only documentation directly affected by the current implementation. Do
+not rewrite unrelated docs, history, or generated exports.
 ```
 
-## Review current changes prompt
+## Release preparation
 
 ```text
-Review the current branch against AGENTS.md and docs/10_GIT_WORKFLOW.md. Check for scope creep, secrets, unsafe migrations, missing tests, missing docs updates, and noncompliant branch/commit naming. Do not edit files unless I ask.
-```
-
-## Debug prompt
-
-```text
-Read only the failing output, AGENTS.md, PROJECT_CONTEXT_SHORT.md, and the most relevant doc. Diagnose the failure. Make the smallest fix. Run the failing command again. Do not refactor unrelated code.
-```
-
-## Documentation update prompt
-
-```text
-Update only the docs affected by the current implementation change. Keep Purpose, Scope, Assumptions, Success Criteria, and Deliverables at the top of every Markdown document. Do not rewrite unrelated docs.
-```
-
-## Release prompt
-
-```text
-Read docs/07_ENVIRONMENTS_DEPLOYMENT.md, docs/08_AUTOMATION_AND_SCRIPTS.md, docs/09_ENGINEERING_BEST_PRACTICES.md, and docs/10_GIT_WORKFLOW.md. Prepare a production release from local to main. Run checks, summarize changes, list migration/deployment risks, and do not deploy until I explicitly confirm.
-```
-
-
-## ADR-aware prompt add-on
-
-Add this to prompts that may affect architecture, product behavior, deployment, auth, data model, Git workflow, or AI integration:
-
-```text
-Before editing, read docs/15_ADR_PROCESS_AND_REASONING.md, docs/adr/README.md, and any relevant accepted ADRs.
-Do not contradict an accepted ADR without stopping and asking me.
-If this task introduces a durable architecture/product/process decision, create a new ADR using docs/adr/TEMPLATE.md.
-Keep ADR reasoning user-visible and concise; do not store raw internal reasoning.
-```
-
-## Create a new ADR prompt
-
-```text
-Create a new lightweight ADR for the following decision: [decision].
-Use docs/adr/TEMPLATE.md.
-Check existing ADRs first so you do not duplicate or contradict them.
-Set status to Proposed unless the decision was already explicitly accepted.
-Include context, decision, ADR reasoning, consequences, alternatives, implementation notes, and review trigger.
-Do not modify code yet.
+Read the generated session context plus docs/07_ENVIRONMENTS_DEPLOYMENT.md and
+the relevant deployment/backup ADRs. Run the required release checks, summarize
+migrations and rollback, and do not deploy until I explicitly confirm.
 ```

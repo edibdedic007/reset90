@@ -1,13 +1,14 @@
 SHELL := /usr/bin/env bash
 
-.PHONY: help session context new-work update-task-state setup-local bootstrap install dev dev-up dev-down logs check quality-check lint format format-check typecheck test build db-migrate db-seed db-reset db-backup db-restore validate-payloads env-check prod-check prod-build prod-up prod-down prod-logs prod-health deploy-production export-full docs-bundle healthcheck
+.PHONY: help session context phase new-work update-task-state setup-local bootstrap install dev dev-up dev-down logs check quality-check lint format format-check typecheck test build db-migrate db-seed db-reset db-backup db-restore validate-payloads env-check prod-check prod-build prod-up prod-down prod-logs prod-health deploy-production export-full docs-bundle healthcheck
 
 LOCAL_COMPOSE := docker compose --env-file .env.local -f docker-compose.local.yml
 
 help:
 	@echo "Reset90 commands"
-	@echo "  make session                 Print Codex session-start status"
+	@echo "  make session                 Refresh context and print short session status"
 	@echo "  make context                 Generate compact .codex context packet"
+	@echo "  make phase PHASE=11          Print one implementation phase only"
 	@echo "  make new-work TYPE=feature SLUG=repo-foundation"
 	@echo "  make setup-local             Setup local developer environment"
 	@echo "  make dev                     Start PostgreSQL and Next.js"
@@ -28,6 +29,10 @@ session:
 
 context:
 	./scripts/codex-context.sh
+
+phase:
+	@if [ -z "$(PHASE)" ]; then echo "Usage: make phase PHASE=11"; exit 1; fi
+	./scripts/codex-phase.sh "$(PHASE)"
 
 new-work:
 	@if [ -z "$(TYPE)" ] || [ -z "$(SLUG)" ]; then echo "Usage: make new-work TYPE=feature SLUG=repo-foundation"; exit 1; fi
