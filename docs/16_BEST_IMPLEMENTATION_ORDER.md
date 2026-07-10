@@ -47,7 +47,7 @@ CODEX_START_HERE.md
 
 Then read only the phase-specific docs listed in that phase.
 
-Do not ask Codex to read `ALL_FILES_READY_TO_SAVE.md` during normal implementation. That file is for archival/export convenience and is too large for token-efficient work.
+Do not ask Codex to read `ALL_FILES_READY_TO_SAVE.md` during normal implementation. Generate it only on demand with `make docs-bundle`; it is ignored by Git and is too large for token-efficient work.
 
 ---
 

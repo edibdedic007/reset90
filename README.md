@@ -24,7 +24,7 @@
     ## Deliverables
     - Codex-ready documentation pack.
 - Examples for environment files, payloads, Docker Compose, scripts, CI, Makefile, and PR template.
-- All-in-one ready-to-save Markdown bundle.
+- On-demand all-in-one Markdown export (`make docs-bundle`; ignored by Git).
 - Best implementation order and Codex execution runbook.
 - ADR process guide and accepted architecture decision records.
 
@@ -74,7 +74,6 @@ reset90_codex_cli_pack_v5_final/
 ├── AGENTS.md
 ├── CODEX_START_HERE.md
 ├── PROJECT_CONTEXT_SHORT.md
-├── ALL_FILES_READY_TO_SAVE.md
 ├── docs/
 │   ├── 00_PACK_INDEX.md
 │   ├── 01_PRODUCT_REQUIREMENTS.md
@@ -134,14 +133,14 @@ reset90_codex_cli_pack_v5_final/
 
 ## How Codex should use this pack
 
-1. Read `AGENTS.md` and `PROJECT_CONTEXT_SHORT.md` first.
-2. Read only the specific docs needed for the current task.
-3. Use `docs/16_BEST_IMPLEMENTATION_ORDER.md` for build order.
+1. Run `make session`, then read only `AGENTS.md` and `.codex/generated/session_context.md`.
+2. For phase work, run `make phase PHASE=<number>` instead of reading the full roadmap.
+3. Read only the specific docs and ADRs needed for the current task.
 4. Use `docs/15_ADR_PROCESS_AND_REASONING.md` and `docs/adr/README.md` before changing architecture, auth, data, deployment, AI integration, Git workflow, or core product rules.
 5. Use `docs/12_CODEX_PROMPTS.md` for copyable prompts and `docs/17_CODEX_EXECUTION_RUNBOOK.md` for the repeatable Codex work loop.
-6. Update `PROJECT_CONTEXT_SHORT.md` after meaningful implementation changes.
+6. Keep `PROJECT_CONTEXT_SHORT.md` and `docs/state/TASK_STATE.md` compact and current.
 7. Update or add ADRs when meaningful architectural/product/process decisions change.
-8. Do not feed Codex `ALL_FILES_READY_TO_SAVE.md` during normal work. It exists for human backup/export, not token-efficient execution.
+8. Generate `ALL_FILES_READY_TO_SAVE.md` only on demand with `make docs-bundle`; never commit or load it during normal work.
 
 ## Non-goals
 
@@ -154,7 +153,7 @@ reset90_codex_cli_pack_v5_final/
 
 
 ## Implementation Order
-Use `docs/16_BEST_IMPLEMENTATION_ORDER.md` as the primary phase-by-phase build order for Codex CLI. It supersedes generic implementation-order notes.
+Use `make phase PHASE=<number>` to retrieve one section from `docs/16_BEST_IMPLEMENTATION_ORDER.md`, the primary phase-by-phase source of truth.
 
 ## Additional generated examples
 
@@ -185,8 +184,8 @@ Recommended Codex start:
 
 ```bash
 make session
-make context
-make new-work TYPE=feature SLUG=repo-foundation
+make phase PHASE=<number>
+make new-work TYPE=feature SLUG=<task-slug>
 ```
 
 `docs/18_OPERATIONAL_OVERLAY.md` explains how the operational layer works and how it should be used without bloating normal Codex context.

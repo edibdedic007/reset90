@@ -7,7 +7,7 @@ Accepted
 Reset90 is being built through many Codex CLI sessions. Without stable docs, Codex may forget scope, duplicate decisions, or overbuild features.
 
 ## Decision
-Keep product requirements, architecture, data model, API contracts, ADRs, implementation order, prompts, and operational guidance as Markdown docs in the repo. `AGENTS.md`, `PROJECT_CONTEXT_SHORT.md`, and `CODEX_START_HERE.md` are the high-frequency Codex context files. `ALL_FILES_READY_TO_SAVE.md` is archival and should not be read during normal implementation.
+Keep product requirements, architecture, data model, API contracts, ADRs, implementation order, prompts, and operational guidance as Markdown docs in the repo. `AGENTS.md` and the generated `.codex/generated/session_context.md` are the only high-frequency Codex context files. `PROJECT_CONTEXT_SHORT.md` and `TASK_STATE.md` feed that packet but should not be reread separately. `ALL_FILES_READY_TO_SAVE.md` is generated on demand, ignored by Git, and never read during normal implementation.
 
 ## Consequences
 Codex can work with concise reusable context and update project state as implementation progresses. Documentation becomes part of the engineering workflow, not a separate afterthought. The user must keep `PROJECT_CONTEXT_SHORT.md` current after meaningful work.
