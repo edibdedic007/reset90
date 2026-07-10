@@ -5,6 +5,7 @@ import type {
   FocusDomain,
   TaskTier,
 } from "@/generated/prisma/enums";
+import { checkinSelect, toDayCheckin, type DayCheckin } from "../checkins";
 import { normalizeUtcDate } from "../db/cycle";
 
 export const ENERGY_LEVELS = [
@@ -86,6 +87,7 @@ export type TodayDashboard =
       cycle: TodayCycleSummary;
       day: TodayDaySummary;
       plan: TodayPlan | null;
+      latestCheckin: DayCheckin | null;
     };
 
 export type TaskCompletionResult =
@@ -227,6 +229,11 @@ export async function getTodayDashboard(
               },
             },
           },
+          checkins: {
+            orderBy: { timestamp: "desc" },
+            take: 1,
+            select: checkinSelect,
+          },
         },
       },
     },
@@ -266,6 +273,7 @@ export async function getTodayDashboard(
           tasksByTier: groupTasks(dayLog.dailyPlan.tasks),
         }
       : null,
+    latestCheckin: dayLog.checkins[0] ? toDayCheckin(dayLog.checkins[0]) : null,
   };
 }
 

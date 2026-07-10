@@ -104,7 +104,26 @@ Phase 9 implementation baseline:
 - Task completion is a checkbox toggle; minimum completion remains valid progress.
 - Energy is a segmented control using the supported `EnergyLevel` values.
 - If no plan is imported for the current day, the page keeps the active day visible and still allows energy updates.
-- Recovery workflow entry and check-in history remain later phases.
+- Recovery workflow entry and full check-in history remain later phases.
+
+## Day-state check-in flow
+
+Phase 10 adds a quick morning, midday, evening, or manual snapshot to Today.
+Each check-in requires energy plus eight 1-10 values: mood, fog, loneliness,
+self-criticism, digital control, learning resistance, body relationship, and
+work confidence. A 500-character note is optional; the flow is not a journal.
+
+Scale endpoints make direction explicit:
+
+- higher is better for mood, digital control, body relationship, and work
+  confidence;
+- higher is worse for fog, loneliness, self-criticism, and learning
+  resistance.
+
+The form starts at neutral values, works at phone width, and shows the latest
+saved check-in above it. Saving a check-in also refreshes the Today energy
+display. Repeated entries are allowed. Recovery actions and day-status
+calculation remain Phase 11 work.
 
 ## Recovery mode flow
 

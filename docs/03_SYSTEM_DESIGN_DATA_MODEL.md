@@ -58,6 +58,7 @@ DayStatus = GREEN | YELLOW | BLUE | RED | GOLD | UNSET
 PayloadKind = DAILY_PLAN | DAILY_REFLECTION | WEEKLY_REVIEW | CONTEXT_ITEM
 ContextKind = CONVERSATION | TASK_SUMMARY | DECISION_LOG | DAILY_SUMMARY | WEEKLY_SUMMARY | CONTEXT_SNAPSHOT | REASONING_SUMMARY
 RecoveryType = PLANNED | EMERGENCY_RESET | DOWNSHIFT | COMEBACK
+CheckinKind = MORNING | MIDDAY | EVENING | MANUAL
 ```
 
 ## Main tables
@@ -169,6 +170,7 @@ Fields:
 
 - `id`
 - `day_log_id`
+- `kind`
 - `timestamp`
 - `energy_level`
 - `mood_score`
@@ -181,7 +183,11 @@ Fields:
 - `work_confidence_score`
 - `note`
 
-Scores should use 1-10 integers unless a better scale is explicitly chosen later.
+Scores use required 1-10 integers. Higher is better for mood, digital control,
+body relationship, and work confidence. Higher is worse for fog, loneliness,
+self-criticism, and learning resistance. Notes are optional and limited to 500
+characters at the API boundary. Check-ins are append-only; more than one entry
+of the same kind may exist for a day.
 
 ### daily_reflections
 
@@ -311,3 +317,14 @@ Reprocessing an already processed raw import is a no-op. A new valid import for
 the same day replaces the plan contents and task set in one transaction, so
 revisions are deterministic and cannot accumulate duplicate tasks. Missing day
 targets mark the raw import `FAILED` with a bounded safe error code.
+
+## Phase 10 check-in baseline
+
+Authenticated browser check-ins link to the signed-in user's active-cycle
+current UTC `day_log`; callers cannot select a user, day, or timestamp. Morning,
+midday, evening, and manual entries store energy plus eight required 1-10 state
+scores and an optional short note. Creation and the matching
+`day_logs.energy_level` update occur in one transaction. The
+`(day_log_id, timestamp)` index supports latest-first dashboard reads without
+restricting repeat entries. PostgreSQL check constraints enforce the score
+range. Day status and recovery calculation remain outside Phase 10.

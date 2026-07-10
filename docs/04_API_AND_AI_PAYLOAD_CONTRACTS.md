@@ -51,7 +51,7 @@ GPT ingest:
 | GET | `/api/health` | none | Health check. |
 | GET | `/api/dashboard/today` | user | Current day dashboard data. |
 | POST | `/api/gpt/import` | GPT token | Import daily plan/reflection/weekly review/context payload. |
-| POST | `/api/checkins` | user | Create manual check-in. |
+| POST | `/api/checkins` | user | Create current-day state check-in. |
 | PATCH | `/api/tasks/:id` | user | Complete or uncomplete a task. |
 | PATCH | `/api/dashboard/today/energy` | user | Update current day energy level. |
 | POST | `/api/recovery/start` | user | Start recovery mode for a day. |
@@ -128,6 +128,39 @@ sets `completed_at` and clears `skipped_at`; uncompleting clears
 `completed_at`. `PATCH /api/dashboard/today/energy` accepts
 `{ "energyLevel": EnergyLevel | null }` and updates today's `day_logs` row.
 These browser APIs do not accept `GPT_INGEST_TOKEN`.
+
+Phase 10 adds browser-session `POST /api/checkins`. The server links each entry
+to the signed-in user's active-cycle current UTC day; callers cannot choose a
+user, day, or timestamp. Creation also updates `day_logs.energy_level` in the
+same database transaction. `GET /api/dashboard/today` now includes the latest
+check-in or `null`, even when no daily plan exists.
+
+Check-in request:
+
+```json
+{
+  "kind": "MANUAL",
+  "energyLevel": "LOW",
+  "mood": 6,
+  "fog": 4,
+  "loneliness": 3,
+  "selfCriticism": 4,
+  "digitalControl": 7,
+  "learningResistance": 5,
+  "bodyRelationship": 6,
+  "workConfidence": 6,
+  "note": "One short optional note."
+}
+```
+
+`kind` is `MORNING`, `MIDDAY`, `EVENING`, or `MANUAL`. All eight scores are
+required integers from 1 through 10. `energyLevel` uses the canonical
+`EnergyLevel` enum. `note` is optional, nullable, and limited to 500
+characters. Unknown fields are rejected. Successful creation returns `201`
+with the created check-in; invalid input returns `400` with
+`invalid_checkin_payload`; a missing current active day returns `404` with
+`today_not_found`. This endpoint requires browser auth and does not accept the
+GPT ingest token.
 
 Phase 8 protects browser UI routes with Auth.js and Authentik OIDC in
 `AUTH_MODE=oidc`. `AUTH_MODE=dev` keeps local browser access available by

@@ -21,6 +21,22 @@ const baseTask = {
   completedAt: null,
 } as const;
 
+const latestCheckin = {
+  id: "checkin-1",
+  kind: "MIDDAY",
+  timestamp: new Date("2026-07-08T12:00:00.000Z"),
+  energyLevel: "LOW",
+  moodScore: 5,
+  fogScore: 7,
+  lonelinessScore: 4,
+  selfCriticismScore: 6,
+  digitalControlScore: 3,
+  learningResistanceScore: 8,
+  bodyRelationshipScore: 5,
+  workConfidenceScore: 4,
+  note: "Use the minimum plan.",
+} as const;
+
 function createDashboardDatabase() {
   const resetCycleFindFirst = vi.fn().mockResolvedValue({
     id: "cycle-1",
@@ -64,6 +80,7 @@ function createDashboardDatabase() {
             },
           ],
         },
+        checkins: [latestCheckin],
       },
     ],
   });
@@ -93,6 +110,9 @@ describe("today dashboard", () => {
     expect(
       resetCycleFindFirst.mock.calls[0][0].select.dayLogs.where.date,
     ).toEqual(TODAY);
+    expect(
+      resetCycleFindFirst.mock.calls[0][0].select.dayLogs.select.checkins,
+    ).toMatchObject({ orderBy: { timestamp: "desc" }, take: 1 });
     expect(dashboard.status).toBe("ready");
 
     if (dashboard.status !== "ready" || dashboard.plan === null) {
@@ -118,6 +138,23 @@ describe("today dashboard", () => {
     expect(dashboard.plan.tasksByTier.STANDARD[0].completedAt).toBe(
       "2026-07-08T13:00:00.000Z",
     );
+    expect(dashboard.latestCheckin).toEqual({
+      id: "checkin-1",
+      kind: "MIDDAY",
+      timestamp: "2026-07-08T12:00:00.000Z",
+      energyLevel: "LOW",
+      scores: {
+        mood: 5,
+        fog: 7,
+        loneliness: 4,
+        selfCriticism: 6,
+        digitalControl: 3,
+        learningResistance: 8,
+        bodyRelationship: 5,
+        workConfidence: 4,
+      },
+      note: "Use the minimum plan.",
+    });
   });
 
   it("updates task completion only after finding an active user-owned task", async () => {
