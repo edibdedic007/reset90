@@ -43,5 +43,9 @@ export async function PATCH(request: Request, context: TaskRouteContext) {
     );
   }
 
-  return Response.json({ ok: true, task: result.task });
+  return Response.json({
+    ok: true,
+    task: result.task,
+    day_status: result.dayStatus,
+  });
 }

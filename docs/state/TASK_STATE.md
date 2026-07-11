@@ -1,49 +1,46 @@
 # Task State
 
-Last updated: 2026-07-10
+Last updated: 2026-07-11
 
 ## Current phase
 
-Phase 10 complete. Phase 11 has not started.
+Phase 11 complete. Phase 12 has not started.
 
 ## Active task
 
-Context-hygiene cleanup only: reduce automatic Codex context, constrain broad
-optional-tool activation, and remove generated session/export artifacts from
-version control. Subagents remain available for bounded parallel work. No product
-phase implementation is in scope.
+Phase 11 correction complete: recovery credits refresh immediately, current
+dashboard status reconciles, and incomplete actions persist/resume. Phase 12 is
+out of scope.
 
 ## Next phase
 
-11 — Recovery mode and day status calculation.
+12 — 90-day grid, analytics, and review workflow.
 
 Read it with:
 
 ```bash
-make phase PHASE=11
+make phase PHASE=12
 ```
 
 ## Next actions
 
-1. Review and commit the context-cleanup changes.
-2. Merge `chore/context-cleanup` into `local` after approval.
-3. Start Phase 11 only after explicit approval.
+1. Review and commit Phase 11 changes.
+2. Merge `feature/recovery-mode` into `local` after approval.
+3. Start Phase 12 only after explicit approval.
 
 ## Required completion checks
 
-- `bash -n scripts/*.sh`
-- `make context`
-- `make phase PHASE=11`
-- verify generated context size and content
-- `git diff --check`
-
-Product code is unchanged, so the full application gate is optional for this
-cleanup unless another tracked implementation file changes.
+- Focused recovery, status, dashboard, and check-in tests.
+- Formatting, lint, typecheck, and `make check` once.
+- `git diff --check` and `git status --short --branch`.
 
 ## Latest handoff
 
-- 2026-07-10T00:00:00Z — context-cleanup baseline — Phase 10 is merged to
-  `local`; context cleanup is in progress; Phase 11 remains unstarted.
+- 2026-07-11T19:46:48Z — feature/recovery-mode — Phase 11 correction added
+  partial action persistence, authoritative completion credit summaries, and
+  current-day dashboard reconciliation; local migration verified and checks
+  recorded in `SESSION_LOG.md`; next step: review/commit and await explicit
+  Phase 12 approval.
 
 ## Historical detail
 

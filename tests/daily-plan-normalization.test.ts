@@ -54,8 +54,18 @@ function createTestDatabase(
   };
   let plan: (Omit<PlanWrite, "tasks"> & { id: string }) | null = null;
   let tasks: StoredTask[] = [];
-  let dayLog = { id: "day-1", mission: null, supportiveMessage: null } as {
+  let dayLog = {
+    id: "day-1",
+    cycleId: "cycle-1",
+    date: new Date("2026-07-01T00:00:00.000Z"),
+    status: "UNSET",
+    mission: null,
+    supportiveMessage: null,
+  } as {
     id: string;
+    cycleId: string;
+    date: Date;
+    status: string;
     mission: string | null;
     supportiveMessage: string | null;
   };
@@ -78,15 +88,38 @@ function createTestDatabase(
       return importedPayload;
     },
   );
-  const dayLogFindFirst = vi.fn(() =>
-    options.dayLogFound === false ? null : { id: dayLog.id },
+  const dayLogFindFirst = vi.fn(({ where }: { where: { cycleId?: string } }) =>
+    where.cycleId
+      ? null
+      : options.dayLogFound === false
+        ? null
+        : { id: dayLog.id },
   );
   const dayLogUpdate = vi.fn(
-    ({ data }: { data: { mission: string; supportiveMessage: string } }) => {
+    ({
+      data,
+    }: {
+      data: Partial<{
+        mission: string;
+        supportiveMessage: string;
+        status: string;
+      }>;
+    }) => {
       dayLog = { ...dayLog, ...data };
       return dayLog;
     },
   );
+  const dayLogFindUnique = vi.fn(() => ({
+    ...dayLog,
+    dailyPlan: {
+      tasks: tasks.map(({ tier }) => ({
+        tier,
+        completedAt: null,
+        skippedAt: null,
+      })),
+    },
+    recoveryEvent: null,
+  }));
   const dailyPlanFindUnique = vi.fn(
     ({ where }: { where: { importedPayloadId: string } }) =>
       plan?.importedPayloadId === where.importedPayloadId
@@ -114,7 +147,11 @@ function createTestDatabase(
       findUnique: importedPayloadFindUnique,
       update: importedPayloadUpdate,
     },
-    dayLog: { findFirst: dayLogFindFirst, update: dayLogUpdate },
+    dayLog: {
+      findFirst: dayLogFindFirst,
+      findUnique: dayLogFindUnique,
+      update: dayLogUpdate,
+    },
     dailyPlan: { findUnique: dailyPlanFindUnique, upsert: dailyPlanUpsert },
   };
   const database = {

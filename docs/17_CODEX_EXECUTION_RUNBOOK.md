@@ -85,19 +85,32 @@ make update-task-state MSG="summary; checks run; next step"
 This replaces the latest handoff in `TASK_STATE.md` and appends to
 `SESSION_LOG.md`.
 
-## 7. Review and commit
+## 7. Review, bundle, and commit
 
 ```bash
 git status --short --branch
-git diff --stat
-git diff --check
-git diff
-git add -A
+make review-bundle PHASE=N
+git add <intended-files>
 git commit -m "type(scope): short summary"
 ```
 
+`make review-bundle` writes one ZIP outside the repository. It includes Git
+patches, current changed/untracked source snapshots, compact phase/state context,
+and the newest Codex session whose metadata identifies this repository. Default
+comparison base is `local`; override only when needed:
+
+```bash
+make review-bundle PHASE=N BASE_REF=origin/local
+```
+
+Inspect generated ZIP before uploading it to Reset90 ChatGPT Project for
+completed-phase review. Codex transcripts can contain prompts, commands,
+terminal output, or sensitive values. Sensitive, credential, environment,
+database, dependency, and generated-build paths are excluded and reported in
+bundle manifest; this is defense in depth, not substitute for human review.
+
 Reject unrelated changes, generated exports, transcripts, secrets, and private
-data.
+data from commit staging.
 
 ## 8. Merge and stop
 

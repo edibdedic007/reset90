@@ -9,6 +9,15 @@ import type {
   TodayTask,
   TodayTaskGroups,
 } from "@/server/dashboard/today";
+import {
+  RECOVERY_ACTIONS,
+  RECOVERY_COPY,
+  type RecoveryActionId,
+} from "@/server/recovery/actions";
+import type {
+  RecoveryCreditSummary,
+  RecoveryEventSummary,
+} from "@/server/recovery/service";
 
 type TierKey = keyof TodayTaskGroups;
 
@@ -71,6 +80,7 @@ function completedTaskCount(groups: TodayTaskGroups) {
 function replaceTask(
   dashboard: TodayDashboard,
   updatedTask: TodayTask,
+  dayStatus: Extract<TodayDashboard, { status: "ready" }>["day"]["status"],
 ): TodayDashboard {
   if (dashboard.status !== "ready" || dashboard.plan === null) {
     return dashboard;
@@ -85,11 +95,58 @@ function replaceTask(
 
   return {
     ...dashboard,
+    day: { ...dashboard.day, status: dayStatus },
     plan: {
       ...dashboard.plan,
       tasksByTier,
     },
   };
+}
+
+function replaceRecovery(
+  dashboard: TodayDashboard,
+  recoveryEvent: RecoveryEventSummary,
+  dayStatus?: Extract<TodayDashboard, { status: "ready" }>["day"]["status"],
+  recoveryCredits?: RecoveryCreditSummary,
+): TodayDashboard {
+  if (dashboard.status !== "ready") {
+    return dashboard;
+  }
+
+  return {
+    ...dashboard,
+    cycle: recoveryCredits
+      ? { ...dashboard.cycle, ...recoveryCredits }
+      : dashboard.cycle,
+    day: {
+      ...dashboard.day,
+      ...(dayStatus ? { status: dayStatus } : {}),
+      recoveryEvent,
+    },
+  };
+}
+
+async function recoveryErrorNotice(response: Response) {
+  const payload = (await response.json().catch(() => null)) as {
+    error?: string;
+  } | null;
+
+  switch (payload?.error) {
+    case "recovery_requirements_not_met":
+      return RECOVERY_COPY.incomplete;
+    case "invalid_recovery_payload":
+      return "Recovery choices are not valid. Refresh, then try again.";
+    case "today_not_found":
+      return "Today’s recovery is not available right now.";
+    case "recovery_not_started":
+      return "Open recovery before saving actions.";
+    case "recovery_completed":
+      return "Recovery is already recorded and cannot change.";
+    default:
+      return response.status >= 500
+        ? "Recovery server problem. Try again shortly."
+        : "Recovery request did not finish. Try again.";
+  }
 }
 
 function replaceEnergy(
@@ -256,6 +313,14 @@ export function TodayCommandCenter({
   const [dashboard, setDashboard] = useState(initialDashboard);
   const [busyTaskId, setBusyTaskId] = useState<string | null>(null);
   const [savingEnergy, setSavingEnergy] = useState(false);
+  const [savingRecovery, setSavingRecovery] = useState(false);
+  const [recoveryActionIds, setRecoveryActionIds] = useState<
+    RecoveryActionId[]
+  >(
+    initialDashboard.status === "ready"
+      ? (initialDashboard.day.recoveryEvent?.selectedActionIds ?? [])
+      : [],
+  );
   const [notice, setNotice] = useState<string | null>(null);
 
   const taskStats = useMemo(() => {
@@ -287,8 +352,14 @@ export function TodayCommandCenter({
       const payload = (await response.json()) as {
         ok: true;
         task: TodayTask;
+        day_status: Extract<
+          TodayDashboard,
+          { status: "ready" }
+        >["day"]["status"];
       };
-      setDashboard((current) => replaceTask(current, payload.task));
+      setDashboard((current) =>
+        replaceTask(current, payload.task, payload.day_status),
+      );
     } catch {
       setNotice("Task update did not save. Try again.");
     } finally {
@@ -316,6 +387,109 @@ export function TodayCommandCenter({
       setNotice("Energy update did not save. Try again.");
     } finally {
       setSavingEnergy(false);
+    }
+  }
+
+  async function toggleRecoveryAction(actionId: RecoveryActionId) {
+    const nextActionIds = recoveryActionIds.includes(actionId)
+      ? recoveryActionIds.filter((id) => id !== actionId)
+      : [...recoveryActionIds, actionId];
+    setSavingRecovery(true);
+    setNotice(null);
+
+    try {
+      const response = await fetch("/api/recovery/actions", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ actionIds: nextActionIds }),
+      });
+      if (!response.ok) {
+        setNotice(await recoveryErrorNotice(response));
+        return;
+      }
+
+      const payload = (await response.json()) as {
+        ok: true;
+        event: RecoveryEventSummary;
+      };
+      setRecoveryActionIds(payload.event.selectedActionIds);
+      setDashboard((current) => replaceRecovery(current, payload.event));
+    } catch {
+      setNotice(
+        "Recovery could not reach server. Check connection, then try again.",
+      );
+    } finally {
+      setSavingRecovery(false);
+    }
+  }
+
+  async function startRecovery() {
+    setSavingRecovery(true);
+    setNotice(null);
+
+    try {
+      const response = await fetch("/api/recovery/start", { method: "POST" });
+      if (!response.ok) {
+        setNotice(await recoveryErrorNotice(response));
+        return;
+      }
+
+      const payload = (await response.json()) as {
+        ok: true;
+        event: RecoveryEventSummary;
+      };
+      setRecoveryActionIds(payload.event.selectedActionIds);
+      setDashboard((current) => replaceRecovery(current, payload.event));
+      setNotice(RECOVERY_COPY.opened);
+    } catch {
+      setNotice(
+        "Recovery could not reach server. Check connection, then try again.",
+      );
+    } finally {
+      setSavingRecovery(false);
+    }
+  }
+
+  async function completeRecovery() {
+    setSavingRecovery(true);
+    setNotice(null);
+
+    try {
+      const response = await fetch("/api/recovery/complete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ actionIds: recoveryActionIds }),
+      });
+      if (!response.ok) {
+        setNotice(await recoveryErrorNotice(response));
+        return;
+      }
+
+      const payload = (await response.json()) as {
+        ok: true;
+        event: RecoveryEventSummary;
+        day_status: Extract<
+          TodayDashboard,
+          { status: "ready" }
+        >["day"]["status"];
+        recovery_credits: RecoveryCreditSummary;
+      };
+      setRecoveryActionIds(payload.event.selectedActionIds);
+      setDashboard((current) =>
+        replaceRecovery(
+          current,
+          payload.event,
+          payload.day_status,
+          payload.recovery_credits,
+        ),
+      );
+      setNotice(RECOVERY_COPY.recorded);
+    } catch {
+      setNotice(
+        "Recovery could not reach server. Check connection, then try again.",
+      );
+    } finally {
+      setSavingRecovery(false);
     }
   }
 
@@ -362,6 +536,64 @@ export function TodayCommandCenter({
             />
           </div>
         </div>
+      </section>
+
+      <section className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-5 sm:p-6">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <h2 className="text-xl font-semibold">Reset me now</h2>
+            <p className="mt-1 text-sm text-[var(--muted)]">
+              {RECOVERY_COPY.guidance}
+            </p>
+          </div>
+          {day.recoveryEvent === null ? (
+            <button
+              className="rounded-lg border border-[var(--accent)] bg-[var(--accent-soft)] px-4 py-2 text-sm font-medium disabled:opacity-60"
+              disabled={savingRecovery}
+              onClick={startRecovery}
+              type="button"
+            >
+              {savingRecovery ? "Opening…" : "Reset me now"}
+            </button>
+          ) : day.recoveryEvent.completedAt !== null ? (
+            <p className="text-sm text-[var(--muted)]">Recovery recorded.</p>
+          ) : (
+            <p className="text-sm text-[var(--muted)]">Recovery in progress.</p>
+          )}
+        </div>
+
+        {day.recoveryEvent !== null &&
+        day.recoveryEvent.completedAt === null ? (
+          <div className="mt-5 space-y-3">
+            {RECOVERY_ACTIONS.map((action) => {
+              const selected = recoveryActionIds.includes(action.id);
+
+              return (
+                <label
+                  className="flex items-start gap-3 rounded-lg border border-[var(--border)] bg-[var(--surface-alt)] p-3"
+                  key={action.id}
+                >
+                  <input
+                    checked={selected}
+                    className="mt-1 h-5 w-5 accent-[var(--accent)]"
+                    disabled={savingRecovery}
+                    onChange={() => toggleRecoveryAction(action.id)}
+                    type="checkbox"
+                  />
+                  <span className="text-sm">{action.label}</span>
+                </label>
+              );
+            })}
+            <button
+              className="rounded-lg border border-[var(--accent)] px-4 py-2 text-sm font-medium disabled:opacity-60"
+              disabled={savingRecovery}
+              onClick={completeRecovery}
+              type="button"
+            >
+              {savingRecovery ? "Recording…" : "Complete recovery"}
+            </button>
+          </div>
+        ) : null}
       </section>
 
       <section className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-5 sm:p-6">

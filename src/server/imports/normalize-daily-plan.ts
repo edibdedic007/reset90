@@ -2,6 +2,7 @@ import { Prisma, type PrismaClient } from "../../generated/prisma/client";
 
 import { importEnvelopeSchema } from "./schemas";
 import type { DailyPlanPayload } from "./schemas/daily-plan";
+import { reconcileDayStatusInTransaction } from "../recovery/service";
 
 type DailyPlanTask =
   | DailyPlanPayload["non_negotiables"][number]
@@ -197,6 +198,7 @@ export function normalizeDailyPlanImport(
         supportiveMessage: payload.supportive_message,
       },
     });
+    await reconcileDayStatusInTransaction(transaction, dayLog.id, new Date());
     await transaction.importedPayload.update({
       where: { id: importedPayloadId },
       data: {

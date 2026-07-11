@@ -150,8 +150,16 @@ Recovery checklist:
 
 Recovery result:
 
-- day can become blue if intentional recovery actions are completed;
-- comeback day can become gold after returning from a bad day.
+- `Reset me now` opens one resumable current-day recovery event;
+- each valid partial checklist selection saves immediately and reload restores it;
+- user selects at least three of five fixed actions, including one physical/basic
+  reset and one forward-facing action;
+- a credited qualifying recovery becomes blue; qualifying recovery without an
+  available credit is still recorded as yellow;
+- a normal completion after red or blue can become gold; recovery alone does
+  not create gold;
+- copy stays calm: “Downshift, don’t abandon” and “Today still has room for one
+  next action.”
 
 ## 90-day grid
 
