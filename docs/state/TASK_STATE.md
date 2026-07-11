@@ -36,11 +36,7 @@ make phase PHASE=12
 
 ## Latest handoff
 
-- 2026-07-11T19:46:48Z — feature/recovery-mode — Phase 11 correction added
-  partial action persistence, authoritative completion credit summaries, and
-  current-day dashboard reconciliation; local migration verified and checks
-  recorded in `SESSION_LOG.md`; next step: review/commit and await explicit
-  Phase 12 approval.
+- 2026-07-11T21:00:33Z — chore/phase-plan-bundle — Added make phase-bundle for clean pre-phase planning archives with fixed defaults, explicit safe EXTRA_FILES, tar output and cleanup; verified Bash syntax, Make help, Phase 11 fixture archive contents, validation failures, git diff check; no application tests or make check by tooling-only task instruction; next step: review and commit chore/dev tooling change
 
 ## Historical detail
 

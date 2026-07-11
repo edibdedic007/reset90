@@ -1,6 +1,6 @@
 SHELL := /usr/bin/env bash
 
-.PHONY: help session context phase review-bundle new-work update-task-state setup-local bootstrap install dev dev-up dev-down logs check quality-check lint format format-check typecheck test build db-migrate db-seed db-reset db-backup db-restore validate-payloads env-check prod-check prod-build prod-up prod-down prod-logs prod-health deploy-production export-full docs-bundle healthcheck
+.PHONY: help session context phase phase-bundle review-bundle new-work update-task-state setup-local bootstrap install dev dev-up dev-down logs check quality-check lint format format-check typecheck test build db-migrate db-seed db-reset db-backup db-restore validate-payloads env-check prod-check prod-build prod-up prod-down prod-logs prod-health deploy-production export-full docs-bundle healthcheck
 
 LOCAL_COMPOSE := docker compose --env-file .env.local -f docker-compose.local.yml
 
@@ -9,6 +9,7 @@ help:
 	@echo "  make session                 Refresh context and print short session status"
 	@echo "  make context                 Generate compact .codex context packet"
 	@echo "  make phase PHASE=11          Print one implementation phase only"
+	@echo "  make phase-bundle PHASE=12   Create compact pre-phase ChatGPT planning archive"
 	@echo "  make review-bundle PHASE=11  Create external phase review ZIP (BASE_REF=local)"
 	@echo "  make new-work TYPE=feature SLUG=repo-foundation"
 	@echo "  make setup-local             Setup local developer environment"
@@ -34,6 +35,10 @@ context:
 phase:
 	@if [ -z "$(PHASE)" ]; then echo "Usage: make phase PHASE=11"; exit 1; fi
 	./scripts/codex-phase.sh "$(PHASE)"
+
+phase-bundle:
+	@if [ -z "$${PHASE:-}" ]; then echo "Usage: make phase-bundle PHASE=12 [EXTRA_FILES='docs/file.md docs/adr/0011-example.md']"; exit 1; fi
+	bash ./scripts/create-phase-plan-bundle.sh "$$PHASE" "$${EXTRA_FILES:-}"
 
 review-bundle:
 	@if [ -z "$(PHASE)" ]; then echo "Usage: make review-bundle PHASE=11 [BASE_REF=local]"; exit 1; fi
