@@ -17,7 +17,7 @@ shame-based streaks.
 - Docker Compose locally and in production, with Traefik expected in production
 - GitHub Actions CI
 
-## Implemented through Phase 10
+## Implemented through Phase 12
 
 - Repository, local environment, Prisma schema/migrations, seed data, readiness,
   quality gates, CI, backups/export/deployment helpers.
@@ -29,11 +29,13 @@ shame-based streaks.
   optional notes, transactional energy sync, and latest-state dashboard reads.
 - Recovery events, derived recovery credits, deterministic UTC day statuses, and
   a current-day Reset Me Now flow.
+- Authenticated 90-day progress grid with canonical status totals, recovery
+  credit summary, missing-day safeguards, and read-only day detail.
 
 ## Current boundary
 
-Phase 11 implements recovery mode and deterministic day-status calculation.
-Phase 12 grid, analytics, reviews, notifications, and overrides remain deferred.
+Phase 12 implements the 90-day grid and read-only day detail. Phase 13 analytics,
+reviews, charts, trends, notifications, and overrides remain deferred.
 
 ## Durable implementation rules
 
@@ -47,6 +49,8 @@ Phase 12 grid, analytics, reviews, notifications, and overrides remain deferred.
   transactionally, while reprocessing the same raw import is a no-op.
 - Imported plan energy does not overwrite later user-selected/check-in energy.
 - Current-day browser APIs derive ownership and active UTC day server-side.
+- Progress reads derive ownership from the authenticated user's active cycle,
+  reuse Phase 11 status reconciliation, and never infer status for missing logs.
 - Store summaries, decisions, and context snapshots; never hidden chain-of-thought.
 - Recovery-aware statuses replace harsh streaks.
 - Production reverse proxy default is Traefik; change only through an explicit
