@@ -45,6 +45,35 @@ Never open all of `docs/16_BEST_IMPLEMENTATION_ORDER.md` for normal phase work.
 Use `docs/00_PACK_INDEX.md` only to select the smallest relevant reference docs.
 Use `docs/state/DECISIONS_INDEX.md` to locate specific ADRs.
 
+### Pre-phase ChatGPT planning archive
+
+Before Codex edits the repository, create compact planning context from clean
+`local`:
+
+```bash
+cd ~/Code/reset90
+
+git switch local
+git pull origin local
+git status --short --branch
+
+make phase-bundle PHASE=N
+
+tar -tzf ~/Downloads/reset90-phaseN-plan.tar.gz
+```
+
+Upload the single generated planning archive to the Reset90 ChatGPT Project.
+Add phase-specific documents or ADRs explicitly when needed:
+
+```bash
+make phase-bundle PHASE=N \
+  EXTRA_FILES="docs/file-one.md docs/adr/0011-example.md"
+```
+
+`phase-bundle` provides compact planning context before Codex edits the
+repository. `review-bundle` provides the implementation diff, changed files,
+tests, and Codex session after the phase.
+
 ## 4. Bound the task before edits
 
 Codex must state:
