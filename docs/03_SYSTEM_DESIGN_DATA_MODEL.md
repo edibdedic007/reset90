@@ -57,7 +57,7 @@ EnergyLevel = BURNED_OUT | LOW | NORMAL | HIGH | RESTLESS_CHAOTIC
 DayStatus = GREEN | YELLOW | BLUE | RED | GOLD | UNSET
 PayloadKind = DAILY_PLAN | DAILY_REFLECTION | WEEKLY_REVIEW | CONTEXT_ITEM
 ContextKind = CONVERSATION | TASK_SUMMARY | DECISION_LOG | DAILY_SUMMARY | WEEKLY_SUMMARY | CONTEXT_SNAPSHOT | REASONING_SUMMARY
-RecoveryType = PLANNED | EMERGENCY_RESET | DOWNSHIFT | COMEBACK
+RecoveryType = deferred after Phase 11
 CheckinKind = MORNING | MIDDAY | EVENING | MANUAL
 ```
 
@@ -206,6 +206,9 @@ events remain resumable; completed events are immutable. Credit usage is
 derived from completed events with non-null `credit_consumed_at`; no mutable
 remaining-credit value exists. The Phase 11 migration only adds this table and
 does not rewrite historical day statuses.
+
+`RecoveryType` is deferred. Phase 11 has one current-day recovery workflow and
+does not store or expose recovery types.
 
 ### daily_reflections
 

@@ -14,7 +14,10 @@ import {
   RECOVERY_COPY,
   type RecoveryActionId,
 } from "@/server/recovery/actions";
-import type { RecoveryEventSummary } from "@/server/recovery/service";
+import type {
+  RecoveryCreditSummary,
+  RecoveryEventSummary,
+} from "@/server/recovery/service";
 
 type TierKey = keyof TodayTaskGroups;
 
@@ -104,6 +107,7 @@ function replaceRecovery(
   dashboard: TodayDashboard,
   recoveryEvent: RecoveryEventSummary,
   dayStatus?: Extract<TodayDashboard, { status: "ready" }>["day"]["status"],
+  recoveryCredits?: RecoveryCreditSummary,
 ): TodayDashboard {
   if (dashboard.status !== "ready") {
     return dashboard;
@@ -111,12 +115,38 @@ function replaceRecovery(
 
   return {
     ...dashboard,
+    cycle: recoveryCredits
+      ? { ...dashboard.cycle, ...recoveryCredits }
+      : dashboard.cycle,
     day: {
       ...dashboard.day,
       ...(dayStatus ? { status: dayStatus } : {}),
       recoveryEvent,
     },
   };
+}
+
+async function recoveryErrorNotice(response: Response) {
+  const payload = (await response.json().catch(() => null)) as {
+    error?: string;
+  } | null;
+
+  switch (payload?.error) {
+    case "recovery_requirements_not_met":
+      return RECOVERY_COPY.incomplete;
+    case "invalid_recovery_payload":
+      return "Recovery choices are not valid. Refresh, then try again.";
+    case "today_not_found":
+      return "Today’s recovery is not available right now.";
+    case "recovery_not_started":
+      return "Open recovery before saving actions.";
+    case "recovery_completed":
+      return "Recovery is already recorded and cannot change.";
+    default:
+      return response.status >= 500
+        ? "Recovery server problem. Try again shortly."
+        : "Recovery request did not finish. Try again.";
+  }
 }
 
 function replaceEnergy(
@@ -360,12 +390,37 @@ export function TodayCommandCenter({
     }
   }
 
-  function toggleRecoveryAction(actionId: RecoveryActionId) {
-    setRecoveryActionIds((current) =>
-      current.includes(actionId)
-        ? current.filter((id) => id !== actionId)
-        : [...current, actionId],
-    );
+  async function toggleRecoveryAction(actionId: RecoveryActionId) {
+    const nextActionIds = recoveryActionIds.includes(actionId)
+      ? recoveryActionIds.filter((id) => id !== actionId)
+      : [...recoveryActionIds, actionId];
+    setSavingRecovery(true);
+    setNotice(null);
+
+    try {
+      const response = await fetch("/api/recovery/actions", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ actionIds: nextActionIds }),
+      });
+      if (!response.ok) {
+        setNotice(await recoveryErrorNotice(response));
+        return;
+      }
+
+      const payload = (await response.json()) as {
+        ok: true;
+        event: RecoveryEventSummary;
+      };
+      setRecoveryActionIds(payload.event.selectedActionIds);
+      setDashboard((current) => replaceRecovery(current, payload.event));
+    } catch {
+      setNotice(
+        "Recovery could not reach server. Check connection, then try again.",
+      );
+    } finally {
+      setSavingRecovery(false);
+    }
   }
 
   async function startRecovery() {
@@ -375,7 +430,8 @@ export function TodayCommandCenter({
     try {
       const response = await fetch("/api/recovery/start", { method: "POST" });
       if (!response.ok) {
-        throw new Error("Recovery start failed");
+        setNotice(await recoveryErrorNotice(response));
+        return;
       }
 
       const payload = (await response.json()) as {
@@ -386,7 +442,9 @@ export function TodayCommandCenter({
       setDashboard((current) => replaceRecovery(current, payload.event));
       setNotice(RECOVERY_COPY.opened);
     } catch {
-      setNotice("Recovery did not open. Try again.");
+      setNotice(
+        "Recovery could not reach server. Check connection, then try again.",
+      );
     } finally {
       setSavingRecovery(false);
     }
@@ -403,7 +461,8 @@ export function TodayCommandCenter({
         body: JSON.stringify({ actionIds: recoveryActionIds }),
       });
       if (!response.ok) {
-        throw new Error("Recovery completion failed");
+        setNotice(await recoveryErrorNotice(response));
+        return;
       }
 
       const payload = (await response.json()) as {
@@ -413,14 +472,22 @@ export function TodayCommandCenter({
           TodayDashboard,
           { status: "ready" }
         >["day"]["status"];
+        recovery_credits: RecoveryCreditSummary;
       };
       setRecoveryActionIds(payload.event.selectedActionIds);
       setDashboard((current) =>
-        replaceRecovery(current, payload.event, payload.day_status),
+        replaceRecovery(
+          current,
+          payload.event,
+          payload.day_status,
+          payload.recovery_credits,
+        ),
       );
       setNotice(RECOVERY_COPY.recorded);
     } catch {
-      setNotice(RECOVERY_COPY.incomplete);
+      setNotice(
+        "Recovery could not reach server. Check connection, then try again.",
+      );
     } finally {
       setSavingRecovery(false);
     }

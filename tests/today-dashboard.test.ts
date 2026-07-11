@@ -104,6 +104,82 @@ function createDashboardDatabase() {
 }
 
 describe("today dashboard", () => {
+  it("reconciles a current stored UNSET day before returning dashboard data", async () => {
+    let storedStatus = "UNSET";
+    const currentDay = {
+      id: "day-3",
+      cycleId: "cycle-1",
+      date: TODAY,
+      status: "UNSET",
+      dailyPlan: {
+        tasks: [
+          { tier: "NON_NEGOTIABLE", completedAt: NOW, skippedAt: null },
+          { tier: "MINIMUM", completedAt: NOW, skippedAt: null },
+        ],
+      },
+      recoveryEvent: null,
+    };
+    const statusUpdate = vi.fn(({ data }) => {
+      storedStatus = data.status;
+      return { id: "day-3" };
+    });
+    const database = {
+      dayLog: {
+        findMany: vi.fn().mockResolvedValue([]),
+        findFirst: vi.fn().mockResolvedValue({
+          id: "day-3",
+          cycleId: "cycle-1",
+          status: "UNSET",
+        }),
+      },
+      recoveryEvent: { findUnique: vi.fn() },
+      $transaction: vi.fn(async (callback) =>
+        callback({
+          dayLog: {
+            findUnique: vi.fn().mockResolvedValue(currentDay),
+            findFirst: vi.fn().mockResolvedValue(null),
+            update: statusUpdate,
+          },
+          recoveryEvent: { count: vi.fn() },
+        }),
+      ),
+      resetCycle: {
+        findFirst: vi.fn(async () => ({
+          id: "cycle-1",
+          name: "Reset90 Local Cycle",
+          recoveryCreditLimit: 6,
+          recoveryEvents: [],
+          dayLogs: [
+            {
+              id: "day-3",
+              date: TODAY,
+              dayNumber: 3,
+              status: storedStatus,
+              energyLevel: null,
+              phase: { name: "Clear the Fog", description: null },
+              dailyPlan: null,
+              checkins: [],
+              recoveryEvent: null,
+            },
+          ],
+        })),
+      },
+      task: { findFirst: vi.fn() },
+    } as unknown as TodayDashboardDatabase;
+
+    await expect(
+      getTodayDashboard(database, "user-1", NOW),
+    ).resolves.toMatchObject({
+      status: "ready",
+      day: { status: "YELLOW" },
+    });
+    expect(statusUpdate).toHaveBeenCalledWith({
+      where: { id: "day-3" },
+      data: { status: "YELLOW" },
+      select: { id: true },
+    });
+  });
+
   it("loads the signed-in user's active day and groups imported plan tasks", async () => {
     const { database, resetCycleFindFirst } = createDashboardDatabase();
 

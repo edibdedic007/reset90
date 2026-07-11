@@ -27,6 +27,12 @@ export type RecoveryEventSummary = {
   creditConsumedAt: string | null;
 };
 
+export type RecoveryCreditSummary = {
+  recoveryCreditLimit: number;
+  recoveryCreditsUsed: number;
+  recoveryCreditsRemaining: number;
+};
+
 export type RecoveryStartResult =
   | { status: "not_found" }
   | { status: "started" | "existing"; event: RecoveryEventSummary };
@@ -39,7 +45,14 @@ export type RecoveryCompletionResult =
       status: "completed" | "already_completed";
       event: RecoveryEventSummary;
       dayStatus: DayStatus;
+      recoveryCredits: RecoveryCreditSummary;
     };
+
+export type RecoveryActionUpdateResult =
+  | { status: "not_found" }
+  | { status: "not_started" }
+  | { status: "completed"; event: RecoveryEventSummary }
+  | { status: "updated"; event: RecoveryEventSummary };
 
 const recoveryEventSelect = {
   id: true,
@@ -97,6 +110,25 @@ export function toRecoveryEventSummary(event: {
     selectedActionIds: selectedActionIds(event.selectedActionIds),
     completedAt: event.completedAt?.toISOString() ?? null,
     creditConsumedAt: event.creditConsumedAt?.toISOString() ?? null,
+  };
+}
+
+async function getRecoveryCreditSummary(
+  transaction: RecoveryTransaction,
+  cycleId: string,
+  recoveryCreditLimit: number,
+): Promise<RecoveryCreditSummary> {
+  const recoveryCreditsUsed = await transaction.recoveryEvent.count({
+    where: { cycleId, creditConsumedAt: { not: null } },
+  });
+
+  return {
+    recoveryCreditLimit,
+    recoveryCreditsUsed,
+    recoveryCreditsRemaining: Math.max(
+      recoveryCreditLimit - recoveryCreditsUsed,
+      0,
+    ),
   };
 }
 
@@ -223,8 +255,21 @@ async function findCurrentDay(
       date: normalizeUtcDate(now),
       cycle: { userId, status: "ACTIVE" },
     },
-    select: { id: true, cycleId: true },
+    select: { id: true, cycleId: true, status: true },
   });
+}
+
+export async function reconcileCurrentDayStatus(
+  database: RecoveryDatabase,
+  userId: string,
+  now = new Date(),
+) {
+  const dayLog = await findCurrentDay(database, userId, now);
+  if (!dayLog || dayLog.status !== "UNSET") {
+    return null;
+  }
+
+  return reconcileDayStatus(database, dayLog.id, now);
 }
 
 export async function startTodayRecovery(
@@ -295,10 +340,16 @@ export async function completeTodayRecovery(
         dayLog.id,
         now,
       );
+      const recoveryCredits = await getRecoveryCreditSummary(
+        transaction,
+        event.cycleId,
+        event.cycle.recoveryCreditLimit,
+      );
       return {
         status: "already_completed",
         event: toRecoveryEventSummary(event),
         dayStatus: dayStatus ?? "UNSET",
+        recoveryCredits,
       };
     }
 
@@ -325,11 +376,17 @@ export async function completeTodayRecovery(
         dayLog.id,
         now,
       );
+      const recoveryCredits = await getRecoveryCreditSummary(
+        transaction,
+        event.cycleId,
+        event.cycle.recoveryCreditLimit,
+      );
 
       return {
         status: "already_completed",
         event: toRecoveryEventSummary(completedEvent ?? event),
         dayStatus: dayStatus ?? "UNSET",
+        recoveryCredits,
       };
     }
     const completed = await transaction.recoveryEvent.findUnique({
@@ -341,11 +398,63 @@ export async function completeTodayRecovery(
       dayLog.id,
       now,
     );
+    const recoveryCredits = await getRecoveryCreditSummary(
+      transaction,
+      event.cycleId,
+      event.cycle.recoveryCreditLimit,
+    );
 
     return {
       status: "completed",
       event: toRecoveryEventSummary(completed ?? event),
       dayStatus: dayStatus ?? "UNSET",
+      recoveryCredits,
+    };
+  });
+}
+
+export async function updateTodayRecoveryActions(
+  database: RecoveryDatabase,
+  userId: string,
+  actionIds: readonly RecoveryActionId[],
+  now = new Date(),
+): Promise<RecoveryActionUpdateResult> {
+  const dayLog = await findCurrentDay(database, userId, now);
+  if (!dayLog) {
+    return { status: "not_found" };
+  }
+
+  return database.$transaction(async (transaction) => {
+    const event = await transaction.recoveryEvent.findUnique({
+      where: { dayLogId: dayLog.id },
+      select: recoveryEventSelect,
+    });
+    if (!event) {
+      return { status: "not_started" };
+    }
+    if (event.completedAt) {
+      return { status: "completed", event: toRecoveryEventSummary(event) };
+    }
+
+    const updated = await transaction.recoveryEvent.updateMany({
+      where: { id: event.id, completedAt: null },
+      data: { selectedActionIds: [...actionIds] },
+    });
+    const latest = await transaction.recoveryEvent.findUnique({
+      where: { id: event.id },
+      select: recoveryEventSelect,
+    });
+
+    if (updated.count === 0 || latest?.completedAt) {
+      return {
+        status: "completed",
+        event: toRecoveryEventSummary(latest ?? event),
+      };
+    }
+
+    return {
+      status: "updated",
+      event: toRecoveryEventSummary(latest ?? event),
     };
   });
 }

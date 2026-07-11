@@ -8,9 +8,14 @@ import {
   completeTodayRecovery,
   parseRecoveryActionIds,
   startTodayRecovery,
+  updateTodayRecoveryActions,
   type RecoveryDatabase,
 } from "../src/server/recovery/service";
-import { handleStartRecoveryRequest } from "../src/server/recovery/http";
+import {
+  handleCompleteRecoveryRequest,
+  handleStartRecoveryRequest,
+  handleUpdateRecoveryActionsRequest,
+} from "../src/server/recovery/http";
 
 const NOW = new Date("2026-07-10T12:00:00.000Z");
 const TODAY = new Date("2026-07-10T00:00:00.000Z");
@@ -72,14 +77,20 @@ function createRecoveryDatabase({
           }
           return draft;
         }),
-        count: vi.fn().mockResolvedValue(creditsUsed),
+        count: vi.fn(
+          async () => creditsUsed + (draft?.creditConsumedAt ? 1 : 0),
+        ),
         updateMany: vi.fn(async ({ data }) => {
           if (!draft) {
             throw new Error("test draft missing");
           }
           draft.selectedActionIds = data.selectedActionIds;
-          draft.completedAt = data.completedAt;
-          draft.creditConsumedAt = data.creditConsumedAt;
+          if ("completedAt" in data) {
+            draft.completedAt = data.completedAt;
+          }
+          if ("creditConsumedAt" in data) {
+            draft.creditConsumedAt = data.creditConsumedAt;
+          }
           return { count: 1 };
         }),
       },
@@ -120,6 +131,7 @@ function createRecoveryDatabase({
     dayLogFindFirst,
     outerRecoveryFindUnique,
     resetCycleUpdate,
+    statusUpdate,
     transaction,
     stored: () => stored,
   };
@@ -167,15 +179,16 @@ describe("recovery persistence", () => {
   });
 
   it("completes once, consumes one available credit, and keeps duplicate completion immutable", async () => {
-    const { database, resetCycleUpdate, stored } = createRecoveryDatabase({
-      event: {
-        id: "event-1",
-        cycleId: "cycle-1",
-        selectedActionIds: [],
-        completedAt: null,
-        creditConsumedAt: null,
-      },
-    });
+    const { database, resetCycleUpdate, statusUpdate, stored } =
+      createRecoveryDatabase({
+        event: {
+          id: "event-1",
+          cycleId: "cycle-1",
+          selectedActionIds: [],
+          completedAt: null,
+          creditConsumedAt: null,
+        },
+      });
 
     const [first, second] = await Promise.all([
       completeTodayRecovery(database, "user-1", validActionIds, NOW),
@@ -188,7 +201,24 @@ describe("recovery persistence", () => {
       dayStatus: "BLUE",
     });
     expect(stored()?.creditConsumedAt).toEqual(NOW);
+    expect(first).toMatchObject({
+      recoveryCredits: {
+        recoveryCreditsUsed: 1,
+        recoveryCreditsRemaining: 5,
+      },
+    });
+    expect(second).toMatchObject({
+      recoveryCredits: {
+        recoveryCreditsUsed: 1,
+        recoveryCreditsRemaining: 5,
+      },
+    });
     expect(resetCycleUpdate).not.toHaveBeenCalled();
+    expect(statusUpdate).toHaveBeenCalledWith({
+      where: { id: "day-1" },
+      data: { status: "BLUE" },
+      select: { id: true },
+    });
   });
 
   it("allows recovery without an available credit and returns YELLOW", async () => {
@@ -207,6 +237,47 @@ describe("recovery persistence", () => {
       completeTodayRecovery(database, "user-1", validActionIds, NOW),
     ).resolves.toMatchObject({ status: "completed", dayStatus: "YELLOW" });
     expect(stored()?.creditConsumedAt).toBeNull();
+
+    await expect(
+      completeTodayRecovery(database, "user-1", validActionIds, NOW),
+    ).resolves.toMatchObject({
+      recoveryCredits: {
+        recoveryCreditsUsed: 6,
+        recoveryCreditsRemaining: 0,
+      },
+    });
+  });
+
+  it("persists partial actions for reload and rejects edits after completion", async () => {
+    const { database, stored } = createRecoveryDatabase({
+      event: {
+        id: "event-1",
+        cycleId: "cycle-1",
+        selectedActionIds: [],
+        completedAt: null,
+        creditConsumedAt: null,
+      },
+    });
+    const partial = ["water_or_basic_reset", "tiny_focus_action"] as const;
+
+    await expect(
+      updateTodayRecoveryActions(database, "user-1", partial, NOW),
+    ).resolves.toMatchObject({
+      status: "updated",
+      event: { selectedActionIds: partial },
+    });
+    await expect(
+      startTodayRecovery(database, "user-1", NOW),
+    ).resolves.toMatchObject({
+      status: "existing",
+      event: { selectedActionIds: partial },
+    });
+
+    await completeTodayRecovery(database, "user-1", validActionIds, NOW);
+    await expect(
+      updateTodayRecoveryActions(database, "user-1", partial, NOW),
+    ).resolves.toMatchObject({ status: "completed" });
+    expect(stored()?.selectedActionIds).toEqual([...validActionIds]);
   });
 
   it("rolls back completion when status persistence fails", async () => {
@@ -245,12 +316,32 @@ describe("recovery persistence", () => {
         date: TODAY,
         cycle: { userId: "user-1", status: "ACTIVE" },
       },
-      select: { id: true, cycleId: true },
+      select: { id: true, cycleId: true, status: true },
     });
   });
 });
 
 describe("recovery HTTP boundary", () => {
+  function completeRequest(body: unknown) {
+    return new Request("http://localhost/api/recovery/complete", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  }
+
+  const event = {
+    id: "event-1",
+    selectedActionIds: [...validActionIds],
+    completedAt: NOW.toISOString(),
+    creditConsumedAt: NOW.toISOString(),
+  };
+  const recoveryCredits = {
+    recoveryCreditLimit: 6,
+    recoveryCreditsUsed: 1,
+    recoveryCreditsRemaining: 5,
+  };
+
   it("requires browser auth before recovery start", async () => {
     const getDatabase = vi.fn();
 
@@ -261,5 +352,73 @@ describe("recovery HTTP boundary", () => {
       }),
     ).rejects.toThrow("unauthenticated");
     expect(getDatabase).not.toHaveBeenCalled();
+  });
+
+  it("returns complete recovery 400, 404, 409, 422, and success responses", async () => {
+    const dependencies = {
+      requireSession: vi.fn().mockResolvedValue({ userId: "user-1" }),
+      getDatabase: vi.fn(() => ({}) as RecoveryDatabase),
+    };
+
+    await expect(
+      handleCompleteRecoveryRequest(
+        completeRequest({ actionIds: ["bad"] }),
+        dependencies,
+      ),
+    ).resolves.toMatchObject({ status: 400 });
+
+    for (const [result, status] of [
+      [{ status: "not_found" }, 404],
+      [{ status: "not_started" }, 409],
+      [{ status: "invalid_actions" }, 422],
+    ] as const) {
+      const response = await handleCompleteRecoveryRequest(
+        completeRequest({ actionIds: validActionIds }),
+        {
+          ...dependencies,
+          completeRecovery: vi.fn().mockResolvedValue(result),
+        },
+      );
+      expect(response.status).toBe(status);
+    }
+
+    const response = await handleCompleteRecoveryRequest(
+      completeRequest({ actionIds: validActionIds }),
+      {
+        ...dependencies,
+        completeRecovery: vi.fn().mockResolvedValue({
+          status: "completed",
+          event,
+          dayStatus: "BLUE",
+          recoveryCredits,
+        }),
+      },
+    );
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      recovery_credits: recoveryCredits,
+    });
+  });
+
+  it("persists partial actions through the authenticated update boundary", async () => {
+    const updateRecoveryActions = vi.fn().mockResolvedValue({
+      status: "updated",
+      event: { ...event, completedAt: null, creditConsumedAt: null },
+    });
+    const response = await handleUpdateRecoveryActionsRequest(
+      completeRequest({ actionIds: ["water_or_basic_reset"] }),
+      {
+        requireSession: vi.fn().mockResolvedValue({ userId: "user-1" }),
+        getDatabase: () => ({}) as RecoveryDatabase,
+        updateRecoveryActions,
+      },
+    );
+
+    expect(response.status).toBe(200);
+    expect(updateRecoveryActions).toHaveBeenCalledWith(
+      expect.anything(),
+      "user-1",
+      ["water_or_basic_reset"],
+    );
   });
 });

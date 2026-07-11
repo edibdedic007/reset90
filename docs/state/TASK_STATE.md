@@ -1,6 +1,6 @@
 # Task State
 
-Last updated: 2026-07-10
+Last updated: 2026-07-11
 
 ## Current phase
 
@@ -8,7 +8,8 @@ Phase 11 complete. Phase 12 has not started.
 
 ## Active task
 
-Recovery mode and deterministic day-status calculation complete. Phase 12 is
+Phase 11 correction complete: recovery credits refresh immediately, current
+dashboard status reconciles, and incomplete actions persist/resume. Phase 12 is
 out of scope.
 
 ## Next phase
@@ -35,7 +36,11 @@ make phase PHASE=12
 
 ## Latest handoff
 
-- 2026-07-10T22:19:37Z — feature/recovery-mode — Phase review bundle tooling and runbook completed; shell syntax, archive inspection, exclusion checks, git diff --check, and make check passed; next step: review/commit tooling and use make review-bundle PHASE=11 before completed-phase review
+- 2026-07-11T19:46:48Z — feature/recovery-mode — Phase 11 correction added
+  partial action persistence, authoritative completion credit summaries, and
+  current-day dashboard reconciliation; local migration verified and checks
+  recorded in `SESSION_LOG.md`; next step: review/commit and await explicit
+  Phase 12 approval.
 
 ## Historical detail
 

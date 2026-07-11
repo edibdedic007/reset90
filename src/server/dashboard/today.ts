@@ -9,6 +9,7 @@ import { checkinSelect, toDayCheckin, type DayCheckin } from "../checkins";
 import { normalizeUtcDate } from "../db/cycle";
 import {
   reconcileDayStatusInTransaction,
+  reconcileCurrentDayStatus,
   reconcileElapsedDayStatuses,
   toRecoveryEventSummary,
   type RecoveryEventSummary,
@@ -203,6 +204,7 @@ export async function getTodayDashboard(
   const todayIso = toIsoDate(today);
 
   await reconcileElapsedDayStatuses(database, userId, now);
+  await reconcileCurrentDayStatus(database, userId, now);
 
   const cycle = await database.resetCycle.findFirst({
     where: { userId, status: "ACTIVE" },

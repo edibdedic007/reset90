@@ -151,6 +151,7 @@ Recovery checklist:
 Recovery result:
 
 - `Reset me now` opens one resumable current-day recovery event;
+- each valid partial checklist selection saves immediately and reload restores it;
 - user selects at least three of five fixed actions, including one physical/basic
   reset and one forward-facing action;
 - a credited qualifying recovery becomes blue; qualifying recovery without an
