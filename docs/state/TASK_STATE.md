@@ -35,10 +35,7 @@ make phase PHASE=12
 
 ## Latest handoff
 
-- 2026-07-10T21:48:04Z — feature/recovery-mode — Phase 11 recovery events,
-  derived credits, deterministic statuses, Today recovery UI, and direct docs
-  complete; checks recorded in `SESSION_LOG.md`; next step: review/commit and
-  await explicit Phase 12 approval.
+- 2026-07-10T22:19:37Z — feature/recovery-mode — Phase review bundle tooling and runbook completed; shell syntax, archive inspection, exclusion checks, git diff --check, and make check passed; next step: review/commit tooling and use make review-bundle PHASE=11 before completed-phase review
 
 ## Historical detail
 
