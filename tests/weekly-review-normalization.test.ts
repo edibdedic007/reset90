@@ -36,6 +36,11 @@ type StoredReview = {
   updatedAt: Date;
 };
 
+type RecordedRawQuery = {
+  sql: string;
+  values: unknown[];
+};
+
 const OWNER_SUBJECT = "owner-subject";
 const NOW = new Date("2026-07-08T12:00:00.000Z");
 const CYCLE = {
@@ -50,6 +55,18 @@ function reviewPayload(overrides: Record<string, unknown> = {}) {
   };
   Object.assign(input.payload, overrides);
   return input;
+}
+
+function recordRawQuery(query: unknown): RecordedRawQuery {
+  if (typeof query !== "object" || query === null) {
+    throw new Error("expected Prisma SQL query object");
+  }
+  const sql = Reflect.get(query, "sql");
+  const values = Reflect.get(query, "values");
+  if (typeof sql !== "string" || !Array.isArray(values)) {
+    throw new Error("expected Prisma SQL query text and values");
+  }
+  return { sql, values: structuredClone(values) };
 }
 
 function createTestDatabase(
@@ -77,6 +94,8 @@ function createTestDatabase(
   let failProcessedUpdate = false;
   let reviewSequence = 0;
   let activeCycles = options.cycles ?? [CYCLE];
+  const operationLog: string[] = [];
+  const rawQueries: RecordedRawQuery[] = [];
 
   const upsert = vi.fn();
   const queryRaw = vi.fn();
@@ -108,12 +127,19 @@ function createTestDatabase(
       const draftReviews = structuredClone(reviews);
       const transaction = {
         $queryRaw: async (...args: unknown[]) => {
+          const rawQuery = recordRawQuery(args[0]);
+          rawQueries.push(rawQuery);
+          operationLog.push(
+            `query:${rawQuery.sql}:${rawQuery.values.join(",")}`,
+          );
           queryRaw(...args);
           return [];
         },
         importedPayload: {
-          findUnique: async ({ where }: { where: { id: string } }) =>
-            draftImports.find((row) => row.id === where.id) ?? null,
+          findUnique: async ({ where }: { where: { id: string } }) => {
+            operationLog.push(`import-read:${where.id}`);
+            return draftImports.find((row) => row.id === where.id) ?? null;
+          },
           update: async ({
             where,
             data,
@@ -151,6 +177,11 @@ function createTestDatabase(
               cycleId_weekNumber?: { cycleId: string; weekNumber: number };
             };
           }) => {
+            operationLog.push(
+              where.importedPayloadId
+                ? `review-read-by-import:${where.importedPayloadId}`
+                : `review-read-by-cycle:${where.cycleId_weekNumber?.cycleId}:${where.cycleId_weekNumber?.weekNumber}`,
+            );
             const review = where.importedPayloadId
               ? draftReviews.find(
                   (row) => row.importedPayloadId === where.importedPayloadId,
@@ -185,6 +216,9 @@ function createTestDatabase(
             create: Record<string, unknown>;
             update: Record<string, unknown>;
           }) => {
+            operationLog.push(
+              `review-upsert:${where.cycleId_weekNumber.cycleId}:${where.cycleId_weekNumber.weekNumber}`,
+            );
             upsert({ where, create, update });
             if (options.upsertError) throw options.upsertError;
             const index = draftReviews.findIndex(
@@ -257,6 +291,14 @@ function createTestDatabase(
     },
     getImports: () => structuredClone(imports),
     getReviews: () => structuredClone(reviews),
+    getOperationLog: () => [...operationLog],
+    getRawQueries: () => structuredClone(rawQueries),
+    clearTrace() {
+      operationLog.length = 0;
+      rawQueries.length = 0;
+      queryRaw.mockClear();
+      upsert.mockClear();
+    },
     setFailProcessedUpdate(value: boolean) {
       failProcessedUpdate = value;
     },
@@ -381,6 +423,37 @@ describe("weekly review normalization", () => {
     expect(test.upsert).toHaveBeenCalledTimes(1);
   });
 
+  it("locks the raw import before an exact retry reads its normalized review", async () => {
+    const test = createTestDatabase();
+    await normalizeWeeklyReviewImport(
+      test.database,
+      "import-1",
+      OWNER_SUBJECT,
+      NOW,
+    );
+    test.clearTrace();
+
+    await normalizeWeeklyReviewImport(
+      test.database,
+      "import-1",
+      OWNER_SUBJECT,
+      NOW,
+    );
+
+    expect(test.getRawQueries()).toEqual([
+      {
+        sql: "SELECT id FROM imported_payloads WHERE id = ?::uuid FOR UPDATE",
+        values: ["import-1"],
+      },
+    ]);
+    const operations = test.getOperationLog();
+    expect(
+      operations.indexOf(
+        "query:SELECT id FROM imported_payloads WHERE id = ?::uuid FOR UPDATE:import-1",
+      ),
+    ).toBeLessThan(operations.indexOf("review-read-by-import:import-1"));
+  });
+
   it("replaces same-week content with newer stored import and preserves history", async () => {
     const test = createTestDatabase();
     await normalizeWeeklyReviewImport(
@@ -417,6 +490,102 @@ describe("weekly review normalization", () => {
       "PROCESSED",
       "PROCESSED",
     ]);
+  });
+
+  it("locks the owned cycle before same-week review read and replacement", async () => {
+    const test = createTestDatabase();
+    await normalizeWeeklyReviewImport(
+      test.database,
+      "import-1",
+      OWNER_SUBJECT,
+      NOW,
+    );
+    test.addImport({
+      id: "import-2",
+      rawJson: reviewPayload({ summary: "Replacement under cycle lock." }),
+    });
+    test.clearTrace();
+
+    await normalizeWeeklyReviewImport(
+      test.database,
+      "import-2",
+      OWNER_SUBJECT,
+      NOW,
+    );
+
+    expect(test.getRawQueries()).toEqual([
+      {
+        sql: "SELECT id FROM imported_payloads WHERE id = ?::uuid FOR UPDATE",
+        values: ["import-2"],
+      },
+      {
+        sql: "SELECT id FROM reset_cycles WHERE id = ?::uuid FOR UPDATE",
+        values: ["cycle-1"],
+      },
+    ]);
+    const operations = test.getOperationLog();
+    const cycleLock = operations.indexOf(
+      "query:SELECT id FROM reset_cycles WHERE id = ?::uuid FOR UPDATE:cycle-1",
+    );
+    expect(cycleLock).toBeLessThan(
+      operations.indexOf("review-read-by-cycle:cycle-1:1"),
+    );
+    expect(cycleLock).toBeLessThan(
+      operations.indexOf("review-upsert:cycle-1:1"),
+    );
+  });
+
+  it("keeps a newer replacement terminal when the original import retries", async () => {
+    const test = createTestDatabase();
+    await normalizeWeeklyReviewImport(
+      test.database,
+      "import-1",
+      OWNER_SUBJECT,
+      NOW,
+    );
+    test.addImport({
+      id: "import-2",
+      rawJson: reviewPayload({
+        summary: "B remains current.",
+        wins: ["B content stays unchanged."],
+      }),
+    });
+    await normalizeWeeklyReviewImport(
+      test.database,
+      "import-2",
+      OWNER_SUBJECT,
+      NOW,
+    );
+    const reviewAfterReplacement = test.getReviews();
+    const importsAfterReplacement = test.getImports();
+    const protectedStateAfterReplacement = structuredClone(test.protectedState);
+    test.clearTrace();
+
+    await expect(
+      normalizeWeeklyReviewImport(
+        test.database,
+        "import-1",
+        OWNER_SUBJECT,
+        NOW,
+      ),
+    ).resolves.toEqual({
+      status: "already_processed",
+      weeklyReviewId: null,
+    });
+
+    expect(test.upsert).not.toHaveBeenCalled();
+    expect(test.getReviews()).toEqual(reviewAfterReplacement);
+    expect(test.getReviews()[0]).toMatchObject({
+      importedPayloadId: "import-2",
+      summary: "B remains current.",
+      winsJson: ["B content stays unchanged."],
+    });
+    expect(test.getImports()).toEqual(importsAfterReplacement);
+    expect(test.getImports().map((row) => row.processingStatus)).toEqual([
+      "PROCESSED",
+      "PROCESSED",
+    ]);
+    expect(test.protectedState).toEqual(protectedStateAfterReplacement);
   });
 
   it("keeps deterministic newer winner when older import processes later", async () => {
