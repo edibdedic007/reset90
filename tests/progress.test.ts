@@ -178,6 +178,160 @@ describe("progress dashboard", () => {
       select: { id: true },
     });
   });
+
+  it("returns and counts statuses persisted by Phase 11 reconciliation", async () => {
+    const now = new Date("2026-07-03T12:00:00.000Z");
+    const storedDays = [
+      {
+        id: "day-1",
+        cycleId: "cycle-1",
+        dayNumber: 1,
+        date: new Date("2026-07-01T00:00:00.000Z"),
+        status: "UNSET",
+        dailyPlan: { tasks: [] },
+        recoveryEvent: null,
+      },
+      {
+        id: "day-2",
+        cycleId: "cycle-1",
+        dayNumber: 2,
+        date: new Date("2026-07-02T00:00:00.000Z"),
+        status: "UNSET",
+        dailyPlan: {
+          tasks: [
+            {
+              tier: "NON_NEGOTIABLE",
+              completedAt: now,
+              skippedAt: null,
+            },
+            { tier: "MINIMUM", completedAt: now, skippedAt: null },
+          ],
+        },
+        recoveryEvent: null,
+      },
+      {
+        id: "day-3",
+        cycleId: "cycle-1",
+        dayNumber: 3,
+        date: new Date("2026-07-03T00:00:00.000Z"),
+        status: "UNSET",
+        dailyPlan: { tasks: [] },
+        recoveryEvent: null,
+      },
+      {
+        id: "day-4",
+        cycleId: "cycle-1",
+        dayNumber: 4,
+        date: new Date("2026-07-04T00:00:00.000Z"),
+        status: "UNSET",
+        dailyPlan: { tasks: [] },
+        recoveryEvent: null,
+      },
+    ];
+    const dayLogFindMany = vi.fn().mockImplementation(() =>
+      storedDays
+        .filter((day) => day.date < new Date("2026-07-03T00:00:00.000Z"))
+        .filter((day) => day.status === "UNSET")
+        .map(({ id }) => ({ id })),
+    );
+    const dayLogUpdate = vi.fn(
+      ({
+        where,
+        data,
+      }: {
+        where: { id: string };
+        data: { status: string };
+      }) => {
+        const day = storedDays.find((candidate) => candidate.id === where.id);
+        if (!day) throw new Error(`Missing mocked day ${where.id}`);
+        day.status = data.status;
+        return { id: day.id };
+      },
+    );
+    const transaction = {
+      dayLog: {
+        findUnique: vi.fn(({ where }: { where: { id: string } }) =>
+          storedDays.find((day) => day.id === where.id),
+        ),
+        findFirst: vi.fn(
+          ({ where }: { where: { cycleId: string; date: { lt: Date } } }) =>
+            storedDays
+              .filter(
+                (day) =>
+                  day.cycleId === where.cycleId && day.date < where.date.lt,
+              )
+              .sort(
+                (left, right) => right.date.getTime() - left.date.getTime(),
+              )[0] ?? null,
+        ),
+        update: dayLogUpdate,
+      },
+      recoveryEvent: { count: vi.fn() },
+    };
+    const database = {
+      resetCycle: {
+        findFirst: vi.fn(() => ({
+          name: "My Reset",
+          startDate: START,
+          recoveryCreditLimit: 6,
+          recoveryEvents: [],
+          dayLogs: storedDays,
+        })),
+      },
+      dayLog: {
+        findMany: dayLogFindMany,
+        findFirst: vi.fn(({ where }: { where: { date: Date } }) => {
+          const day = storedDays.find(
+            (candidate) => candidate.date.getTime() === where.date.getTime(),
+          );
+          return day
+            ? { id: day.id, cycleId: day.cycleId, status: day.status }
+            : null;
+        }),
+        findUnique: vi.fn(),
+        update: vi.fn(),
+      },
+      recoveryEvent: { findUnique: vi.fn() },
+      $transaction: vi.fn((callback: (client: typeof transaction) => unknown) =>
+        callback(transaction),
+      ),
+    } as unknown as ProgressDatabase;
+
+    const result = await getProgressDashboard(database, "user-1", now);
+    if (result.status !== "ready") throw new Error("Expected ready dashboard");
+
+    expect(dayLogFindMany).toHaveBeenCalledWith({
+      where: {
+        date: { lt: new Date("2026-07-03T00:00:00.000Z") },
+        status: "UNSET",
+        cycle: { userId: "user-1", status: "ACTIVE" },
+      },
+      orderBy: { date: "asc" },
+      take: 90,
+      select: { id: true },
+    });
+    expect(dayLogUpdate).toHaveBeenCalledTimes(2);
+    expect(storedDays.map((day) => day.status)).toEqual([
+      "RED",
+      "GOLD",
+      "UNSET",
+      "UNSET",
+    ]);
+    expect(result.days.slice(0, 4).map((day) => day.status)).toEqual([
+      "RED",
+      "GOLD",
+      "UNSET",
+      "UNSET",
+    ]);
+    expect(result.statusCounts).toEqual({
+      GREEN: 0,
+      YELLOW: 0,
+      BLUE: 0,
+      RED: 1,
+      GOLD: 1,
+      UNSET: 2,
+    });
+  });
 });
 
 describe("day detail", () => {
