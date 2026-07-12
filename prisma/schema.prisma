@@ -107,19 +107,20 @@ model User {
 }
 
 model ResetCycle {
-  id                  String       @id @default(uuid()) @db.Uuid
-  userId              String       @map("user_id") @db.Uuid
+  id                  String          @id @default(uuid()) @db.Uuid
+  userId              String          @map("user_id") @db.Uuid
   name                String
-  startDate           DateTime     @map("start_date") @db.Date
-  endDate             DateTime     @map("end_date") @db.Date
-  status              CycleStatus  @default(ACTIVE)
-  recoveryCreditLimit Int          @default(6) @map("recovery_credit_limit")
-  createdAt           DateTime     @default(now()) @map("created_at")
-  updatedAt           DateTime     @updatedAt @map("updated_at")
-  user                User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  startDate           DateTime        @map("start_date") @db.Date
+  endDate             DateTime        @map("end_date") @db.Date
+  status              CycleStatus     @default(ACTIVE)
+  recoveryCreditLimit Int             @default(6) @map("recovery_credit_limit")
+  createdAt           DateTime        @default(now()) @map("created_at")
+  updatedAt           DateTime        @updatedAt @map("updated_at")
+  user                User            @relation(fields: [userId], references: [id], onDelete: Cascade)
   phases              ResetPhase[]
   dayLogs             DayLog[]
   recoveryEvents      RecoveryEvent[]
+  weeklyReviews       WeeklyReview[]
 
   @@unique([userId, name])
   @@index([userId, status])
@@ -141,20 +142,20 @@ model ResetPhase {
 }
 
 model DayLog {
-  id                String       @id @default(uuid()) @db.Uuid
-  cycleId           String       @map("cycle_id") @db.Uuid
-  phaseId           String       @map("phase_id") @db.Uuid
-  date              DateTime     @db.Date
-  dayNumber         Int          @map("day_number")
-  energyLevel       EnergyLevel? @map("energy_level")
-  status            DayStatus    @default(UNSET)
+  id                String           @id @default(uuid()) @db.Uuid
+  cycleId           String           @map("cycle_id") @db.Uuid
+  phaseId           String           @map("phase_id") @db.Uuid
+  date              DateTime         @db.Date
+  dayNumber         Int              @map("day_number")
+  energyLevel       EnergyLevel?     @map("energy_level")
+  status            DayStatus        @default(UNSET)
   mission           String?
-  supportiveMessage String?      @map("supportive_message")
+  supportiveMessage String?          @map("supportive_message")
   notes             String?
-  createdAt         DateTime     @default(now()) @map("created_at")
-  updatedAt         DateTime     @updatedAt @map("updated_at")
-  cycle             ResetCycle   @relation(fields: [cycleId], references: [id], onDelete: Cascade)
-  phase             ResetPhase   @relation(fields: [phaseId], references: [id], onDelete: Restrict)
+  createdAt         DateTime         @default(now()) @map("created_at")
+  updatedAt         DateTime         @updatedAt @map("updated_at")
+  cycle             ResetCycle       @relation(fields: [cycleId], references: [id], onDelete: Cascade)
+  phase             ResetPhase       @relation(fields: [phaseId], references: [id], onDelete: Restrict)
   dailyPlan         DailyPlan?
   dailyReflection   DailyReflection?
   checkins          Checkin[]
@@ -181,6 +182,7 @@ model ImportedPayload {
   createdAt              DateTime         @default(now()) @map("created_at")
   dailyPlan              DailyPlan?
   dailyReflection        DailyReflection?
+  weeklyReview           WeeklyReview?
 
   @@unique([source, idempotencyKey])
   @@index([kind, createdAt])
@@ -224,6 +226,29 @@ model DailyReflection {
   importedPayload         ImportedPayload @relation(fields: [importedPayloadId], references: [id], onDelete: Restrict)
 
   @@map("daily_reflections")
+}
+
+model WeeklyReview {
+  id                      String          @id @default(uuid()) @db.Uuid
+  cycleId                 String          @map("cycle_id") @db.Uuid
+  importedPayloadId       String          @unique @map("imported_payload_id") @db.Uuid
+  weekNumber              Int             @map("week_number")
+  dateFrom                DateTime        @map("date_from") @db.Date
+  dateTo                  DateTime        @map("date_to") @db.Date
+  summary                 String
+  winsJson                Json            @map("wins_json")
+  blockersJson            Json            @map("blockers_json")
+  patternsJson            Json            @map("patterns_json")
+  recommendedChangesJson  Json            @map("recommended_changes_json")
+  nextWeekCommitmentsJson Json            @map("next_week_commitments_json")
+  metricsJson             Json            @map("metrics_json")
+  createdAt               DateTime        @default(now()) @map("created_at")
+  updatedAt               DateTime        @updatedAt @map("updated_at")
+  cycle                   ResetCycle      @relation(fields: [cycleId], references: [id], onDelete: Cascade)
+  importedPayload         ImportedPayload @relation(fields: [importedPayloadId], references: [id], onDelete: Restrict)
+
+  @@unique([cycleId, weekNumber])
+  @@map("weekly_reviews")
 }
 
 model Task {

@@ -251,8 +251,9 @@ Successfully processed imports must not be blindly reset or replayed.
 
 ### weekly_reviews
 
-Deferred after Phase 13; no normalized weekly-review table is implemented by
-Phase 13.
+Phase 14 stores one current normalized review per reset cycle and cycle-relative
+week. Immutable raw imports remain the audit history; a newer valid stored
+import may replace the current normalized content for the same cycle/week.
 
 Fields:
 
@@ -270,6 +271,22 @@ Fields:
 - `next_week_commitments_json`
 - `metrics_json`
 - `created_at`
+- `updated_at`
+
+Constraints and relationships:
+
+- unique `(cycle_id, week_number)`;
+- unique `imported_payload_id`;
+- `week_number` from 1 through 13;
+- `date_from <= date_to`;
+- cycle deletion cascades to weekly reviews;
+- imported-payload deletion is restricted while referenced.
+
+The server derives canonical week dates from the owned active cycle. Weeks 1-12
+contain seven days; week 13 contains cycle days 85-90. Normalization rejects
+conflicting dates and incomplete weeks, serializes same-week writes on the cycle
+row, and selects the winner by stored import creation time then ID. Review JSON
+columns contain only bounded fields accepted by the weekly-review contract.
 
 ### imported_payloads
 

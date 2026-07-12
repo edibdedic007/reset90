@@ -37,6 +37,10 @@ export const weeklyReviewPayloadSchema = z
     metrics: weeklyMetricsSchema,
     context_snapshot: weeklyContextSnapshotSchema,
   })
+  .refine((payload) => payload.date_from <= payload.date_to, {
+    message: "date_to must be on or after date_from",
+    path: ["date_to"],
+  })
   .meta({ title: "Reset90 Weekly Review Payload" });
 
 export type WeeklyReviewPayload = z.infer<typeof weeklyReviewPayloadSchema>;

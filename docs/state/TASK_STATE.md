@@ -4,39 +4,39 @@ Last updated: 2026-07-12
 
 ## Current phase
 
-Phase 13 blocker correction complete. Phase 14 has not started.
+Phase 14 complete. Phase 15 has not started.
 
 ## Active task
 
-Phase 13 corrected: processed reflection imports are terminal no-ops, concurrent
-exact retries serialize to one normalized write, concurrent same-day imports
-resolve deterministically, and reflection owner configuration applies only to
-daily-reflection normalization.
+Phase 14 adds normalized weekly-review persistence, canonical cycle-relative
+week validation, trusted-owner transactional import/replacement, and an
+authenticated read-only Reviews page for the owned active cycle.
 
 ## Next phase
 
-Phase 14 remains deferred until explicit approval. Weekly reviews, analytics,
-charts, trends, and final reporting were not started by Phase 13.
+Phase 15 remains deferred until explicit approval. Context-library pages,
+context retrieval/search, embeddings, snapshots, and review-to-context behavior
+were not started by Phase 14.
 
 ## Next actions
 
-1. Complete the remaining manual authenticated import/privacy smoke.
-2. Review the corrected Phase 13 diff and commit with
-   `fix(import): make reflection normalization idempotent` after approval.
-3. Merge through the normal branch workflow; do not start Phase 14 without
+1. Complete the manual authenticated `/reviews` and raw-sentinel privacy smoke.
+2. Review the Phase 14 diff and commit with
+   `feat(reviews): add weekly review imports` after approval.
+3. Merge through the normal branch workflow; do not start Phase 15 without
    explicit approval.
 
 ## Required completion checks
 
-- Focused terminal-success, concurrency, dispatch, current-day, recommendation,
-  and transaction rollback tests.
+- Focused weekly validation, canonical range, ownership, idempotency,
+  replacement, concurrency, rollback, route, privacy, read, and UI tests.
 - Formatting, lint, typecheck, full tests, payload/schema drift, production
-  build, Prisma validation, shell syntax, and `make check`.
+  build, Prisma validation, shell syntax, and one final `make check`.
 - `git diff --check` and `git status --short --branch`.
 
 ## Latest handoff
 
-- 2026-07-12T20:44:17Z — feature/daily-reflection-import — Phase 13 correction made processed imports terminal, serialized exact and same-day concurrent normalization with PostgreSQL row locks and deterministic import ordering, scoped reflection owner configuration to reflection dispatch, and added transaction-aware rollback coverage; focused correction tests passed with 45 tests and host-side make check passed with 157 tests plus production build; manual authenticated import/privacy smoke remains; next step: complete manual smoke, review, and commit without starting Phase 14
+- 2026-07-12T21:47:00Z — feature/weekly-reviews — Phase 14 added additive weekly-review persistence, canonical owned-cycle week validation, deterministic transactional normalization/replacement, raw privacy, and read-only Reviews UI; focused Phase 14 suite passed with 79 tests, additive migration applied locally, and host-side make check passed; manual authenticated/mobile privacy smoke remains; next step: complete manual smoke, review, and commit without starting Phase 15
 
 ## Historical detail
 

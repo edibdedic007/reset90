@@ -7,6 +7,7 @@ import {
   contextItemImportSchema,
   dailyReflectionImportSchema,
   importEnvelopeSchema,
+  weeklyReviewImportSchema,
 } from "../src/server/imports/schemas";
 
 describe("canonical GPT import validation", () => {
@@ -150,6 +151,76 @@ describe("canonical GPT import validation", () => {
         raw_reasoning: "must not be accepted",
       }).success,
     ).toBe(false);
+  });
+
+  it("accepts week 13, empty structured lists, and Unicode multiline content", () => {
+    const valid = structuredClone(weeklyReview);
+    valid.payload.week_number = 13;
+    valid.payload.date_from = "2026-09-23";
+    valid.payload.date_to = "2026-09-28";
+    valid.payload.summary = "Sedmica 13 ✅\nMirna završnica.";
+    valid.payload.wins = [];
+    valid.payload.blockers = [];
+    valid.payload.patterns = [];
+    valid.payload.recommended_changes = [];
+    valid.payload.next_week_commitments = [];
+
+    expect(weeklyReviewImportSchema.safeParse(valid).success).toBe(true);
+  });
+
+  it.each([
+    ["week zero", { week_number: 0 }],
+    ["week fourteen", { week_number: 14 }],
+    ["non-integer week", { week_number: 1.5 }],
+    ["malformed start date", { date_from: "2026-02-30" }],
+    ["malformed end date", { date_to: "not-a-date" }],
+  ])("rejects weekly review with %s", (_name, change) => {
+    const invalid = structuredClone(weeklyReview) as unknown as {
+      payload: Record<string, unknown>;
+    };
+    Object.assign(invalid.payload, change);
+    expect(weeklyReviewImportSchema.safeParse(invalid).success).toBe(false);
+  });
+
+  it("rejects a reversed weekly date range", () => {
+    const invalid = structuredClone(weeklyReview);
+    invalid.payload.date_from = "2026-07-07";
+    invalid.payload.date_to = "2026-07-01";
+    expect(weeklyReviewImportSchema.safeParse(invalid).success).toBe(false);
+  });
+
+  it.each([
+    ["malformed metrics", { green_days: -1 }],
+    ["malformed recovery usage", { recovery_credits_used: 91 }],
+  ])("rejects weekly review with %s", (_name, metricsChange) => {
+    const invalid = structuredClone(weeklyReview);
+    Object.assign(invalid.payload.metrics, metricsChange);
+    expect(weeklyReviewImportSchema.safeParse(invalid).success).toBe(false);
+  });
+
+  it("rejects unknown weekly fields", () => {
+    const invalid = structuredClone(weeklyReview) as unknown as {
+      payload: Record<string, unknown>;
+    };
+    invalid.payload.user_id = "foreign-owner";
+    expect(weeklyReviewImportSchema.safeParse(invalid).success).toBe(false);
+  });
+
+  it.each([
+    ["oversized summary", () => "x".repeat(6_001)],
+    ["missing summary", () => undefined],
+    ["oversized wins", () => Array.from({ length: 51 }, () => "win")],
+    ["oversized win text", () => ["x".repeat(1_001)]],
+  ])("rejects weekly review with %s", (_name, value) => {
+    const invalid = structuredClone(weeklyReview) as unknown as {
+      payload: Record<string, unknown>;
+    };
+    const nextValue = value();
+    if (nextValue === undefined)
+      Reflect.deleteProperty(invalid.payload, "summary");
+    else if (_name === "oversized summary") invalid.payload.summary = nextValue;
+    else invalid.payload.wins = nextValue;
+    expect(weeklyReviewImportSchema.safeParse(invalid).success).toBe(false);
   });
 
   it("accepts user-visible context summaries", () => {

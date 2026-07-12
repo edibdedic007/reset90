@@ -17,7 +17,7 @@ shame-based streaks.
 - Docker Compose locally and in production, with Traefik expected in production
 - GitHub Actions CI
 
-## Implemented through Phase 13
+## Implemented through Phase 14
 
 - Repository, local environment, Prisma schema/migrations, seed data, readiness,
   quality gates, CI, backups/export/deployment helpers.
@@ -34,12 +34,15 @@ shame-based streaks.
 - Strict daily-reflection imports with trusted owner resolution, transactional
   normalization/replacement, raw-payload privacy, and read-only day-detail
   display.
+- Strict weekly-review imports with canonical cycle-relative week dates,
+  deterministic transactional replacement, retained raw history, and an
+  authenticated read-only Reviews page for the owned active cycle.
 
 ## Current boundary
 
-Phase 13 implements daily-reflection normalization and read-only display within
-owned day detail. Weekly reviews, analytics, charts, trends, notifications, and
-overrides remain deferred after Phase 13.
+Phase 14 implements normalized weekly reviews and read-only owned active-cycle
+display. Analytics, charts, trends, notifications, context-library behavior,
+and overrides remain deferred after Phase 14.
 
 ## Durable implementation rules
 
@@ -53,6 +56,9 @@ overrides remain deferred after Phase 13.
   transactionally, while reprocessing the same raw import is a no-op.
 - One normalized reflection exists per day; a newer valid import replaces its
   approved fields and source reference while retaining immutable raw imports.
+- One normalized weekly review exists per cycle/week; canonical dates are
+  server-derived, and deterministic newer imports replace approved content
+  while retaining immutable raw imports.
 - Reflection status recommendations remain stored advisory data only. Raw
   imports and processing metadata never enter the browser day-detail DTO.
 - Imported plan energy does not overwrite later user-selected/check-in energy.

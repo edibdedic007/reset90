@@ -5,7 +5,7 @@ import { signOut } from "@/auth";
 import type { BrowserUserSession } from "@/server/auth/session";
 
 type AppShellProps = {
-  activeItem: "Today" | "90 Days";
+  activeItem: "Today" | "90 Days" | "Reviews";
   children: ReactNode;
   session: BrowserUserSession;
 };
@@ -13,7 +13,7 @@ type AppShellProps = {
 const navigationItems = [
   { label: "Today", href: "/" },
   { label: "90 Days", href: "/days" },
-  { label: "Reviews", href: null },
+  { label: "Reviews", href: "/reviews" },
   { label: "Context", href: null },
   { label: "Analytics", href: null },
   { label: "Settings", href: null },
