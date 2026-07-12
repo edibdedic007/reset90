@@ -176,17 +176,27 @@ Clicking a cell opens day details.
 
 ## Weekly review
 
-Show:
+`/reviews` is authenticated and read-only. It resolves only the signed-in
+user's active cycle and shows normalized reviews newest week first.
+
+Each review shows:
 
 - week number;
+- canonical date range;
 - summary;
 - wins;
 - blockers;
 - patterns;
 - recommended changes;
 - next week commitments;
-- metrics summary;
-- linked context snapshot.
+- compact metrics snapshot;
+- recovery usage labeled as a review snapshot.
+
+Empty optional lists are omitted. No active cycle uses the established calm
+no-cycle state; an active cycle without normalized reviews uses a neutral
+not-imported-yet state. Raw JSON, import metadata, filtering, cycle selection,
+editing, detail routes, charts, and context integration are not shown in Phase
+14. Cards wrap long content at phone widths.
 
 ## Context library
 

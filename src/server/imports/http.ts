@@ -10,6 +10,11 @@ import {
   type DailyReflectionNormalizationResult,
   normalizeDailyReflectionImport,
 } from "./normalize-daily-reflection";
+import {
+  normalizeWeeklyReviewImport,
+  type WeeklyReviewNormalizationDatabase,
+  type WeeklyReviewNormalizationResult,
+} from "./normalize-weekly-review";
 import type { RawImportDatabase } from "./store";
 import { storeRawImport } from "./store";
 
@@ -32,7 +37,8 @@ export type GptImportRateLimiter = {
 
 export type GptImportDatabase = RawImportDatabase &
   DailyPlanNormalizationDatabase &
-  DailyReflectionNormalizationDatabase;
+  DailyReflectionNormalizationDatabase &
+  WeeklyReviewNormalizationDatabase;
 
 export type GptImportHandlerDependencies = {
   env: GptImportEnvironment;
@@ -47,10 +53,17 @@ export type GptImportHandlerDependencies = {
     importedPayloadId: string,
     ownerAuthentikSubject: string,
   ) => Promise<DailyReflectionNormalizationResult>;
+  normalizeWeeklyReview?: (
+    database: WeeklyReviewNormalizationDatabase,
+    importedPayloadId: string,
+    ownerAuthentikSubject: string,
+  ) => Promise<WeeklyReviewNormalizationResult>;
 };
 
 type ImportNormalizationResult =
-  DailyPlanNormalizationResult | DailyReflectionNormalizationResult;
+  | DailyPlanNormalizationResult
+  | DailyReflectionNormalizationResult
+  | WeeklyReviewNormalizationResult;
 
 type BodyReadResult =
   | { status: "ok"; text: string }
@@ -191,7 +204,10 @@ async function normalizeStoredImport(
     where: { id: importedPayloadId },
     select: { kind: true },
   });
-  if (storedImport?.kind !== "DAILY_REFLECTION") {
+  if (
+    storedImport?.kind !== "DAILY_REFLECTION" &&
+    storedImport?.kind !== "WEEKLY_REVIEW"
+  ) {
     return { status: "not_applicable" };
   }
 
@@ -201,9 +217,19 @@ async function normalizeStoredImport(
     return { status: "service_unavailable" };
   }
 
-  const normalizeDailyReflection =
-    dependencies.normalizeDailyReflection ?? normalizeDailyReflectionImport;
-  return normalizeDailyReflection(
+  if (storedImport.kind === "DAILY_REFLECTION") {
+    const normalizeDailyReflection =
+      dependencies.normalizeDailyReflection ?? normalizeDailyReflectionImport;
+    return normalizeDailyReflection(
+      database,
+      importedPayloadId,
+      ownerAuthentikSubject,
+    );
+  }
+
+  const normalizeWeeklyReview =
+    dependencies.normalizeWeeklyReview ?? normalizeWeeklyReviewImport;
+  return normalizeWeeklyReview(
     database,
     importedPayloadId,
     ownerAuthentikSubject,
@@ -327,7 +353,9 @@ export async function handleGptImport(
                 normalized_records:
                   "dailyPlanId" in normalization
                     ? ["daily_plan", "tasks"]
-                    : ["daily_reflection"],
+                    : "dailyReflectionId" in normalization
+                      ? ["daily_reflection"]
+                      : ["weekly_review"],
               }
             : {}),
         },

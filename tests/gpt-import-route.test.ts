@@ -100,6 +100,7 @@ function createDependencies(
     rateLimiter: { check: () => ({ allowed: true }) },
     normalizeDailyPlan: async () => ({ status: "not_applicable" }),
     normalizeDailyReflection: async () => ({ status: "not_applicable" }),
+    normalizeWeeklyReview: async () => ({ status: "not_applicable" }),
     ...overrides,
   };
 }
@@ -266,7 +267,7 @@ describe("GPT import HTTP boundary", () => {
     expect(rows[0]?.processingStatus).toBe("PENDING");
   });
 
-  it("stores a weekly review without reflection owner configuration", async () => {
+  it("stores raw weekly review then returns unavailable without owner configuration", async () => {
     const { database, rows } = createTestDatabase();
 
     const response = await handleGptImport(
@@ -276,16 +277,41 @@ describe("GPT import HTTP boundary", () => {
       }),
     );
 
-    expect(response.status).toBe(201);
+    expect(response.status).toBe(503);
     await expect(responseJson(response)).resolves.toEqual({
-      ok: true,
-      status: "created",
-      imported_payload_id: "import-1",
+      ok: false,
+      error: "service_unavailable",
     });
     expect(rows[0]).toMatchObject({
       kind: "WEEKLY_REVIEW",
       processingStatus: "PENDING",
     });
+  });
+
+  it("normalizes a newly stored weekly review for the configured owner", async () => {
+    const { database } = createTestDatabase();
+    const normalizeWeeklyReview = vi.fn().mockResolvedValue({
+      status: "processed",
+      weeklyReviewId: "review-1",
+    });
+
+    const response = await handleGptImport(
+      createRequest(weeklyReview),
+      createDependencies(database, { normalizeWeeklyReview }),
+    );
+
+    expect(response.status).toBe(201);
+    await expect(responseJson(response)).resolves.toEqual({
+      ok: true,
+      status: "created",
+      imported_payload_id: "import-1",
+      normalized_records: ["weekly_review"],
+    });
+    expect(normalizeWeeklyReview).toHaveBeenCalledWith(
+      database,
+      "import-1",
+      "owner-subject",
+    );
   });
 
   it("stores a context item without reflection owner configuration", async () => {

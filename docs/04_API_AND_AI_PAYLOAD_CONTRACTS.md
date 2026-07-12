@@ -41,7 +41,7 @@ GPT ingest:
 
 - `Authorization: Bearer <GPT_INGEST_TOKEN>` for MVP;
 - `GPT_INGEST_OWNER_SUBJECT` associates that machine principal with one trusted
-  application owner for daily-reflection normalization;
+  application owner for daily-reflection and weekly-review normalization;
 - `Idempotency-Key` header matching the envelope `idempotency_key`;
 - optional HMAC signature later;
 - no export/delete/admin permissions.
@@ -262,10 +262,9 @@ Only normalized summary/narrative fields and timestamps may enter authenticated
 day-detail data. Raw JSON, processing metadata, owner identifiers, and
 `day_status_recommendation` never enter the browser DTO. The recommendation is
 stored advisory data only and cannot alter canonical status or recovery state.
-Weekly-review normalization and analytics remain deferred after Phase 13.
-`GPT_INGEST_OWNER_SUBJECT` is required only when a `DAILY_REFLECTION` reaches
-normalization. Daily-plan dispatch is unchanged; weekly-review and context-item
-imports remain raw-only without depending on reflection owner configuration.
+Analytics remain deferred after Phase 14. `GPT_INGEST_OWNER_SUBJECT` is required
+when a `DAILY_REFLECTION` or `WEEKLY_REVIEW` reaches normalization. Daily-plan
+dispatch is unchanged; context-item imports remain raw-only.
 
 ## Weekly review payload
 
@@ -286,6 +285,30 @@ Fields inside `payload`:
   "context_snapshot": {}
 }
 ```
+
+Phase 14 rules:
+
+- the server resolves exactly one active cycle from the trusted owner;
+- `week_number` is cycle-relative, from 1 through 13;
+- supplied dates must equal the canonical cycle week, with week 13 ending on
+  cycle day 90;
+- a review is accepted only after its canonical week has completed in UTC;
+- one normalized review exists per cycle/week, linked to one immutable raw
+  import;
+- exact processed retries are terminal no-ops;
+- newer same-week imports replace normalized approved content transactionally,
+  using stored import creation time then ID as the deterministic ordering;
+- lists and `metrics` remain bounded structured JSON in source order;
+- `metrics.recovery_credits_used` is an imported review snapshot, never the
+  canonical recovery-credit balance;
+- the accepted `context_snapshot` remains in the immutable raw contract but is
+  not normalized, displayed, or promoted into context behavior during Phase 14;
+- normalization never changes plans, tasks, check-ins, reflections, energy,
+  recovery records, credits, or day statuses.
+
+Successful new weekly-review normalization returns
+`normalized_records: ["weekly_review"]`. Ownership and normalization failures use
+sanitized codes and never expose raw payload contents or configured identifiers.
 
 ## Context item rules
 
