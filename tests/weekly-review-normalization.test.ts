@@ -447,11 +447,18 @@ describe("weekly review normalization", () => {
       },
     ]);
     const operations = test.getOperationLog();
-    expect(
-      operations.indexOf(
-        "query:SELECT id FROM imported_payloads WHERE id = ?::uuid FOR UPDATE:import-1",
-      ),
-    ).toBeLessThan(operations.indexOf("review-read-by-import:import-1"));
+    const rawImportLock = operations.indexOf(
+      "query:SELECT id FROM imported_payloads WHERE id = ?::uuid FOR UPDATE:import-1",
+    );
+    const rawImportRead = operations.indexOf("import-read:import-1");
+    const normalizedReviewRead = operations.indexOf(
+      "review-read-by-import:import-1",
+    );
+    expect(rawImportLock).toBeGreaterThanOrEqual(0);
+    expect(rawImportRead).toBeGreaterThanOrEqual(0);
+    expect(normalizedReviewRead).toBeGreaterThanOrEqual(0);
+    expect(rawImportLock).toBeLessThan(rawImportRead);
+    expect(rawImportLock).toBeLessThan(normalizedReviewRead);
   });
 
   it("replaces same-week content with newer stored import and preserves history", async () => {
