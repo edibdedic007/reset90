@@ -5,6 +5,7 @@ import {
   dayNumberSchema,
   domainSchema,
   nonEmptyText,
+  resetPhaseNameSchema,
 } from "./common";
 
 const taskFields = {
@@ -39,7 +40,7 @@ export const dailyPlanPayloadSchema = z
   .strictObject({
     date: dateSchema,
     day_number: dayNumberSchema,
-    phase: z.enum(["Clear the Fog", "Rebuild Momentum", "Prove Continuation"]),
+    phase: resetPhaseNameSchema,
     energy_level: z.enum(["low", "normal", "high", "recovery"]),
     mission: nonEmptyText(1_000),
     supportive_message: nonEmptyText(2_000),

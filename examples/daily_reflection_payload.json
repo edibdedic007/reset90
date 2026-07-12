@@ -7,41 +7,13 @@
   "payload": {
     "date": "2026-07-01",
     "day_number": 1,
+    "phase": "Clear the Fog",
     "day_status_recommendation": "yellow",
     "summary": "The user completed the minimum version and avoided abandoning the day. The most important win was showing up despite fog.",
-    "scores": {
-      "mood": 5,
-      "fog": 7,
-      "loneliness": 6,
-      "self_criticism": 5,
-      "digital_control": 4,
-      "learning_resistance": 7,
-      "body_relationship": 5,
-      "work_confidence": 5
-    },
     "what_happened": "The day started foggy and slow, but one small movement action helped create momentum.",
-    "what_worked": [
-      "Starting with a minimum task",
-      "Not trying to catch up all at once"
-    ],
-    "what_blocked_me": [
-      "Phone distraction",
-      "Resistance toward studying"
-    ],
+    "what_worked": "Starting with a minimum task and not trying to catch up all at once.",
+    "what_blocked_me": "Phone distraction and resistance toward studying.",
     "tomorrow_adjustment": "Put the learning action earlier and keep it at 10 minutes if resistance is high.",
-    "self_criticism_note": "Some thoughts about starting sooner appeared, but they did not fully derail the day.",
-    "context_items": [
-      {
-        "kind": "reasoning_summary",
-        "title": "Why Day 1 is yellow",
-        "summary": "Minimum actions were completed, so the day counts. The user did not need to force a standard day on the first day.",
-        "importance": 4,
-        "tags": [
-          "day-1",
-          "minimum",
-          "self-trust"
-        ]
-      }
-    ]
+    "self_criticism_note": "Some thoughts about starting sooner appeared, but they did not fully derail the day."
   }
 }

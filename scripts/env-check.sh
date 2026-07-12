@@ -8,7 +8,7 @@ if [[ ! -f "$ENV_FILE" ]]; then
   exit 1
 fi
 
-required=(NODE_ENV APP_URL DATABASE_URL GPT_INGEST_TOKEN)
+required=(NODE_ENV APP_URL DATABASE_URL GPT_INGEST_TOKEN GPT_INGEST_OWNER_SUBJECT)
 missing=0
 for key in "${required[@]}"; do
   if ! grep -qE "^${key}=" "$ENV_FILE"; then

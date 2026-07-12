@@ -68,6 +68,17 @@ export type ProgressTask = {
   notes: string | null;
 };
 
+export type DayReflection = {
+  summary: string;
+  whatHappened: string | null;
+  whatWorked: string | null;
+  whatBlockedMe: string | null;
+  tomorrowAdjustment: string | null;
+  selfCriticismNote: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
 export type DayDetail =
   | { status: "no_cycle"; today: string; dayNumber: number }
   | {
@@ -100,7 +111,7 @@ export type DayDetail =
       } | null;
       checkins: DayCheckin[];
       recoveryEvent: RecoveryEventSummary | null;
-      reflection: null;
+      reflection: DayReflection | null;
     };
 
 const progressTaskSelect = {
@@ -303,6 +314,18 @@ export async function getDayDetail(
               creditConsumedAt: true,
             },
           },
+          dailyReflection: {
+            select: {
+              summary: true,
+              whatHappened: true,
+              whatWorked: true,
+              whatBlockedMe: true,
+              tomorrowAdjustment: true,
+              selfCriticismNote: true,
+              createdAt: true,
+              updatedAt: true,
+            },
+          },
         },
       },
     },
@@ -356,6 +379,17 @@ export async function getDayDetail(
     recoveryEvent: dayLog.recoveryEvent
       ? toRecoveryEventSummary(dayLog.recoveryEvent)
       : null,
-    reflection: null,
+    reflection: dayLog.dailyReflection
+      ? {
+          summary: dayLog.dailyReflection.summary,
+          whatHappened: dayLog.dailyReflection.whatHappened,
+          whatWorked: dayLog.dailyReflection.whatWorked,
+          whatBlockedMe: dayLog.dailyReflection.whatBlockedMe,
+          tomorrowAdjustment: dayLog.dailyReflection.tomorrowAdjustment,
+          selfCriticismNote: dayLog.dailyReflection.selfCriticismNote,
+          createdAt: dayLog.dailyReflection.createdAt.toISOString(),
+          updatedAt: dayLog.dailyReflection.updatedAt.toISOString(),
+        }
+      : null,
   };
 }

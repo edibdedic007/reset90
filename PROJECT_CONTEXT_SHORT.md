@@ -17,7 +17,7 @@ shame-based streaks.
 - Docker Compose locally and in production, with Traefik expected in production
 - GitHub Actions CI
 
-## Implemented through Phase 12
+## Implemented through Phase 13
 
 - Repository, local environment, Prisma schema/migrations, seed data, readiness,
   quality gates, CI, backups/export/deployment helpers.
@@ -31,11 +31,15 @@ shame-based streaks.
   a current-day Reset Me Now flow.
 - Authenticated 90-day progress grid with canonical status totals, recovery
   credit summary, missing-day safeguards, and read-only day detail.
+- Strict daily-reflection imports with trusted owner resolution, transactional
+  normalization/replacement, raw-payload privacy, and read-only day-detail
+  display.
 
 ## Current boundary
 
-Phase 12 implements the 90-day grid and read-only day detail. Phase 13 analytics,
-reviews, charts, trends, notifications, and overrides remain deferred.
+Phase 13 implements daily-reflection normalization and read-only display within
+owned day detail. Weekly reviews, analytics, charts, trends, notifications, and
+overrides remain deferred after Phase 13.
 
 ## Durable implementation rules
 
@@ -47,6 +51,10 @@ reviews, charts, trends, notifications, and overrides remain deferred.
 - Browser auth and GPT machine ingest auth remain separate boundaries.
 - One normalized plan exists per day; a new same-day import replaces it
   transactionally, while reprocessing the same raw import is a no-op.
+- One normalized reflection exists per day; a newer valid import replaces its
+  approved fields and source reference while retaining immutable raw imports.
+- Reflection status recommendations remain stored advisory data only. Raw
+  imports and processing metadata never enter the browser day-detail DTO.
 - Imported plan energy does not overwrite later user-selected/check-in energy.
 - Current-day browser APIs derive ownership and active UTC day server-side.
 - Progress reads derive ownership from the authenticated user's active cycle,

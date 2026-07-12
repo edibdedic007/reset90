@@ -5,6 +5,7 @@ import dailyReflection from "../examples/daily_reflection_payload.json";
 import weeklyReview from "../examples/weekly_review_payload.json";
 import {
   contextItemImportSchema,
+  dailyReflectionImportSchema,
   importEnvelopeSchema,
 } from "../src/server/imports/schemas";
 
@@ -43,11 +44,103 @@ describe("canonical GPT import validation", () => {
     }
   });
 
-  it("rejects reflection scores outside 1 through 10", () => {
+  it("accepts a minimal daily reflection", () => {
+    const minimal = structuredClone(dailyReflection);
+    Reflect.deleteProperty(minimal.payload, "phase");
+    Reflect.deleteProperty(minimal.payload, "day_status_recommendation");
+    Reflect.deleteProperty(minimal.payload, "what_happened");
+    Reflect.deleteProperty(minimal.payload, "what_worked");
+    Reflect.deleteProperty(minimal.payload, "what_blocked_me");
+    Reflect.deleteProperty(minimal.payload, "tomorrow_adjustment");
+    Reflect.deleteProperty(minimal.payload, "self_criticism_note");
+
+    expect(dailyReflectionImportSchema.safeParse(minimal).success).toBe(true);
+  });
+
+  it("rejects the wrong reflection payload kind", () => {
+    expect(
+      dailyReflectionImportSchema.safeParse({
+        ...dailyReflection,
+        kind: "daily_plan",
+      }).success,
+    ).toBe(false);
+  });
+
+  it.each([
+    ["missing", undefined],
+    ["blank", "   \n  "],
+    ["oversized", "x".repeat(1_501)],
+  ])("rejects a %s reflection summary", (_name, summary) => {
     const invalid = structuredClone(dailyReflection);
-    invalid.payload.scores.fog = 11;
+    if (summary === undefined) {
+      Reflect.deleteProperty(invalid.payload, "summary");
+    } else {
+      invalid.payload.summary = summary;
+    }
 
     expect(importEnvelopeSchema.safeParse(invalid).success).toBe(false);
+  });
+
+  it("rejects oversized optional reflection text", () => {
+    const invalid = structuredClone(dailyReflection);
+    invalid.payload.what_happened = "x".repeat(1_501);
+
+    expect(importEnvelopeSchema.safeParse(invalid).success).toBe(false);
+  });
+
+  it("rejects an oversized self-criticism note", () => {
+    const invalid = structuredClone(dailyReflection);
+    invalid.payload.self_criticism_note = "x".repeat(1_001);
+
+    expect(importEnvelopeSchema.safeParse(invalid).success).toBe(false);
+  });
+
+  it("rejects an invalid day-status recommendation", () => {
+    const invalid = structuredClone(dailyReflection) as unknown as {
+      payload: { day_status_recommendation: string };
+    };
+    invalid.payload.day_status_recommendation = "complete";
+
+    expect(importEnvelopeSchema.safeParse(invalid).success).toBe(false);
+  });
+
+  it("rejects unknown reflection properties", () => {
+    const invalid = structuredClone(dailyReflection) as unknown as {
+      payload: Record<string, unknown>;
+    };
+    invalid.payload.userId = "another-user";
+
+    expect(importEnvelopeSchema.safeParse(invalid).success).toBe(false);
+  });
+
+  it.each([
+    ["invalid date", { date: "2026-02-30" }],
+    ["invalid day number", { day_number: 0 }],
+  ])("rejects %s", (_name, payloadChange) => {
+    const invalid = structuredClone(dailyReflection) as unknown as {
+      payload: Record<string, unknown>;
+    };
+    Object.assign(invalid.payload, payloadChange);
+
+    expect(importEnvelopeSchema.safeParse(invalid).success).toBe(false);
+  });
+
+  it("trims text while preserving Unicode and multiline content", () => {
+    const valid = structuredClone(dailyReflection);
+    valid.payload.summary = "  Napredak ✅\nDrugi red.  ";
+    valid.payload.what_happened = "  Prvi red.\nDrugi red.  ";
+
+    const result = dailyReflectionImportSchema.parse(valid);
+
+    expect(result.payload.summary).toBe("Napredak ✅\nDrugi red.");
+    expect(result.payload.what_happened).toBe("Prvi red.\nDrugi red.");
+  });
+
+  it("accepts blank optional reflection fields for null normalization", () => {
+    const valid = structuredClone(dailyReflection);
+    valid.payload.what_worked = "  ";
+
+    expect(dailyReflectionImportSchema.safeParse(valid).success).toBe(true);
   });
 
   it("rejects extra envelope fields", () => {

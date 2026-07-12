@@ -21,7 +21,11 @@ const envelopeFields = {
 
 export const importEnvelopeMetadataSchema = z.object({
   kind: importKindSchema,
-  ...envelopeFields,
+  schema_version: nonEmptyText(50),
+  idempotency_key: envelopeFields.idempotency_key,
+  source: envelopeFields.source,
+  external_conversation_id: envelopeFields.external_conversation_id,
+  created_at: envelopeFields.created_at,
 });
 
 export const dailyPlanImportSchema = z.strictObject({

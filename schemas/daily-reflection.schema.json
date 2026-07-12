@@ -9,151 +9,22 @@
       "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
     },
     "day_number": { "type": "integer", "minimum": 1, "maximum": 90 },
+    "phase": {
+      "type": "string",
+      "enum": ["Clear the Fog", "Rebuild Momentum", "Prove Continuation"]
+    },
+    "summary": { "type": "string", "minLength": 1, "maxLength": 1500 },
+    "what_happened": { "type": "string", "maxLength": 1500 },
+    "what_worked": { "type": "string", "maxLength": 1500 },
+    "what_blocked_me": { "type": "string", "maxLength": 1500 },
+    "tomorrow_adjustment": { "type": "string", "maxLength": 1500 },
+    "self_criticism_note": { "type": "string", "maxLength": 1000 },
     "day_status_recommendation": {
       "type": "string",
       "enum": ["green", "yellow", "blue", "red", "gold", "unset"]
-    },
-    "summary": {
-      "type": "string",
-      "minLength": 1,
-      "maxLength": 4000,
-      "pattern": "\\S"
-    },
-    "scores": {
-      "type": "object",
-      "properties": {
-        "mood": { "type": "integer", "minimum": 1, "maximum": 10 },
-        "fog": { "type": "integer", "minimum": 1, "maximum": 10 },
-        "loneliness": { "type": "integer", "minimum": 1, "maximum": 10 },
-        "self_criticism": { "type": "integer", "minimum": 1, "maximum": 10 },
-        "digital_control": { "type": "integer", "minimum": 1, "maximum": 10 },
-        "learning_resistance": {
-          "type": "integer",
-          "minimum": 1,
-          "maximum": 10
-        },
-        "body_relationship": { "type": "integer", "minimum": 1, "maximum": 10 },
-        "work_confidence": { "type": "integer", "minimum": 1, "maximum": 10 }
-      },
-      "required": [
-        "mood",
-        "fog",
-        "loneliness",
-        "self_criticism",
-        "digital_control",
-        "learning_resistance",
-        "body_relationship",
-        "work_confidence"
-      ],
-      "additionalProperties": false
-    },
-    "what_happened": {
-      "type": "string",
-      "minLength": 1,
-      "maxLength": 8000,
-      "pattern": "\\S"
-    },
-    "what_worked": {
-      "maxItems": 30,
-      "type": "array",
-      "items": {
-        "type": "string",
-        "minLength": 1,
-        "maxLength": 1000,
-        "pattern": "\\S"
-      }
-    },
-    "what_blocked_me": {
-      "maxItems": 30,
-      "type": "array",
-      "items": {
-        "type": "string",
-        "minLength": 1,
-        "maxLength": 1000,
-        "pattern": "\\S"
-      }
-    },
-    "tomorrow_adjustment": {
-      "type": "string",
-      "minLength": 1,
-      "maxLength": 2000,
-      "pattern": "\\S"
-    },
-    "self_criticism_note": {
-      "type": "string",
-      "minLength": 1,
-      "maxLength": 2000,
-      "pattern": "\\S"
-    },
-    "context_items": {
-      "maxItems": 30,
-      "type": "array",
-      "items": {
-        "type": "object",
-        "properties": {
-          "kind": {
-            "type": "string",
-            "enum": [
-              "conversation",
-              "task_summary",
-              "decision_log",
-              "daily_summary",
-              "weekly_summary",
-              "context_snapshot",
-              "reasoning_summary"
-            ]
-          },
-          "title": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 200,
-            "pattern": "\\S"
-          },
-          "summary": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 4000,
-            "pattern": "\\S"
-          },
-          "importance": { "type": "integer", "minimum": 1, "maximum": 5 },
-          "tags": {
-            "default": [],
-            "maxItems": 20,
-            "type": "array",
-            "items": {
-              "type": "string",
-              "minLength": 1,
-              "maxLength": 80,
-              "pattern": "\\S"
-            }
-          },
-          "source_ref": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 500,
-            "pattern": "\\S"
-          },
-          "is_sensitive": { "type": "boolean" }
-        },
-        "required": ["kind", "title", "summary", "importance", "tags"],
-        "additionalProperties": false,
-        "title": "Reset90 Context Item Payload"
-      }
     }
   },
-  "required": [
-    "date",
-    "day_number",
-    "day_status_recommendation",
-    "summary",
-    "scores",
-    "what_happened",
-    "what_worked",
-    "what_blocked_me",
-    "tomorrow_adjustment",
-    "self_criticism_note",
-    "context_items"
-  ],
+  "required": ["date", "day_number", "summary"],
   "additionalProperties": false,
   "title": "Reset90 Daily Reflection Payload"
 }
