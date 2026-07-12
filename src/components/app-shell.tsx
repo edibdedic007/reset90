@@ -1,25 +1,25 @@
 import Link from "next/link";
+import type { ReactNode } from "react";
 
 import { signOut } from "@/auth";
-import { TodayCommandCenter } from "@/components/today-command-center";
 import type { BrowserUserSession } from "@/server/auth/session";
-import type { TodayDashboard } from "@/server/dashboard/today";
 
 type AppShellProps = {
-  dashboard: TodayDashboard;
+  activeItem: "Today" | "90 Days";
+  children: ReactNode;
   session: BrowserUserSession;
 };
 
 const navigationItems = [
-  "Today",
-  "90 Days",
-  "Reviews",
-  "Context",
-  "Analytics",
-  "Settings",
-];
+  { label: "Today", href: "/" },
+  { label: "90 Days", href: "/days" },
+  { label: "Reviews", href: null },
+  { label: "Context", href: null },
+  { label: "Analytics", href: null },
+  { label: "Settings", href: null },
+] as const;
 
-export function AppShell({ dashboard, session }: AppShellProps) {
+export function AppShell({ activeItem, children, session }: AppShellProps) {
   const displayName =
     session.displayName ?? session.email ?? session.authentikSubject;
 
@@ -36,22 +36,24 @@ export function AppShell({ dashboard, session }: AppShellProps) {
               className="flex flex-wrap gap-1"
             >
               {navigationItems.map((item) =>
-                item === "Today" ? (
+                item.href ? (
                   <Link
-                    aria-current="page"
+                    aria-current={
+                      activeItem === item.label ? "page" : undefined
+                    }
                     className="rounded-lg px-3 py-2 text-sm text-[var(--foreground)] aria-[current=page]:bg-[var(--surface-alt)]"
-                    href="/"
-                    key={item}
+                    href={item.href}
+                    key={item.label}
                   >
-                    {item}
+                    {item.label}
                   </Link>
                 ) : (
                   <span
                     aria-disabled="true"
                     className="rounded-lg px-3 py-2 text-sm text-[var(--muted)]"
-                    key={item}
+                    key={item.label}
                   >
-                    {item}
+                    {item.label}
                   </span>
                 ),
               )}
@@ -85,7 +87,7 @@ export function AppShell({ dashboard, session }: AppShellProps) {
       </header>
 
       <div className="mx-auto w-full max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
-        <TodayCommandCenter initialDashboard={dashboard} />
+        {children}
       </div>
     </main>
   );
