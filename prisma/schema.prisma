@@ -156,6 +156,7 @@ model DayLog {
   cycle             ResetCycle   @relation(fields: [cycleId], references: [id], onDelete: Cascade)
   phase             ResetPhase   @relation(fields: [phaseId], references: [id], onDelete: Restrict)
   dailyPlan         DailyPlan?
+  dailyReflection   DailyReflection?
   checkins          Checkin[]
   recoveryEvent     RecoveryEvent?
 
@@ -179,6 +180,7 @@ model ImportedPayload {
   processedAt            DateTime?        @map("processed_at")
   createdAt              DateTime         @default(now()) @map("created_at")
   dailyPlan              DailyPlan?
+  dailyReflection        DailyReflection?
 
   @@unique([source, idempotencyKey])
   @@index([kind, createdAt])
@@ -203,6 +205,25 @@ model DailyPlan {
   tasks             Task[]
 
   @@map("daily_plans")
+}
+
+model DailyReflection {
+  id                      String          @id @default(uuid()) @db.Uuid
+  dayLogId                String          @unique @map("day_log_id") @db.Uuid
+  importedPayloadId       String          @unique @map("imported_payload_id") @db.Uuid
+  summary                 String
+  whatHappened            String?         @map("what_happened")
+  whatWorked              String?         @map("what_worked")
+  whatBlockedMe           String?         @map("what_blocked_me")
+  tomorrowAdjustment      String?         @map("tomorrow_adjustment")
+  selfCriticismNote       String?         @map("self_criticism_note")
+  dayStatusRecommendation DayStatus?      @map("day_status_recommendation")
+  createdAt               DateTime        @default(now()) @map("created_at")
+  updatedAt               DateTime        @updatedAt @map("updated_at")
+  dayLog                  DayLog          @relation(fields: [dayLogId], references: [id], onDelete: Cascade)
+  importedPayload         ImportedPayload @relation(fields: [importedPayloadId], references: [id], onDelete: Restrict)
+
+  @@map("daily_reflections")
 }
 
 model Task {

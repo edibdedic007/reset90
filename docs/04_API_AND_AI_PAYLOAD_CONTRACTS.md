@@ -40,6 +40,8 @@ Browser UI:
 GPT ingest:
 
 - `Authorization: Bearer <GPT_INGEST_TOKEN>` for MVP;
+- `GPT_INGEST_OWNER_SUBJECT` associates that machine principal with one trusted
+  application owner for daily-reflection normalization;
 - `Idempotency-Key` header matching the envelope `idempotency_key`;
 - optional HMAC signature later;
 - no export/delete/admin permissions.
@@ -224,26 +226,46 @@ Fields inside `payload`:
 {
   "date": "2026-07-01",
   "day_number": 1,
+  "phase": "Clear the Fog",
   "day_status_recommendation": "yellow",
   "summary": "User-visible summary.",
-  "scores": {
-    "mood": 5,
-    "fog": 7,
-    "loneliness": 6,
-    "self_criticism": 5,
-    "digital_control": 4,
-    "learning_resistance": 7,
-    "body_relationship": 5,
-    "work_confidence": 5
-  },
   "what_happened": "Text.",
-  "what_worked": ["Text"],
-  "what_blocked_me": ["Text"],
+  "what_worked": "Text.",
+  "what_blocked_me": "Text.",
   "tomorrow_adjustment": "Text.",
-  "self_criticism_note": "Text.",
-  "context_items": []
+  "self_criticism_note": "Text."
 }
 ```
+
+`date`, `day_number`, and `summary` are required. `phase`, the four narrative
+fields, `self_criticism_note`, and `day_status_recommendation` are optional.
+Summary and narrative fields are trimmed and limited to 1,500 characters;
+`self_criticism_note` is limited to 1,000. Blank optional text normalizes to
+`null`. Unknown fields, ownership identifiers, nested metadata, transcripts,
+and arrays are rejected. Unicode and multiline plain text remain valid.
+
+The server resolves the configured owner, that owner's active cycle, and the
+matching non-future UTC day. Date, day number, and optional phase must agree.
+Normalization and the raw import's successful processing state share one
+transaction. Processing locks the raw import and target day in PostgreSQL. Exact
+retries converge on one normalized write without changing its timestamps. For
+different same-day imports, the newer stored raw import (`createdAt`, then ID)
+deterministically owns the one current normalized reflection while preserving
+its creation time.
+
+A raw import marked `PROCESSED` is terminally successful. Reprocessing it is a
+no-op even when a newer import replaced its normalized reflection or accepted
+cascade behavior removed that reflection. Historical raw imports remain
+`PROCESSED`; they are neither failed nor replayed automatically.
+
+Only normalized summary/narrative fields and timestamps may enter authenticated
+day-detail data. Raw JSON, processing metadata, owner identifiers, and
+`day_status_recommendation` never enter the browser DTO. The recommendation is
+stored advisory data only and cannot alter canonical status or recovery state.
+Weekly-review normalization and analytics remain deferred after Phase 13.
+`GPT_INGEST_OWNER_SUBJECT` is required only when a `DAILY_REFLECTION` reaches
+normalization. Daily-plan dispatch is unchanged; weekly-review and context-item
+imports remain raw-only without depending on reflection owner configuration.
 
 ## Weekly review payload
 
@@ -307,6 +329,9 @@ Created:
 }
 ```
 
+For a normalized daily reflection, `normalized_records` is
+`["daily_reflection"]`.
+
 Duplicate:
 
 ```json
@@ -348,6 +373,6 @@ HTTP status behavior:
 | `401` | Missing or invalid GPT bearer token. |
 | `413` | Body exceeds `GPT_INGEST_MAX_BODY_BYTES`. |
 | `415` | Content type is not JSON. |
-| `422` | Canonical validation failed, or a daily plan could not match its active day. |
+| `422` | Canonical validation failed, or a normalizable import could not match its trusted active-cycle day. |
 | `429` | Process-local authenticated request cap exceeded. |
 | `503` | Token/DB service configuration is unavailable. |

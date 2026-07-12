@@ -285,7 +285,58 @@ export function DayDetail({ detail }: { detail: DayDetailModel }) {
         </div>
         <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-5">
           <h2 className="text-xl font-semibold">Reflection</h2>
-          <EmptyState>No reflection recorded for this day.</EmptyState>
+          {detail.reflection ? (
+            <div className="mt-4 space-y-4">
+              <div>
+                <h3 className="font-semibold">Summary</h3>
+                <p className="mt-1 whitespace-pre-wrap text-[var(--muted)]">
+                  {detail.reflection.summary}
+                </p>
+              </div>
+              {detail.reflection.whatHappened ? (
+                <div>
+                  <h3 className="font-semibold">What happened</h3>
+                  <p className="mt-1 whitespace-pre-wrap text-[var(--muted)]">
+                    {detail.reflection.whatHappened}
+                  </p>
+                </div>
+              ) : null}
+              {detail.reflection.whatWorked ? (
+                <div>
+                  <h3 className="font-semibold">What worked</h3>
+                  <p className="mt-1 whitespace-pre-wrap text-[var(--muted)]">
+                    {detail.reflection.whatWorked}
+                  </p>
+                </div>
+              ) : null}
+              {detail.reflection.whatBlockedMe ? (
+                <div>
+                  <h3 className="font-semibold">What blocked me</h3>
+                  <p className="mt-1 whitespace-pre-wrap text-[var(--muted)]">
+                    {detail.reflection.whatBlockedMe}
+                  </p>
+                </div>
+              ) : null}
+              {detail.reflection.tomorrowAdjustment ? (
+                <div>
+                  <h3 className="font-semibold">Tomorrow adjustment</h3>
+                  <p className="mt-1 whitespace-pre-wrap text-[var(--muted)]">
+                    {detail.reflection.tomorrowAdjustment}
+                  </p>
+                </div>
+              ) : null}
+              {detail.reflection.selfCriticismNote ? (
+                <div>
+                  <h3 className="font-semibold">Self-criticism note</h3>
+                  <p className="mt-1 whitespace-pre-wrap text-[var(--muted)]">
+                    {detail.reflection.selfCriticismNote}
+                  </p>
+                </div>
+              ) : null}
+            </div>
+          ) : (
+            <EmptyState>No reflection imported for this day.</EmptyState>
+          )}
         </div>
       </section>
     </div>

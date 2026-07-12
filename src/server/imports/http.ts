@@ -5,6 +5,11 @@ import {
   type DailyPlanNormalizationResult,
   normalizeDailyPlanImport,
 } from "./normalize-daily-plan";
+import {
+  type DailyReflectionNormalizationDatabase,
+  type DailyReflectionNormalizationResult,
+  normalizeDailyReflectionImport,
+} from "./normalize-daily-reflection";
 import type { RawImportDatabase } from "./store";
 import { storeRawImport } from "./store";
 
@@ -14,6 +19,7 @@ const RATE_LIMIT_REQUESTS_PER_WINDOW = 60;
 
 type GptImportEnvironment = {
   GPT_INGEST_TOKEN?: string;
+  GPT_INGEST_OWNER_SUBJECT?: string;
   GPT_INGEST_MAX_BODY_BYTES?: string;
 };
 
@@ -25,7 +31,8 @@ export type GptImportRateLimiter = {
 };
 
 export type GptImportDatabase = RawImportDatabase &
-  DailyPlanNormalizationDatabase;
+  DailyPlanNormalizationDatabase &
+  DailyReflectionNormalizationDatabase;
 
 export type GptImportHandlerDependencies = {
   env: GptImportEnvironment;
@@ -35,7 +42,15 @@ export type GptImportHandlerDependencies = {
     database: DailyPlanNormalizationDatabase,
     importedPayloadId: string,
   ) => Promise<DailyPlanNormalizationResult>;
+  normalizeDailyReflection?: (
+    database: DailyReflectionNormalizationDatabase,
+    importedPayloadId: string,
+    ownerAuthentikSubject: string,
+  ) => Promise<DailyReflectionNormalizationResult>;
 };
+
+type ImportNormalizationResult =
+  DailyPlanNormalizationResult | DailyReflectionNormalizationResult;
 
 type BodyReadResult =
   | { status: "ok"; text: string }
@@ -147,7 +162,7 @@ function envelopeIdempotencyKey(input: unknown): string | null {
 
 function normalizationFailureResponse(
   importedPayloadId: string,
-  result: Extract<DailyPlanNormalizationResult, { status: "failed" }>,
+  result: Extract<ImportNormalizationResult, { status: "failed" }>,
 ) {
   return jsonResponse(
     {
@@ -157,6 +172,41 @@ function normalizationFailureResponse(
       imported_payload_id: importedPayloadId,
     },
     422,
+  );
+}
+
+async function normalizeStoredImport(
+  dependencies: GptImportHandlerDependencies,
+  database: GptImportDatabase,
+  importedPayloadId: string,
+): Promise<ImportNormalizationResult | { status: "service_unavailable" }> {
+  const normalizeDailyPlan =
+    dependencies.normalizeDailyPlan ?? normalizeDailyPlanImport;
+  const dailyPlan = await normalizeDailyPlan(database, importedPayloadId);
+  if (dailyPlan.status !== "not_applicable") {
+    return dailyPlan;
+  }
+
+  const storedImport = await database.importedPayload.findUnique({
+    where: { id: importedPayloadId },
+    select: { kind: true },
+  });
+  if (storedImport?.kind !== "DAILY_REFLECTION") {
+    return { status: "not_applicable" };
+  }
+
+  const ownerAuthentikSubject =
+    dependencies.env.GPT_INGEST_OWNER_SUBJECT?.trim();
+  if (!ownerAuthentikSubject) {
+    return { status: "service_unavailable" };
+  }
+
+  const normalizeDailyReflection =
+    dependencies.normalizeDailyReflection ?? normalizeDailyReflectionImport;
+  return normalizeDailyReflection(
+    database,
+    importedPayloadId,
+    ownerAuthentikSubject,
   );
 }
 
@@ -250,14 +300,16 @@ export async function handleGptImport(
   try {
     const database = dependencies.getDatabase();
     const result = await storeRawImport(database, rawInput);
-    const normalizeDailyPlan =
-      dependencies.normalizeDailyPlan ?? normalizeDailyPlanImport;
 
     if (result.status === "created") {
-      const normalization = await normalizeDailyPlan(
+      const normalization = await normalizeStoredImport(
+        dependencies,
         database,
         result.importedPayloadId,
       );
+      if (normalization.status === "service_unavailable") {
+        return jsonResponse({ ok: false, error: "service_unavailable" }, 503);
+      }
       if (normalization.status === "failed") {
         return normalizationFailureResponse(
           result.importedPayloadId,
@@ -271,7 +323,12 @@ export async function handleGptImport(
           status: "created",
           imported_payload_id: result.importedPayloadId,
           ...(normalization.status === "processed"
-            ? { normalized_records: ["daily_plan", "tasks"] }
+            ? {
+                normalized_records:
+                  "dailyPlanId" in normalization
+                    ? ["daily_plan", "tasks"]
+                    : ["daily_reflection"],
+              }
             : {}),
         },
         201,
@@ -283,10 +340,14 @@ export async function handleGptImport(
         result.validationStatus === "VALID" &&
         result.processingStatus === "PENDING"
       ) {
-        const normalization = await normalizeDailyPlan(
+        const normalization = await normalizeStoredImport(
+          dependencies,
           database,
           result.importedPayloadId,
         );
+        if (normalization.status === "service_unavailable") {
+          return jsonResponse({ ok: false, error: "service_unavailable" }, 503);
+        }
         if (normalization.status === "failed") {
           return normalizationFailureResponse(
             result.importedPayloadId,

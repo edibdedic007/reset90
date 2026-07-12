@@ -225,8 +225,34 @@ Fields:
 - `self_criticism_note`
 - `day_status_recommendation`
 - `created_at`
+- `updated_at`
+
+Phase 13 adds this normalized, read-only daily closeout model. `day_log_id` and
+`imported_payload_id` are each unique: one current reflection exists per day,
+and one raw import produces at most one normalized reflection. Deleting its day
+cascades to the reflection; deleting its originating raw import is restricted.
+
+A newer valid import for the same day replaces the normalized fields and source
+import reference while preserving `created_at`; immutable older raw imports
+remain unchanged. Optional blank narrative fields normalize to `NULL`.
+`day_status_recommendation` reuses `DayStatus` but is advisory only. Reflection
+normalization never changes canonical status, recovery credits, tasks,
+check-ins, or energy.
+
+Deployment order is: back up the database; apply the additive migration; deploy
+application code; import one known valid fixture; verify normalized persistence
+and authenticated day detail; then verify a raw-only privacy sentinel is absent
+from logs and browser output. No backfill or separate data migration runs.
+
+Routine rollback reverses application code and leaves `daily_reflections`, raw
+imports, and normalized rows in place. Dropping the table requires a backup,
+an export of normalized rows, and an explicit imported-payload recovery plan.
+Successfully processed imports must not be blindly reset or replayed.
 
 ### weekly_reviews
+
+Deferred after Phase 13; no normalized weekly-review table is implemented by
+Phase 13.
 
 Fields:
 

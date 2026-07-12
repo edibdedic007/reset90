@@ -80,7 +80,7 @@ describe("raw import storage", () => {
 
   it("stores an identifiable invalid envelope without domain mutation", async () => {
     const invalid = structuredClone(dailyReflection);
-    invalid.payload.scores.fog = 11;
+    invalid.payload.summary = "RAW_ONLY_SENTINEL_7f8e".repeat(100);
     const { database, rows, domainMutation } = createTestDatabase();
 
     const result = await storeRawImport(database, invalid);
@@ -100,6 +100,27 @@ describe("raw import storage", () => {
       invalid.payload.summary,
     );
     expect(domainMutation).not.toHaveBeenCalled();
+  });
+
+  it("retains an unsupported version as a rejected raw import", async () => {
+    const invalid = { ...dailyReflection, schema_version: "2.0" };
+    const { database, rows } = createTestDatabase();
+
+    const result = await storeRawImport(database, invalid);
+
+    expect(result).toMatchObject({
+      status: "invalid",
+      importedPayloadId: "import-1",
+    });
+    expect(rows[0]).toMatchObject({
+      schemaVersion: "2.0",
+      validationStatus: "INVALID",
+      processingStatus: "REJECTED",
+      rawJson: invalid,
+    });
+    expect(JSON.stringify(rows[0]?.errorMetadata)).not.toContain(
+      "RAW_ONLY_SENTINEL_7f8e",
+    );
   });
 
   it("returns an existing import for a duplicate source and key", async () => {

@@ -39,5 +39,11 @@ export const dayStatusSchema = z.enum([
   "unset",
 ]);
 
+export const resetPhaseNameSchema = z.enum([
+  "Clear the Fog",
+  "Rebuild Momentum",
+  "Prove Continuation",
+]);
+
 export const stringList = (maximumItems: number, maximumLength = 500) =>
   z.array(nonEmptyText(maximumLength)).max(maximumItems);

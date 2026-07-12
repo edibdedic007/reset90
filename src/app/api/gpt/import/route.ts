@@ -12,6 +12,7 @@ export function POST(request: Request) {
   return handleGptImport(request, {
     env: {
       GPT_INGEST_TOKEN: process.env.GPT_INGEST_TOKEN,
+      GPT_INGEST_OWNER_SUBJECT: process.env.GPT_INGEST_OWNER_SUBJECT,
       GPT_INGEST_MAX_BODY_BYTES: process.env.GPT_INGEST_MAX_BODY_BYTES,
     },
     getDatabase: getPrismaClient,

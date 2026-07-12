@@ -398,6 +398,20 @@ describe("day detail", () => {
             },
           ],
           recoveryEvent: null,
+          dailyReflection: {
+            summary: "Minimum actions kept the day moving.",
+            whatHappened: "Slow start.\nSteady finish.",
+            whatWorked: "Start small.",
+            whatBlockedMe: null,
+            tomorrowAdjustment: "Move learning earlier.",
+            selfCriticismNote: null,
+            createdAt: new Date("2026-07-01T20:00:00.000Z"),
+            updatedAt: new Date("2026-07-01T20:05:00.000Z"),
+            dayStatusRecommendation: "GREEN",
+            importedPayload: {
+              rawJson: { private: "RAW_ONLY_SENTINEL_7f8e" },
+            },
+          },
         },
       ],
     };
@@ -407,7 +421,16 @@ describe("day detail", () => {
     expect(result).toMatchObject({
       status: "ready",
       day: { dayNumber: 1, status: "YELLOW", isCurrent: true },
-      reflection: null,
+      reflection: {
+        summary: "Minimum actions kept the day moving.",
+        whatHappened: "Slow start.\nSteady finish.",
+        whatWorked: "Start small.",
+        whatBlockedMe: null,
+        tomorrowAdjustment: "Move learning earlier.",
+        selfCriticismNote: null,
+        createdAt: "2026-07-01T20:00:00.000Z",
+        updatedAt: "2026-07-01T20:05:00.000Z",
+      },
     });
 
     const query = resetCycleFindFirst.mock.calls[0][0];
@@ -419,6 +442,18 @@ describe("day detail", () => {
     expect(query.select.dayLogs.select.checkins.orderBy).toEqual({
       timestamp: "desc",
     });
+    expect(query.select.dayLogs.select.dailyReflection.select).toEqual({
+      summary: true,
+      whatHappened: true,
+      whatWorked: true,
+      whatBlockedMe: true,
+      tomorrowAdjustment: true,
+      selfCriticismNote: true,
+      createdAt: true,
+      updatedAt: true,
+    });
+    expect(JSON.stringify(result)).not.toContain("RAW_ONLY_SENTINEL_7f8e");
+    expect(JSON.stringify(result)).not.toContain("dayStatusRecommendation");
   });
 
   it("returns controlled unavailable state for a missing expected day", async () => {
@@ -448,6 +483,7 @@ describe("day detail", () => {
           dailyPlan: null,
           checkins: [],
           recoveryEvent: null,
+          dailyReflection: null,
         },
       ],
     });
@@ -460,6 +496,23 @@ describe("day detail", () => {
       recoveryEvent: null,
       reflection: null,
     });
+  });
+
+  it("does not return another user's day or reflection", async () => {
+    const { database, resetCycleFindFirst } = databaseWithCycle(null);
+
+    await expect(getDayDetail(database, "other-user", 1, NOW)).resolves.toEqual(
+      {
+        status: "no_cycle",
+        today: "2026-07-01",
+        dayNumber: 1,
+      },
+    );
+    expect(resetCycleFindFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { userId: "other-user", status: "ACTIVE" },
+      }),
+    );
   });
 });
 
