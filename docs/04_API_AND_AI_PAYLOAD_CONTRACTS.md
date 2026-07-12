@@ -247,15 +247,25 @@ and arrays are rejected. Unicode and multiline plain text remain valid.
 The server resolves the configured owner, that owner's active cycle, and the
 matching non-future UTC day. Date, day number, and optional phase must agree.
 Normalization and the raw import's successful processing state share one
-transaction. A new idempotency key for the same day replaces the one current
-normalized reflection while preserving its creation time; exact retries and
-reprocessing successful raw imports are no-ops.
+transaction. Processing locks the raw import and target day in PostgreSQL. Exact
+retries converge on one normalized write without changing its timestamps. For
+different same-day imports, the newer stored raw import (`createdAt`, then ID)
+deterministically owns the one current normalized reflection while preserving
+its creation time.
+
+A raw import marked `PROCESSED` is terminally successful. Reprocessing it is a
+no-op even when a newer import replaced its normalized reflection or accepted
+cascade behavior removed that reflection. Historical raw imports remain
+`PROCESSED`; they are neither failed nor replayed automatically.
 
 Only normalized summary/narrative fields and timestamps may enter authenticated
 day-detail data. Raw JSON, processing metadata, owner identifiers, and
 `day_status_recommendation` never enter the browser DTO. The recommendation is
 stored advisory data only and cannot alter canonical status or recovery state.
 Weekly-review normalization and analytics remain deferred after Phase 13.
+`GPT_INGEST_OWNER_SUBJECT` is required only when a `DAILY_REFLECTION` reaches
+normalization. Daily-plan dispatch is unchanged; weekly-review and context-item
+imports remain raw-only without depending on reflection owner configuration.
 
 ## Weekly review payload
 

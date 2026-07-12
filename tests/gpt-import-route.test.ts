@@ -12,6 +12,18 @@ import {
 } from "../src/server/imports/http";
 
 const TOKEN = "test-gpt-ingest-token";
+const contextItem = {
+  ...structuredClone(weeklyReview),
+  kind: "context_item",
+  idempotency_key: "2026-07-01-context-item-v1",
+  payload: {
+    kind: "decision_log",
+    title: "Keep minimum plan visible",
+    summary: "Minimum plan preserves continuity on low-energy days.",
+    importance: 4,
+    tags: ["minimum", "continuity"],
+  },
+};
 
 function createTestDatabase() {
   const rows: ImportedPayload[] = [];
@@ -22,17 +34,26 @@ function createTestDatabase() {
       where,
     }: {
       where: {
-        source_idempotencyKey: {
+        id?: string;
+        source_idempotencyKey?: {
           source: string;
           idempotencyKey: string;
         };
       };
-    }) =>
-      rows.find(
-        (row) =>
-          row.source === where.source_idempotencyKey.source &&
-          row.idempotencyKey === where.source_idempotencyKey.idempotencyKey,
-      ) ?? null,
+    }) => {
+      if (where.id) {
+        return rows.find((row) => row.id === where.id) ?? null;
+      }
+
+      const unique = where.source_idempotencyKey;
+      return unique
+        ? (rows.find(
+            (row) =>
+              row.source === unique.source &&
+              row.idempotencyKey === unique.idempotencyKey,
+          ) ?? null)
+        : null;
+    },
   );
 
   const create = vi.fn(
@@ -245,7 +266,51 @@ describe("GPT import HTTP boundary", () => {
     expect(rows[0]?.processingStatus).toBe("PENDING");
   });
 
-  it("normalizes a newly stored daily plan", async () => {
+  it("stores a weekly review without reflection owner configuration", async () => {
+    const { database, rows } = createTestDatabase();
+
+    const response = await handleGptImport(
+      createRequest(weeklyReview),
+      createDependencies(database, {
+        env: { GPT_INGEST_TOKEN: TOKEN },
+      }),
+    );
+
+    expect(response.status).toBe(201);
+    await expect(responseJson(response)).resolves.toEqual({
+      ok: true,
+      status: "created",
+      imported_payload_id: "import-1",
+    });
+    expect(rows[0]).toMatchObject({
+      kind: "WEEKLY_REVIEW",
+      processingStatus: "PENDING",
+    });
+  });
+
+  it("stores a context item without reflection owner configuration", async () => {
+    const { database, rows } = createTestDatabase();
+
+    const response = await handleGptImport(
+      createRequest(contextItem),
+      createDependencies(database, {
+        env: { GPT_INGEST_TOKEN: TOKEN },
+      }),
+    );
+
+    expect(response.status).toBe(201);
+    await expect(responseJson(response)).resolves.toEqual({
+      ok: true,
+      status: "created",
+      imported_payload_id: "import-1",
+    });
+    expect(rows[0]).toMatchObject({
+      kind: "CONTEXT_ITEM",
+      processingStatus: "PENDING",
+    });
+  });
+
+  it("normalizes a newly stored daily plan without reflection owner configuration", async () => {
     const { database } = createTestDatabase();
     const normalizeDailyPlan = vi.fn().mockResolvedValue({
       status: "processed",
@@ -255,7 +320,10 @@ describe("GPT import HTTP boundary", () => {
 
     const response = await handleGptImport(
       createRequest(dailyPlan),
-      createDependencies(database, { normalizeDailyPlan }),
+      createDependencies(database, {
+        env: { GPT_INGEST_TOKEN: TOKEN },
+        normalizeDailyPlan,
+      }),
     );
 
     expect(response.status).toBe(201);

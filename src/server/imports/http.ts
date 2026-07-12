@@ -187,6 +187,14 @@ async function normalizeStoredImport(
     return dailyPlan;
   }
 
+  const storedImport = await database.importedPayload.findUnique({
+    where: { id: importedPayloadId },
+    select: { kind: true },
+  });
+  if (storedImport?.kind !== "DAILY_REFLECTION") {
+    return { status: "not_applicable" };
+  }
+
   const ownerAuthentikSubject =
     dependencies.env.GPT_INGEST_OWNER_SUBJECT?.trim();
   if (!ownerAuthentikSubject) {

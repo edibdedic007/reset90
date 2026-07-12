@@ -4,13 +4,14 @@ Last updated: 2026-07-12
 
 ## Current phase
 
-Phase 13 complete. Phase 14 has not started.
+Phase 13 blocker correction complete. Phase 14 has not started.
 
 ## Active task
 
-Phase 13 complete: machine-authenticated daily-reflection imports normalize to
-one current reflection per owned active-cycle day, replace transactionally,
-keep raw imports private, and render read-only in authenticated day detail.
+Phase 13 corrected: processed reflection imports are terminal no-ops, concurrent
+exact retries serialize to one normalized write, concurrent same-day imports
+resolve deterministically, and reflection owner configuration applies only to
+daily-reflection normalization.
 
 ## Next phase
 
@@ -19,23 +20,23 @@ charts, trends, and final reporting were not started by Phase 13.
 
 ## Next actions
 
-1. Review Phase 13 diff and migration evidence.
-2. Commit with `feat(import): normalize daily reflections` after approval.
+1. Complete the remaining manual authenticated import/privacy smoke.
+2. Review the corrected Phase 13 diff and commit with
+   `fix(import): make reflection normalization idempotent` after approval.
 3. Merge through the normal branch workflow; do not start Phase 14 without
    explicit approval.
 
 ## Required completion checks
 
-- Focused reflection contract, storage, route, ownership, target-day,
-  normalization, idempotency, privacy, progress, and rendered-detail tests.
-- Additive migration validation on current and fresh databases, including
-  uniqueness and delete behavior.
-- Formatting, lint, typecheck, payload/schema drift, build, and `make check`.
+- Focused terminal-success, concurrency, dispatch, current-day, recommendation,
+  and transaction rollback tests.
+- Formatting, lint, typecheck, full tests, payload/schema drift, production
+  build, Prisma validation, shell syntax, and `make check`.
 - `git diff --check` and `git status --short --branch`.
 
 ## Latest handoff
 
-- 2026-07-12T20:15:38Z — feature/daily-reflection-import — Phase 13 added strict daily-reflection contracts, trusted owner/day resolution, transactional one-per-day normalization and replacement, private raw-import retention, and read-only owned day-detail display; focused suite passed with 84 tests, current/fresh migration checks passed, and make check passed with 147 tests plus production build; browser automation unavailable, so manual authenticated import/privacy smoke remains; next step: review and commit Phase 13 without starting Phase 14
+- 2026-07-12T20:44:17Z — feature/daily-reflection-import — Phase 13 correction made processed imports terminal, serialized exact and same-day concurrent normalization with PostgreSQL row locks and deterministic import ordering, scoped reflection owner configuration to reflection dispatch, and added transaction-aware rollback coverage; focused correction tests passed with 45 tests and host-side make check passed with 157 tests plus production build; manual authenticated import/privacy smoke remains; next step: complete manual smoke, review, and commit without starting Phase 14
 
 ## Historical detail
 

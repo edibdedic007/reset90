@@ -14,6 +14,7 @@ type StoredImport = {
   processingStatus: ProcessingStatus;
   processedAt: Date | null;
   errorMetadata: unknown;
+  createdAt: Date;
 };
 
 type ReflectionWrite = {
@@ -49,6 +50,7 @@ function createTestDatabase(
       processingStatus: "PENDING",
       processedAt: null,
       errorMetadata: null,
+      createdAt: new Date("2026-07-10T10:00:00.000Z"),
     },
   ];
   let reflection:
@@ -66,25 +68,25 @@ function createTestDatabase(
     tasks: ["task-1"],
     checkins: ["checkin-1"],
   };
+  const lockTails = new Map<string, Promise<void>>();
+  let failProcessedUpdate = false;
 
-  const importedPayloadFindUnique = vi.fn(
-    ({ where }: { where: { id: string } }) =>
-      imports.find((row) => row.id === where.id) ?? null,
-  );
-  const importedPayloadUpdate = vi.fn(
-    ({
-      where,
-      data,
-    }: {
-      where: { id: string };
-      data: Partial<StoredImport>;
-    }) => {
-      imports = imports.map((row) =>
-        row.id === where.id ? { ...row, ...data } : row,
-      );
-      return imports.find((row) => row.id === where.id);
-    },
-  );
+  async function acquireLock(key: string) {
+    const previous = lockTails.get(key) ?? Promise.resolve();
+    let release = () => {};
+    const current = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    lockTails.set(
+      key,
+      previous.then(() => current),
+    );
+    await previous;
+    return release;
+  }
+
+  const importedPayloadFindUnique = vi.fn();
+  const importedPayloadUpdate = vi.fn();
   const userFindUnique = vi.fn(() =>
     options.ownerFound === false ? null : { id: "owner-1" },
   );
@@ -100,57 +102,136 @@ function createTestDatabase(
   const dayLogFindFirst = vi.fn(() =>
     options.dayLogFound === false ? null : { id: "day-1" },
   );
-  const dailyReflectionFindUnique = vi.fn(
-    ({ where }: { where: { importedPayloadId: string } }) =>
-      reflection?.importedPayloadId === where.importedPayloadId
-        ? { id: reflection.id }
-        : null,
-  );
-  const dailyReflectionUpsert = vi.fn(
-    ({
-      create,
-      update,
-    }: {
-      create: ReflectionWrite;
-      update: ReflectionWrite;
-    }) => {
-      if (options.upsertError) throw options.upsertError;
-
-      const write = reflection ? update : create;
-      reflection = {
-        ...write,
-        id: reflection?.id ?? "reflection-1",
-        dayLogId: reflection?.dayLogId ?? create.dayLogId ?? "day-1",
-        createdAt:
-          reflection?.createdAt ?? new Date("2026-07-10T12:00:00.000Z"),
-        updatedAt: new Date(
-          reflection ? "2026-07-11T12:00:00.000Z" : "2026-07-10T12:00:00.000Z",
-        ),
-      };
-      return { id: reflection.id };
-    },
-  );
+  const dailyReflectionFindUnique = vi.fn();
+  const dailyReflectionUpsert = vi.fn();
   const forbiddenMutation = vi.fn();
-  const transaction = {
-    importedPayload: {
-      findUnique: importedPayloadFindUnique,
-      update: importedPayloadUpdate,
-    },
-    user: { findUnique: userFindUnique },
-    resetCycle: { findFirst: resetCycleFindFirst },
-    dayLog: { findFirst: dayLogFindFirst, update: forbiddenMutation },
-    dailyReflection: {
-      findUnique: dailyReflectionFindUnique,
-      upsert: dailyReflectionUpsert,
-    },
-    task: { updateMany: forbiddenMutation },
-    checkin: { updateMany: forbiddenMutation },
-    recoveryEvent: { create: forbiddenMutation, update: forbiddenMutation },
-  };
   const database = {
     $transaction: async (
-      callback: (value: typeof transaction) => Promise<unknown>,
-    ) => callback(transaction),
+      callback: (value: Record<string, unknown>) => Promise<unknown>,
+    ) => {
+      const releases: Array<() => void> = [];
+      const importUpdates = new Map<string, Partial<StoredImport>>();
+      let stagedReflection = structuredClone(reflection);
+      let reflectionWritten = false;
+
+      const currentImport = (id: string) => {
+        const stored = imports.find((row) => row.id === id);
+        const update = importUpdates.get(id);
+        return stored ? { ...stored, ...update } : null;
+      };
+      const transaction = {
+        $queryRaw: async (query: {
+          strings?: readonly string[];
+          values?: readonly unknown[];
+        }) => {
+          const sql = query.strings?.join("?") ?? "";
+          const key = `${sql.includes("imported_payloads") ? "import" : "day"}:${String(query.values?.[0])}`;
+          const release = await acquireLock(key);
+          releases.push(release);
+          if (sql.includes("day_logs")) {
+            stagedReflection = structuredClone(reflection);
+          }
+          return [];
+        },
+        importedPayload: {
+          findUnique: (args: { where: { id: string } }) => {
+            importedPayloadFindUnique(args);
+            return currentImport(args.where.id);
+          },
+          update: (args: {
+            where: { id: string };
+            data: Partial<StoredImport>;
+          }) => {
+            importedPayloadUpdate(args);
+            if (
+              failProcessedUpdate &&
+              args.data.processingStatus === "PROCESSED"
+            ) {
+              failProcessedUpdate = false;
+              throw new Error("import status update failed");
+            }
+            const existing = importUpdates.get(args.where.id) ?? {};
+            importUpdates.set(args.where.id, { ...existing, ...args.data });
+            return currentImport(args.where.id);
+          },
+        },
+        user: { findUnique: userFindUnique },
+        resetCycle: { findFirst: resetCycleFindFirst },
+        dayLog: { findFirst: dayLogFindFirst, update: forbiddenMutation },
+        dailyReflection: {
+          findUnique: (args: {
+            where: { importedPayloadId?: string; dayLogId?: string };
+          }) => {
+            dailyReflectionFindUnique(args);
+            const candidate = args.where.dayLogId
+              ? stagedReflection
+              : reflection;
+            if (
+              !candidate ||
+              (args.where.importedPayloadId &&
+                candidate.importedPayloadId !== args.where.importedPayloadId) ||
+              (args.where.dayLogId &&
+                candidate.dayLogId !== args.where.dayLogId)
+            ) {
+              return null;
+            }
+            const sourceImport = currentImport(candidate.importedPayloadId);
+            return {
+              id: candidate.id,
+              importedPayload: sourceImport
+                ? { id: sourceImport.id, createdAt: sourceImport.createdAt }
+                : undefined,
+            };
+          },
+          upsert: (args: {
+            create: ReflectionWrite;
+            update: ReflectionWrite;
+          }) => {
+            dailyReflectionUpsert(args);
+            if (options.upsertError) throw options.upsertError;
+
+            const write = stagedReflection ? args.update : args.create;
+            stagedReflection = {
+              ...write,
+              id: stagedReflection?.id ?? "reflection-1",
+              dayLogId:
+                stagedReflection?.dayLogId ?? args.create.dayLogId ?? "day-1",
+              createdAt:
+                stagedReflection?.createdAt ??
+                new Date("2026-07-10T12:00:00.000Z"),
+              updatedAt: new Date(
+                stagedReflection
+                  ? "2026-07-11T12:00:00.000Z"
+                  : "2026-07-10T12:00:00.000Z",
+              ),
+            };
+            reflectionWritten = true;
+            return { id: stagedReflection.id };
+          },
+        },
+        task: { updateMany: forbiddenMutation },
+        checkin: { updateMany: forbiddenMutation },
+        recoveryEvent: {
+          create: forbiddenMutation,
+          update: forbiddenMutation,
+        },
+      };
+
+      try {
+        const result = await callback(transaction);
+        for (const [id, update] of importUpdates) {
+          imports = imports.map((row) =>
+            row.id === id ? { ...row, ...update } : row,
+          );
+        }
+        if (reflectionWritten) {
+          reflection = structuredClone(stagedReflection);
+        }
+        return result;
+      } finally {
+        for (const release of releases.reverse()) release();
+      }
+    },
   } as unknown as DailyReflectionNormalizationDatabase;
 
   return {
@@ -166,8 +247,22 @@ function createTestDatabase(
       reflection: structuredClone(reflection),
       protectedState: structuredClone(protectedState),
     }),
-    replaceImport(next: StoredImport) {
-      imports = [...imports, next];
+    replaceImport(
+      next: Omit<StoredImport, "createdAt"> & { createdAt?: Date },
+    ) {
+      imports = [
+        ...imports,
+        {
+          ...next,
+          createdAt: next.createdAt ?? new Date("2026-07-10T11:00:00.000Z"),
+        },
+      ];
+    },
+    removeReflection() {
+      reflection = null;
+    },
+    failNextProcessedUpdate() {
+      failProcessedUpdate = true;
     },
   };
 }
@@ -322,6 +417,174 @@ describe("daily reflection normalization", () => {
     });
   });
 
+  it("keeps an older processed import terminal after a newer import replaces it", async () => {
+    const testDatabase = createTestDatabase();
+    await normalizeDailyReflectionImport(
+      testDatabase.database,
+      "import-1",
+      OWNER_SUBJECT,
+      NOW,
+    );
+    testDatabase.replaceImport({
+      id: "import-2",
+      kind: "DAILY_REFLECTION",
+      rawJson: reflectionWith(
+        { summary: "Newer reflection stays current." },
+        { idempotency_key: "2026-07-01-day-1-reflection-v2" },
+      ),
+      validationStatus: "VALID",
+      processingStatus: "PENDING",
+      processedAt: null,
+      errorMetadata: null,
+    });
+    await normalizeDailyReflectionImport(
+      testDatabase.database,
+      "import-2",
+      OWNER_SUBJECT,
+      NOW,
+    );
+    const beforeRetry = testDatabase.snapshot();
+
+    await expect(
+      normalizeDailyReflectionImport(
+        testDatabase.database,
+        "import-1",
+        OWNER_SUBJECT,
+        NOW,
+      ),
+    ).resolves.toEqual({
+      status: "already_processed",
+      dailyReflectionId: null,
+    });
+
+    const afterRetry = testDatabase.snapshot();
+    expect(afterRetry).toEqual(beforeRetry);
+    expect(afterRetry.imports[0]?.processingStatus).toBe("PROCESSED");
+    expect(afterRetry.reflection).toMatchObject({
+      importedPayloadId: "import-2",
+      summary: "Newer reflection stays current.",
+      createdAt: beforeRetry.reflection?.createdAt,
+      updatedAt: beforeRetry.reflection?.updatedAt,
+    });
+    expect(testDatabase.dailyReflectionUpsert).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not replay a processed import whose normalized row was removed", async () => {
+    const testDatabase = createTestDatabase();
+    await normalizeDailyReflectionImport(
+      testDatabase.database,
+      "import-1",
+      OWNER_SUBJECT,
+      NOW,
+    );
+    testDatabase.removeReflection();
+    const beforeRetry = testDatabase.snapshot();
+
+    await expect(
+      normalizeDailyReflectionImport(
+        testDatabase.database,
+        "import-1",
+        OWNER_SUBJECT,
+        NOW,
+      ),
+    ).resolves.toEqual({
+      status: "already_processed",
+      dailyReflectionId: null,
+    });
+
+    expect(testDatabase.snapshot()).toEqual(beforeRetry);
+    expect(testDatabase.snapshot().imports[0]?.processingStatus).toBe(
+      "PROCESSED",
+    );
+    expect(testDatabase.dailyReflectionUpsert).toHaveBeenCalledTimes(1);
+  });
+
+  it("serializes concurrent exact retries to one normalized write", async () => {
+    const testDatabase = createTestDatabase();
+
+    const results = await Promise.all([
+      normalizeDailyReflectionImport(
+        testDatabase.database,
+        "import-1",
+        OWNER_SUBJECT,
+        NOW,
+      ),
+      normalizeDailyReflectionImport(
+        testDatabase.database,
+        "import-1",
+        OWNER_SUBJECT,
+        NOW,
+      ),
+    ]);
+
+    expect(results).toEqual([
+      { status: "processed", dailyReflectionId: "reflection-1" },
+      { status: "already_processed", dailyReflectionId: "reflection-1" },
+    ]);
+    const state = testDatabase.snapshot();
+    expect(state.imports[0]?.processingStatus).toBe("PROCESSED");
+    expect(state.reflection).toMatchObject({
+      id: "reflection-1",
+      importedPayloadId: "import-1",
+      createdAt: new Date("2026-07-10T12:00:00.000Z"),
+      updatedAt: new Date("2026-07-10T12:00:00.000Z"),
+    });
+    expect(testDatabase.dailyReflectionUpsert).toHaveBeenCalledTimes(1);
+  });
+
+  it("serializes concurrent different same-day imports with a deterministic winner", async () => {
+    const testDatabase = createTestDatabase();
+    testDatabase.replaceImport({
+      id: "import-2",
+      kind: "DAILY_REFLECTION",
+      rawJson: reflectionWith(
+        { summary: "Deterministic newer reflection." },
+        { idempotency_key: "2026-07-01-day-1-reflection-v2" },
+      ),
+      validationStatus: "VALID",
+      processingStatus: "PENDING",
+      processedAt: null,
+      errorMetadata: null,
+    });
+
+    const results = await Promise.all([
+      normalizeDailyReflectionImport(
+        testDatabase.database,
+        "import-2",
+        OWNER_SUBJECT,
+        NOW,
+      ),
+      normalizeDailyReflectionImport(
+        testDatabase.database,
+        "import-1",
+        OWNER_SUBJECT,
+        NOW,
+      ),
+    ]);
+
+    expect(results.every((result) => result.status === "processed")).toBe(true);
+    const state = testDatabase.snapshot();
+    expect(state.imports).toMatchObject([
+      { id: "import-1", processingStatus: "PROCESSED" },
+      { id: "import-2", processingStatus: "PROCESSED" },
+    ]);
+    expect(state.reflection).toMatchObject({
+      id: "reflection-1",
+      dayLogId: "day-1",
+      importedPayloadId: "import-2",
+      summary: "Deterministic newer reflection.",
+    });
+    expect(testDatabase.snapshot().reflection).not.toBeNull();
+
+    await normalizeDailyReflectionImport(
+      testDatabase.database,
+      "import-1",
+      OWNER_SUBJECT,
+      NOW,
+    );
+    expect(testDatabase.snapshot()).toEqual(state);
+  });
+
   it.each([
     ["missing owner", { ownerFound: false }, "import_owner_not_found"],
     ["inactive owner cycle", { cycleFound: false }, "active_cycle_not_found"],
@@ -430,6 +693,21 @@ describe("daily reflection normalization", () => {
     });
   });
 
+  it("accepts a current UTC day reflection", async () => {
+    const testDatabase = createTestDatabase({
+      rawInput: reflectionWith({ date: "2026-07-10", day_number: 10 }),
+    });
+
+    await expect(
+      normalizeDailyReflectionImport(
+        testDatabase.database,
+        "import-1",
+        OWNER_SUBJECT,
+        NOW,
+      ),
+    ).resolves.toMatchObject({ status: "processed" });
+  });
+
   it.each(["green", "yellow", "blue", "red", "gold"] as const)(
     "stores %s recommendation without changing canonical state",
     async (recommendation) => {
@@ -454,6 +732,34 @@ describe("daily reflection normalization", () => {
       expect(testDatabase.forbiddenMutation).not.toHaveBeenCalled();
     },
   );
+
+  it("stores unset recommendation and omitted recommendation as nullable advisory data", async () => {
+    const unsetDatabase = createTestDatabase({
+      rawInput: reflectionWith({ day_status_recommendation: "unset" }),
+    });
+    await normalizeDailyReflectionImport(
+      unsetDatabase.database,
+      "import-1",
+      OWNER_SUBJECT,
+      NOW,
+    );
+    expect(unsetDatabase.snapshot().reflection?.dayStatusRecommendation).toBe(
+      "UNSET",
+    );
+
+    const omitted = reflectionWith({});
+    delete omitted.payload.day_status_recommendation;
+    const omittedDatabase = createTestDatabase({ rawInput: omitted });
+    await normalizeDailyReflectionImport(
+      omittedDatabase.database,
+      "import-1",
+      OWNER_SUBJECT,
+      NOW,
+    );
+    expect(
+      omittedDatabase.snapshot().reflection?.dayStatusRecommendation,
+    ).toBeNull();
+  });
 
   it("keeps raw-only sentinel out of normalized data and safe target errors", async () => {
     const sentinel = "RAW_ONLY_SENTINEL_7f8e";
@@ -499,5 +805,68 @@ describe("daily reflection normalization", () => {
       "PENDING",
     );
     expect(testDatabase.importedPayloadUpdate).not.toHaveBeenCalled();
+  });
+
+  it("rolls back a new reflection when the final status update fails", async () => {
+    const testDatabase = createTestDatabase();
+    const before = testDatabase.snapshot();
+    testDatabase.failNextProcessedUpdate();
+
+    await expect(
+      normalizeDailyReflectionImport(
+        testDatabase.database,
+        "import-1",
+        OWNER_SUBJECT,
+        NOW,
+      ),
+    ).rejects.toThrow("import status update failed");
+
+    expect(testDatabase.snapshot()).toEqual(before);
+    expect(testDatabase.snapshot().reflection).toBeNull();
+    expect(testDatabase.snapshot().imports[0]?.processingStatus).toBe(
+      "PENDING",
+    );
+  });
+
+  it("rolls back reflection replacement when the final status update fails", async () => {
+    const testDatabase = createTestDatabase();
+    await normalizeDailyReflectionImport(
+      testDatabase.database,
+      "import-1",
+      OWNER_SUBJECT,
+      NOW,
+    );
+    testDatabase.replaceImport({
+      id: "import-2",
+      kind: "DAILY_REFLECTION",
+      rawJson: reflectionWith(
+        { summary: "This replacement must roll back." },
+        { idempotency_key: "2026-07-01-day-1-reflection-v2" },
+      ),
+      validationStatus: "VALID",
+      processingStatus: "PENDING",
+      processedAt: null,
+      errorMetadata: null,
+    });
+    const before = testDatabase.snapshot();
+    testDatabase.failNextProcessedUpdate();
+
+    await expect(
+      normalizeDailyReflectionImport(
+        testDatabase.database,
+        "import-2",
+        OWNER_SUBJECT,
+        NOW,
+      ),
+    ).rejects.toThrow("import status update failed");
+
+    expect(testDatabase.snapshot()).toEqual(before);
+    expect(testDatabase.snapshot().reflection).toEqual(before.reflection);
+    expect(testDatabase.snapshot().imports[1]?.processingStatus).toBe(
+      "PENDING",
+    );
+    expect(testDatabase.snapshot().protectedState).toEqual(
+      before.protectedState,
+    );
   });
 });

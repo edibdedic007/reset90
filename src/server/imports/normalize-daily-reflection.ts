@@ -21,8 +21,12 @@ export type DailyReflectionNormalizationDatabase = Pick<
 export type DailyReflectionNormalizationResult =
   | { status: "not_applicable" }
   | {
-      status: "processed" | "already_processed";
+      status: "processed";
       dailyReflectionId: string;
+    }
+  | {
+      status: "already_processed";
+      dailyReflectionId: string | null;
     }
   | {
       status: "failed";
@@ -34,8 +38,7 @@ export type DailyReflectionNormalizationResult =
         | "active_cycle_not_found"
         | "target_day_in_future"
         | "target_day_outside_active_cycle"
-        | "day_log_not_found"
-        | "processed_record_not_found";
+        | "day_log_not_found";
     };
 
 function optionalText(value: string | undefined): string | null {
@@ -55,6 +58,19 @@ function normalizedReflection(payload: DailyReflectionPayload) {
       ? dayStatusByImportValue[payload.day_status_recommendation]
       : null,
   };
+}
+
+function isNewerImport(
+  incoming: { id: string; createdAt: Date },
+  current: { id: string; createdAt: Date },
+): boolean {
+  const timestampDifference =
+    incoming.createdAt.getTime() - current.createdAt.getTime();
+
+  return (
+    timestampDifference > 0 ||
+    (timestampDifference === 0 && incoming.id > current.id)
+  );
 }
 
 async function markFailed(
@@ -84,6 +100,10 @@ export function normalizeDailyReflectionImport(
   now = new Date(),
 ): Promise<DailyReflectionNormalizationResult> {
   return database.$transaction(async (transaction) => {
+    await transaction.$queryRaw(
+      Prisma.sql`SELECT id FROM imported_payloads WHERE id = ${importedPayloadId}::uuid FOR UPDATE`,
+    );
+
     const importedPayload = await transaction.importedPayload.findUnique({
       where: { id: importedPayloadId },
       select: {
@@ -92,6 +112,7 @@ export function normalizeDailyReflectionImport(
         rawJson: true,
         validationStatus: true,
         processingStatus: true,
+        createdAt: true,
       },
     });
 
@@ -109,17 +130,9 @@ export function normalizeDailyReflectionImport(
         select: { id: true },
       });
 
-      if (!existing) {
-        return markFailed(
-          transaction,
-          importedPayloadId,
-          "processed_record_not_found",
-        );
-      }
-
       return {
         status: "already_processed",
-        dailyReflectionId: existing.id,
+        dailyReflectionId: existing?.id ?? null,
       };
     }
 
@@ -191,19 +204,37 @@ export function normalizeDailyReflectionImport(
       return markFailed(transaction, importedPayloadId, "day_log_not_found");
     }
 
-    const dailyReflection = await transaction.dailyReflection.upsert({
+    await transaction.$queryRaw(
+      Prisma.sql`SELECT id FROM day_logs WHERE id = ${dayLog.id}::uuid FOR UPDATE`,
+    );
+
+    const existingReflection = await transaction.dailyReflection.findUnique({
       where: { dayLogId: dayLog.id },
-      create: {
-        dayLogId: dayLog.id,
-        importedPayloadId,
-        ...normalizedReflection(payload),
+      select: {
+        id: true,
+        importedPayload: { select: { id: true, createdAt: true } },
       },
-      update: {
-        importedPayloadId,
-        ...normalizedReflection(payload),
-      },
-      select: { id: true },
     });
+
+    const dailyReflectionId =
+      !existingReflection ||
+      isNewerImport(importedPayload, existingReflection.importedPayload)
+        ? (
+            await transaction.dailyReflection.upsert({
+              where: { dayLogId: dayLog.id },
+              create: {
+                dayLogId: dayLog.id,
+                importedPayloadId,
+                ...normalizedReflection(payload),
+              },
+              update: {
+                importedPayloadId,
+                ...normalizedReflection(payload),
+              },
+              select: { id: true },
+            })
+          ).id
+        : existingReflection.id;
 
     await transaction.importedPayload.update({
       where: { id: importedPayloadId },
@@ -216,7 +247,7 @@ export function normalizeDailyReflectionImport(
 
     return {
       status: "processed",
-      dailyReflectionId: dailyReflection.id,
+      dailyReflectionId,
     };
   });
 }
