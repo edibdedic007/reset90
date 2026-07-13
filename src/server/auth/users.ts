@@ -35,6 +35,20 @@ export type BrowserUserDatabase = {
   };
 };
 
+export type BrowserUserLookupDatabase = {
+  user: {
+    findUnique(args: {
+      where: { authentikSubject: string };
+      select: {
+        id: true;
+        authentikSubject: true;
+        email: true;
+        displayName: true;
+      };
+    }): Promise<BrowserUserRecord | null>;
+  };
+};
+
 export function createDevBrowserIdentity(): BrowserUserIdentity {
   return {
     authentikSubject: DEV_AUTHENTIK_SUBJECT,
@@ -60,6 +74,31 @@ export async function storeBrowserUser(
       displayName: identity.displayName,
     },
   });
+
+  return {
+    userId: user.id,
+    authentikSubject: user.authentikSubject,
+    email: user.email,
+    displayName: user.displayName,
+    isDev: identity.isDev,
+  };
+}
+
+export async function resolveExistingBrowserUser(
+  database: BrowserUserLookupDatabase,
+  identity: BrowserUserIdentity,
+): Promise<BrowserUserSession | null> {
+  const user = await database.user.findUnique({
+    where: { authentikSubject: identity.authentikSubject },
+    select: {
+      id: true,
+      authentikSubject: true,
+      email: true,
+      displayName: true,
+    },
+  });
+
+  if (!user) return null;
 
   return {
     userId: user.id,

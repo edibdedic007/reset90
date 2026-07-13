@@ -17,7 +17,7 @@ shame-based streaks.
 - Docker Compose locally and in production, with Traefik expected in production
 - GitHub Actions CI
 
-## Implemented through Phase 15
+## Implemented through Phase 16
 
 - Repository, local environment, Prisma schema/migrations, seed data, readiness,
   quality gates, CI, backups/export/deployment helpers.
@@ -40,13 +40,18 @@ shame-based streaks.
 - Strict machine context imports plus authenticated manual creation, active-cycle
   relational search/exact filters, safe DTOs, and owner-only pinning in the
   responsive Context Library.
+- Authenticated, read-only `gpt_context_packet` 1.0 JSON download for the owned
+  active cycle, with schema validation, deterministic bounded windows, normalized
+  patterns/pinned context/open decisions, canonical recovery/status summaries,
+  and explicit privacy allowlists.
 
 ## Current boundary
 
-Phase 15 implements curated active-cycle context storage and library behavior.
-Embeddings, semantic/fuzzy search, automatic retrieval/prompt assembly,
-context packs, automatic context generation, cross-cycle memory, editing,
-deletion, bulk/archive/version flows, and analytics remain deferred.
+Phase 16 exports compact normalized active-cycle context on demand. Markdown
+export, direct GPT submission, packet persistence/history/caching, embeddings,
+semantic/fuzzy search, automatic retrieval/prompt assembly, automatic context
+generation, cross-cycle memory, decision lifecycle, editing,
+deletion, bulk/archive/version flows, and analytics expansion remain deferred.
 
 ## Durable implementation rules
 
@@ -55,6 +60,9 @@ deletion, bulk/archive/version flows, and analytics remain deferred.
 - Store raw GPT payloads before normalized data.
 - Runtime import schemas live in `src/server/imports/schemas/`; generated schemas
   live in root `schemas/`.
+- The outbound GPT context packet runtime schema and assembler live in
+  `src/server/context-export/`; packet generation is allowlist-only and
+  read-only.
 - Browser auth and GPT machine ingest auth remain separate boundaries.
 - One normalized plan exists per day; a new same-day import replaces it
   transactionally, while reprocessing the same raw import is a no-op.

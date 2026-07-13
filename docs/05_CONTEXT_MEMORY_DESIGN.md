@@ -105,10 +105,33 @@ and creation date.
   stay behind trusted server boundaries.
 - Backups containing context must be treated as sensitive.
 
-## Deferred after Phase 15
+## Phase 16 export scope
+
+Phase 16 can generate one compact `gpt_context_packet` version `1.0` JSON file
+on demand from the authenticated user's one active Reset Cycle. The packet is
+read-only, deterministic apart from its generation timestamp, runtime-validated,
+and bounded to current/recent cycle days, seven-day metrics, the newest stored
+weekly patterns, pinned context, canonical recovery state, and explicitly tagged
+open decisions.
+
+Packet assembly uses explicit normalized-field allowlists. It never persists a
+packet, reads raw imports as fallback, exports internal or ownership IDs, sends
+data to a GPT, or includes hidden reasoning, private notes, detailed narratives,
+prompts, or transcripts. Export authentication resolves only an existing user
+and performs no create, update, or upsert. Missing normalized concepts remain
+null or empty.
+
+Serialized UTF-8 output cannot exceed 32 KiB. Oversized valid packets lose
+complete optional items deterministically from the ends of `active_patterns`,
+then `open_decisions`, then `pinned_context`; required sections remain intact.
+The final packet is validated again, and required-only oversize returns a safe
+server error instead of an invalid or oversized file.
+
+## Deferred after Phase 16
 
 - embeddings, vector storage, semantic/fuzzy/hybrid search, and RAG;
-- automatic retrieval, prompt assembly, context packs, or GPT export formatting;
+- automatic retrieval, prompt assembly, or generated context packs;
+- Markdown export, direct GPT submission, packet history, caching, or schedules;
 - automatic summary, snapshot, or report generation and historical backfill;
 - review/reflection conversion, cross-cycle memory, or preference application;
 - edit, delete, archive, bulk, version, detail-route, analytics, or tag-admin

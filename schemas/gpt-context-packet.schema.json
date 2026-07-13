@@ -1,0 +1,756 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://reset90.local/schemas/gpt-context-packet.schema.json",
+  "type": "object",
+  "properties": {
+    "schema_version": { "type": "string", "const": "1.0" },
+    "generated_at": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+    },
+    "cycle": {
+      "type": "object",
+      "properties": {
+        "start_date": {
+          "type": "string",
+          "format": "date",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+        },
+        "end_date": {
+          "type": "string",
+          "format": "date",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+        },
+        "current_day_number": {
+          "anyOf": [
+            { "type": "integer", "minimum": 1, "maximum": 90 },
+            { "type": "null" }
+          ]
+        },
+        "total_days": { "type": "integer", "minimum": 1, "maximum": 90 },
+        "current_phase_number": {
+          "anyOf": [
+            { "type": "integer", "minimum": 1, "maximum": 3 },
+            { "type": "null" }
+          ]
+        },
+        "current_phase_name": {
+          "anyOf": [
+            { "type": "string", "minLength": 1, "maxLength": 200 },
+            { "type": "null" }
+          ]
+        }
+      },
+      "required": [
+        "start_date",
+        "end_date",
+        "current_day_number",
+        "total_days",
+        "current_phase_number",
+        "current_phase_name"
+      ],
+      "additionalProperties": false
+    },
+    "current_day": {
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "date": {
+              "type": "string",
+              "format": "date",
+              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+            },
+            "day_number": { "type": "integer", "minimum": 1, "maximum": 90 },
+            "status": {
+              "type": "string",
+              "enum": ["GREEN", "YELLOW", "BLUE", "RED", "GOLD", "UNSET"]
+            },
+            "mission": {
+              "anyOf": [
+                { "type": "string", "minLength": 1, "maxLength": 1000 },
+                { "type": "null" }
+              ]
+            },
+            "task_completion": {
+              "type": "object",
+              "properties": {
+                "total": { "type": "integer", "minimum": 0, "maximum": 110 },
+                "completed": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 110
+                },
+                "by_tier": {
+                  "type": "object",
+                  "properties": {
+                    "NON_NEGOTIABLE": {
+                      "type": "object",
+                      "properties": {
+                        "total": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 110
+                        },
+                        "completed": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 110
+                        }
+                      },
+                      "required": ["total", "completed"],
+                      "additionalProperties": false
+                    },
+                    "MINIMUM": {
+                      "type": "object",
+                      "properties": {
+                        "total": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 110
+                        },
+                        "completed": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 110
+                        }
+                      },
+                      "required": ["total", "completed"],
+                      "additionalProperties": false
+                    },
+                    "STANDARD": {
+                      "type": "object",
+                      "properties": {
+                        "total": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 110
+                        },
+                        "completed": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 110
+                        }
+                      },
+                      "required": ["total", "completed"],
+                      "additionalProperties": false
+                    },
+                    "IDEAL": {
+                      "type": "object",
+                      "properties": {
+                        "total": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 110
+                        },
+                        "completed": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 110
+                        }
+                      },
+                      "required": ["total", "completed"],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "NON_NEGOTIABLE",
+                    "MINIMUM",
+                    "STANDARD",
+                    "IDEAL"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "required": ["total", "completed", "by_tier"],
+              "additionalProperties": false
+            },
+            "latest_checkin_scores": {
+              "anyOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "mood": { "type": "integer", "minimum": 1, "maximum": 10 },
+                    "fog": { "type": "integer", "minimum": 1, "maximum": 10 },
+                    "loneliness": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 10
+                    },
+                    "self_criticism": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 10
+                    },
+                    "digital_control": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 10
+                    },
+                    "learning_resistance": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 10
+                    },
+                    "body_relationship": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 10
+                    },
+                    "work_confidence": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 10
+                    }
+                  },
+                  "required": [
+                    "mood",
+                    "fog",
+                    "loneliness",
+                    "self_criticism",
+                    "digital_control",
+                    "learning_resistance",
+                    "body_relationship",
+                    "work_confidence"
+                  ],
+                  "additionalProperties": false
+                },
+                { "type": "null" }
+              ]
+            },
+            "reflection_summary": {
+              "anyOf": [
+                { "type": "string", "minLength": 1, "maxLength": 1500 },
+                { "type": "null" }
+              ]
+            },
+            "is_recovery_day": { "type": "boolean" }
+          },
+          "required": [
+            "date",
+            "day_number",
+            "status",
+            "mission",
+            "task_completion",
+            "latest_checkin_scores",
+            "reflection_summary",
+            "is_recovery_day"
+          ],
+          "additionalProperties": false
+        },
+        { "type": "null" }
+      ]
+    },
+    "recent_days": {
+      "maxItems": 3,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "date": {
+            "type": "string",
+            "format": "date",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+          },
+          "day_number": { "type": "integer", "minimum": 1, "maximum": 90 },
+          "status": {
+            "type": "string",
+            "enum": ["GREEN", "YELLOW", "BLUE", "RED", "GOLD", "UNSET"]
+          },
+          "mission": {
+            "anyOf": [
+              { "type": "string", "minLength": 1, "maxLength": 1000 },
+              { "type": "null" }
+            ]
+          },
+          "task_completion": {
+            "type": "object",
+            "properties": {
+              "total": { "type": "integer", "minimum": 0, "maximum": 110 },
+              "completed": { "type": "integer", "minimum": 0, "maximum": 110 },
+              "by_tier": {
+                "type": "object",
+                "properties": {
+                  "NON_NEGOTIABLE": {
+                    "type": "object",
+                    "properties": {
+                      "total": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 110
+                      },
+                      "completed": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 110
+                      }
+                    },
+                    "required": ["total", "completed"],
+                    "additionalProperties": false
+                  },
+                  "MINIMUM": {
+                    "type": "object",
+                    "properties": {
+                      "total": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 110
+                      },
+                      "completed": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 110
+                      }
+                    },
+                    "required": ["total", "completed"],
+                    "additionalProperties": false
+                  },
+                  "STANDARD": {
+                    "type": "object",
+                    "properties": {
+                      "total": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 110
+                      },
+                      "completed": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 110
+                      }
+                    },
+                    "required": ["total", "completed"],
+                    "additionalProperties": false
+                  },
+                  "IDEAL": {
+                    "type": "object",
+                    "properties": {
+                      "total": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 110
+                      },
+                      "completed": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 110
+                      }
+                    },
+                    "required": ["total", "completed"],
+                    "additionalProperties": false
+                  }
+                },
+                "required": ["NON_NEGOTIABLE", "MINIMUM", "STANDARD", "IDEAL"],
+                "additionalProperties": false
+              }
+            },
+            "required": ["total", "completed", "by_tier"],
+            "additionalProperties": false
+          },
+          "latest_checkin_scores": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "mood": { "type": "integer", "minimum": 1, "maximum": 10 },
+                  "fog": { "type": "integer", "minimum": 1, "maximum": 10 },
+                  "loneliness": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 10
+                  },
+                  "self_criticism": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 10
+                  },
+                  "digital_control": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 10
+                  },
+                  "learning_resistance": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 10
+                  },
+                  "body_relationship": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 10
+                  },
+                  "work_confidence": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 10
+                  }
+                },
+                "required": [
+                  "mood",
+                  "fog",
+                  "loneliness",
+                  "self_criticism",
+                  "digital_control",
+                  "learning_resistance",
+                  "body_relationship",
+                  "work_confidence"
+                ],
+                "additionalProperties": false
+              },
+              { "type": "null" }
+            ]
+          },
+          "reflection_summary": {
+            "anyOf": [
+              { "type": "string", "minLength": 1, "maxLength": 1500 },
+              { "type": "null" }
+            ]
+          },
+          "is_recovery_day": { "type": "boolean" }
+        },
+        "required": [
+          "date",
+          "day_number",
+          "status",
+          "mission",
+          "task_completion",
+          "latest_checkin_scores",
+          "reflection_summary",
+          "is_recovery_day"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "metrics_7d": {
+      "type": "object",
+      "properties": {
+        "window_start_date": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "date",
+              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+            },
+            { "type": "null" }
+          ]
+        },
+        "window_end_date": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "date",
+              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+            },
+            { "type": "null" }
+          ]
+        },
+        "cycle_date_count": { "type": "integer", "minimum": 0, "maximum": 7 },
+        "dates_with_checkins": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 7
+        },
+        "status_counts": {
+          "type": "object",
+          "properties": {
+            "GREEN": { "type": "integer", "minimum": 0, "maximum": 7 },
+            "YELLOW": { "type": "integer", "minimum": 0, "maximum": 7 },
+            "BLUE": { "type": "integer", "minimum": 0, "maximum": 7 },
+            "RED": { "type": "integer", "minimum": 0, "maximum": 7 },
+            "GOLD": { "type": "integer", "minimum": 0, "maximum": 7 },
+            "UNSET": { "type": "integer", "minimum": 0, "maximum": 7 }
+          },
+          "required": ["GREEN", "YELLOW", "BLUE", "RED", "GOLD", "UNSET"],
+          "additionalProperties": false
+        },
+        "checkin_averages": {
+          "type": "object",
+          "properties": {
+            "mood": {
+              "type": "object",
+              "properties": {
+                "average": {
+                  "anyOf": [
+                    { "type": "number", "minimum": 1, "maximum": 10 },
+                    { "type": "null" }
+                  ]
+                },
+                "sample_count": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 7
+                }
+              },
+              "required": ["average", "sample_count"],
+              "additionalProperties": false
+            },
+            "fog": {
+              "type": "object",
+              "properties": {
+                "average": {
+                  "anyOf": [
+                    { "type": "number", "minimum": 1, "maximum": 10 },
+                    { "type": "null" }
+                  ]
+                },
+                "sample_count": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 7
+                }
+              },
+              "required": ["average", "sample_count"],
+              "additionalProperties": false
+            },
+            "loneliness": {
+              "type": "object",
+              "properties": {
+                "average": {
+                  "anyOf": [
+                    { "type": "number", "minimum": 1, "maximum": 10 },
+                    { "type": "null" }
+                  ]
+                },
+                "sample_count": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 7
+                }
+              },
+              "required": ["average", "sample_count"],
+              "additionalProperties": false
+            },
+            "self_criticism": {
+              "type": "object",
+              "properties": {
+                "average": {
+                  "anyOf": [
+                    { "type": "number", "minimum": 1, "maximum": 10 },
+                    { "type": "null" }
+                  ]
+                },
+                "sample_count": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 7
+                }
+              },
+              "required": ["average", "sample_count"],
+              "additionalProperties": false
+            },
+            "digital_control": {
+              "type": "object",
+              "properties": {
+                "average": {
+                  "anyOf": [
+                    { "type": "number", "minimum": 1, "maximum": 10 },
+                    { "type": "null" }
+                  ]
+                },
+                "sample_count": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 7
+                }
+              },
+              "required": ["average", "sample_count"],
+              "additionalProperties": false
+            },
+            "learning_resistance": {
+              "type": "object",
+              "properties": {
+                "average": {
+                  "anyOf": [
+                    { "type": "number", "minimum": 1, "maximum": 10 },
+                    { "type": "null" }
+                  ]
+                },
+                "sample_count": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 7
+                }
+              },
+              "required": ["average", "sample_count"],
+              "additionalProperties": false
+            },
+            "body_relationship": {
+              "type": "object",
+              "properties": {
+                "average": {
+                  "anyOf": [
+                    { "type": "number", "minimum": 1, "maximum": 10 },
+                    { "type": "null" }
+                  ]
+                },
+                "sample_count": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 7
+                }
+              },
+              "required": ["average", "sample_count"],
+              "additionalProperties": false
+            },
+            "work_confidence": {
+              "type": "object",
+              "properties": {
+                "average": {
+                  "anyOf": [
+                    { "type": "number", "minimum": 1, "maximum": 10 },
+                    { "type": "null" }
+                  ]
+                },
+                "sample_count": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 7
+                }
+              },
+              "required": ["average", "sample_count"],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "mood",
+            "fog",
+            "loneliness",
+            "self_criticism",
+            "digital_control",
+            "learning_resistance",
+            "body_relationship",
+            "work_confidence"
+          ],
+          "additionalProperties": false
+        },
+        "completed_recovery_events": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 7
+        }
+      },
+      "required": [
+        "window_start_date",
+        "window_end_date",
+        "cycle_date_count",
+        "dates_with_checkins",
+        "status_counts",
+        "checkin_averages",
+        "completed_recovery_events"
+      ],
+      "additionalProperties": false
+    },
+    "active_patterns": {
+      "maxItems": 10,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "title": { "type": "string", "minLength": 1, "maxLength": 300 },
+          "evidence": { "type": "string", "minLength": 1, "maxLength": 2000 }
+        },
+        "required": ["title", "evidence"],
+        "additionalProperties": false
+      }
+    },
+    "pinned_context": {
+      "maxItems": 12,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "CONVERSATION_SUMMARY",
+              "TASK_SUMMARY",
+              "DECISION",
+              "PREFERENCE",
+              "DAILY_SUMMARY",
+              "WEEKLY_SNAPSHOT",
+              "CYCLE_REPORT",
+              "CONTEXT_SNAPSHOT"
+            ]
+          },
+          "title": { "type": "string", "minLength": 1, "maxLength": 160 },
+          "summary": { "type": "string", "minLength": 1, "maxLength": 4000 },
+          "tags": {
+            "maxItems": 8,
+            "type": "array",
+            "items": { "type": "string", "minLength": 1, "maxLength": 40 }
+          }
+        },
+        "required": ["kind", "title", "summary", "tags"],
+        "additionalProperties": false
+      }
+    },
+    "recovery": {
+      "type": "object",
+      "properties": {
+        "configured_credit_allowance": {
+          "anyOf": [
+            { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+            { "type": "null" }
+          ]
+        },
+        "credits_used": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "credits_remaining": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "completed_events_7d": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 7
+        },
+        "current_day_is_recovery": { "type": "boolean" }
+      },
+      "required": [
+        "configured_credit_allowance",
+        "credits_used",
+        "credits_remaining",
+        "completed_events_7d",
+        "current_day_is_recovery"
+      ],
+      "additionalProperties": false
+    },
+    "open_decisions": {
+      "maxItems": 10,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "title": { "type": "string", "minLength": 1, "maxLength": 160 },
+          "summary": { "type": "string", "minLength": 1, "maxLength": 4000 },
+          "tags": {
+            "maxItems": 8,
+            "type": "array",
+            "items": { "type": "string", "minLength": 1, "maxLength": 40 }
+          }
+        },
+        "required": ["title", "summary", "tags"],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": [
+    "schema_version",
+    "generated_at",
+    "cycle",
+    "current_day",
+    "recent_days",
+    "metrics_7d",
+    "active_patterns",
+    "pinned_context",
+    "recovery",
+    "open_decisions"
+  ],
+  "additionalProperties": false,
+  "title": "Reset90 gpt_context_packet 1.0"
+}

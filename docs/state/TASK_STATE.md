@@ -4,120 +4,113 @@ Last updated: 2026-07-13
 
 ## Current phase
 
-Phase 15 Context Library implementation and bounded correction pass are
-complete and commit-ready. Phase 16 has not started.
+Phase 16 compact GPT context packet export and its bounded correction pass are
+implemented with direct read-only session regression coverage and automated
+verification complete. Manual phone-width export smoke remains pending. Phase
+17 has not started.
 
 ## Active task
 
-Phase 15 correction preserves legacy `context_item` version `1.0`, assigns the
-Context Library shape version `2.0`, dispatches validation/normalization by
-declared version, terminals valid legacy imports as raw-only, revalidates one
-singular locked active cycle for every context mutation, aligns runtime and
-generated schemas, preserves the legacy standalone schema URI, publishes the
-Phase 15 standalone schema at a versioned URI, and enforces one active Reset
-Cycle per user through an additive PostgreSQL partial unique index.
+Phase 16 adds authenticated `GET /api/context/export` and one Context Library
+download action. Export authentication now resolves only an existing
+application user with a non-mutating lookup. One repeatable-read transaction
+resolves that user's singular active cycle and assembles `gpt_context_packet`
+version `1.0` from explicit normalized-field allowlists.
 
-Phase 14 implementation, automated checks, review, commit, push, and merge were
-complete before this branch. Its manual `/reviews` browser verification was
-intentionally skipped and accepted as a documented skipped check; it is not
-pending and was not reopened during Phase 15.
+Normal packet assembly is schema-validated, measured as serialized UTF-8, and
+bounded to 32 KiB by removing complete optional items from the ends of
+`active_patterns`, then `open_decisions`, then `pinned_context`. Required
+sections remain unchanged, and the final packet is validated again. Required
+data that cannot fit returns a bounded safe server error. Browser Blob URL
+cleanup is deferred until after the synthetic download click can be consumed.
+
+Export never writes, reconciles, consumes credits, creates imports, persists
+packets, reads raw payload fallback, or exposes ownership/authentication/internal
+IDs, private notes, detailed narratives, prompts, or traces. JSON is the only
+Phase 16 format.
+
+This bounded correction directly executes `getReadOnlyBrowserSession` for an
+existing application user, a missing application user, and an unauthenticated
+identity. Existing and missing authenticated identities use the lookup path
+without user upsert; unauthenticated behavior remains `null` without database
+access. No production behavior changed.
 
 ## Next phase
 
-Phase 16 remains deferred until explicit approval. No Phase 16 schema, route,
-endpoint, background job, UI placeholder, or preparatory abstraction was added.
+Phase 17 remains deferred. No Markdown export, direct GPT submission,
+embeddings, semantic retrieval, packet history/caching/scheduling, generated
+recommendations, decision lifecycle, cross-cycle context, analytics expansion,
+or other Phase 17 preparation was added.
 
 ## Next actions
 
-1. Review the Phase 15 correction diff and final documentation updates.
-2. Commit with `fix(context): preserve versioned context contracts` after
-   approval.
-3. Do not start Phase 16 without explicit approval.
+1. Run the documented manual phone-width `/context` export smoke when an
+   authenticated local browser is available.
+2. Review and commit the Phase 16 correction with
+   `test(auth): cover read-only browser session resolution` after approval.
+3. Do not start Phase 17 without explicit approval.
 
 ## Required completion checks
 
-- Legacy/new standalone context contracts, deterministic envelope dispatch,
-  raw-only fallback, active-cycle mutation races, migration duplicate refusal,
-  real PostgreSQL pagination/filtering, DTO/API/UI privacy, and
-  runtime/generated-schema parity tests.
-- Generated schema drift, Prisma generation/validation, lint, typecheck, full
-  tests, production build, shell syntax, and whitespace checks.
-- Additive migration applied to the current local database and a disposable
-  clean database.
+- Direct real-helper coverage for existing-user lookup, missing-user lookup,
+  no user upsert, and unchanged unauthenticated behavior, plus packet
+  runtime/generated-schema parity, singular active-cycle handling,
+  ownership/privacy, UTC windows, missing data, canonical statuses, metrics,
+  deterministic 32-KiB pruning, required-only oversize failure, download
+  headers, and deferred Blob URL cleanup tests.
+- Generated-schema drift, lint, typecheck, full tests, production build, Prisma
+  validation, shell syntax, and whitespace checks through the single final
+  quality gate.
+- Manual authenticated download/privacy/phone-width smoke remains pending and
+  uses the checklist below because no checked-in browser harness exists.
 
 ## Automated verification evidence
 
-- Final focused correction suite passed: 5 files, 147 tests.
-- Generated-schema drift validation passed and covered both standalone context
-  resources.
-- Real PostgreSQL query test passed with deterministic inserted records inside
-  a rolled-back transaction.
-- Real PostgreSQL migration preflight test passed: duplicate active cycles
-  produced the bounded database error, retained both rows, and created no
-  index.
-- Real PostgreSQL independent-connection concurrency test passed: one same-user
-  active-cycle insert committed, one failed with `P2002`, different users and
-  archive-then-replace succeeded, and context mutation safety remained intact.
-- Migration `20260713130000_context_memory_library` applied successfully to the
-  current local database.
-- Corrective migration `20260713160000_single_active_reset_cycle` applied
-  successfully to the current local database.
-- All nine migrations applied successfully to disposable clean database
-  `reset90_phase15_correction_clean`; that database was then dropped.
-- First host-side `make check` stopped at typecheck because the focused generated
-  envelope test helper excluded optional union properties. Targeted typecheck
-  passed after widening that test-only type.
-- Second and final host-side `make check` passed: format, lint, typecheck, 20
-  test files with 295 tests, payload/schema drift, production build, Prisma
-  validation, shell syntax, and whitespace.
+- Focused authentication regression passed: `tests/auth.test.ts`; 1 file, 13
+  tests.
+- Final host-side `make check` passed: 21 test files, 328 tests, generated-schema
+  and example drift, formatting, lint, typecheck, production build, Prisma
+  validation, shell syntax, and whitespace checks.
+- The added tests directly execute the real `getReadOnlyBrowserSession`, prove
+  existing and missing authenticated identities use `findUnique` without
+  `upsert`, prove the stored existing user is returned, and preserve
+  unauthenticated `null` behavior without database access.
+- This correction changes tests and state evidence only; no migration or
+  production behavior change was introduced.
 
-## Manual `/context` browser verification
+## Manual Phase 16 browser verification
 
-Interactive manual `/context` browser verification passed. The following were
-verified:
+No checked-in browser-smoke command exists, so no browser framework was
+installed and interactive smoke was not run. Manual scope:
 
-- authenticated `/context` page loading;
-- Context navigation entry;
-- active-cycle empty-library state;
-- manual context creation;
-- displayed title, summary, kind, domain, tags, source reference, and manual
-  provenance;
-- title and summary search;
-- filtered-empty behavior;
-- domain, kind, tag, pinned-state, and date filters;
-- combined filter AND behavior;
-- pin persistence after refresh;
-- unpin persistence after refresh;
-- responsive behavior near 402 × 874;
-- no horizontal page overflow;
-- no raw payload, processing metadata, ownership identifiers, authentication
-  data, or internal errors in browser-visible context responses.
-
-GPT import was intentionally not exercised manually. Automated tests cover
-import authentication, schema dispatch, normalization, idempotency, transaction
-behavior, concurrency, and raw-import privacy.
+1. Sign in and open the Context Library page.
+2. Confirm the GPT context export action is enabled with an active cycle.
+3. Trigger the export and confirm only one request can run at a time.
+4. Confirm the JSON file downloads successfully.
+5. Confirm the filename follows `reset90-gpt-context-YYYY-MM-DD.json`.
+6. Confirm the downloaded file parses as JSON.
+7. Confirm the packet is at most 32 KiB.
+8. Confirm required sections remain present after any deterministic pruning.
+9. Confirm no raw payloads, private notes, authentication data, ownership
+   identifiers, or internal IDs are present.
+10. Confirm the control and error text are usable at phone width.
+11. Confirm the no-active-cycle state disables or hides the export action and
+    presents calm explanatory text.
 
 ## Migration and rollback
 
-- Migration: `20260713130000_context_memory_library`.
-- Corrective migration: `20260713160000_single_active_reset_cycle`.
-- Correction does not rewrite the Phase 15 migration or mutate existing cycle
-  data. It fails before index creation when duplicate active cycles exist.
-- Normal rollback: revert Phase 15 application code and leave additive context
-  tables and the active-cycle unique index intact.
-- Removing the corrective index restores the old race and is not the default
-  rollback; use a forward migration only if rollback is required.
-- Production migration requires a current backup.
-- Dropping populated context tables is destructive and not the default rollback.
-- PostgreSQL enum-value removal may require a forward corrective migration.
+- Phase 16 and this test-only correction add no migration, backfill, data
+  correction, worker, or background job.
+- Rollback reverts the export route, packet schema/assembler and generated
+  schema registration, Context Library control, focused tests, and Phase 16
+  documentation.
+- Rolling back this correction removes only the direct auth regression tests
+  and verification evidence; no database restoration or user-data cleanup is
+  required.
 
 ## Latest handoff
 
-- 2026-07-13T14:10:38Z — feature/context-memory-library — Phase 15 Context Library vertical slice complete; focused 116 tests and final host-side `make check` with 264 tests plus production build passed; current and clean database migrations passed; manual authenticated/mobile/privacy `/context` browser verification was not run at this handoff; next step: review and commit without starting Phase 16
-- 2026-07-13T14:48:58Z — feature/context-memory-library — Phase 15 correction preserved context-item 1.0 as terminal raw-only and assigned Context Library 2.0, added singular active-cycle lock/revalidation, aligned generated/runtime contracts, and replaced mocked pagination proof with PostgreSQL plus privacy coverage; focused 143 tests, schema drift, typecheck, and final host-side make check passed; interactive phone-width `/context` browser verification was not run at this handoff; next step: review and commit without starting Phase 16
-- 2026-07-13T15:39:57Z — feature/context-memory-library — bounded Phase 15 correction restored the legacy standalone context schema, published versioned Context Library schema, and added duplicate-refusing one-active-cycle database enforcement; focused 147 tests, current and clean migrations, PostgreSQL migration/concurrency proofs, and final make check with 295 tests passed; manual `/context` browser verification was not run at this handoff; next step: review and commit without starting Phase 16
-- 2026-07-13T16:17:38Z — feature/context-memory-library — Phase 15 final documentation records the one-active-cycle database invariant and migration behavior; interactive `/context` browser verification was intentionally skipped and accepted as a documented skipped check, with no remaining browser gate; `git diff --check` passed; next step: review and commit without starting Phase 16
-- 2026-07-13T18:52:46Z — feature/context-memory-library — Phase 15 manual `/context` browser verification passed for authenticated loading, navigation, empty state, manual creation, displayed fields, search, filters, pin persistence, responsive layout, and browser-response privacy; GPT import remained intentionally manual-test-excluded with automated coverage; `git diff --check` passed; next step: review and commit without starting Phase 16
+- 2026-07-13T20:54:57Z — feature/gpt-context-export — bounded Phase 16 auth correction added direct real-helper coverage for existing, missing, and unauthenticated read-only browser sessions; focused `tests/auth.test.ts` passed with 13 tests; final host-side `make check` passed with 21 test files and 328 tests plus production build; no migration or production behavior change; manual phone-width export smoke remains; next step: run that smoke, review, and commit with `test(auth): cover read-only browser session resolution` without starting Phase 17
 
 ## Historical detail
 
