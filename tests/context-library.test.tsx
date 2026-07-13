@@ -188,42 +188,11 @@ describe("context query validation and owned reads", () => {
     expect(test.queryRaw).not.toHaveBeenCalled();
     expect(test.count).not.toHaveBeenCalled();
   });
-
-  it("uses a stable bounded cursor without repeating rows", async () => {
-    const rows = UUIDS.slice(0, CONTEXT_PAGE_SIZE + 1).map((id) => ({
-      ...ROW,
-      id,
-      pinnedAt: null,
-    }));
-    const test = listDatabase(rows);
-    const first = await getContextLibrary(test.database, "user-1", {});
-    if (first.status !== "valid" || first.library.status !== "ready")
-      throw new Error("expected ready library");
-
-    expect(first.library.items).toHaveLength(CONTEXT_PAGE_SIZE);
-    expect(first.library.nextCursor).not.toBeNull();
-
-    test.queryRaw.mockResolvedValueOnce([
-      { ...ROW, id: UUIDS[CONTEXT_PAGE_SIZE] },
-    ]);
-    const second = await getContextLibrary(test.database, "user-1", {
-      cursor: first.library.nextCursor,
-    });
-    if (second.status !== "valid" || second.library.status !== "ready")
-      throw new Error("expected ready library");
-
-    const firstIds = new Set(first.library.items.map((entry) => entry.id));
-    expect(second.library.items.every((entry) => !firstIds.has(entry.id))).toBe(
-      true,
-    );
-    const cursorQuery = readQuery(test.queryRaw.mock.calls[1][0]);
-    expect(cursorQuery.text).toContain("ci.id < ?::uuid");
-  });
 });
 
 describe("manual context creation and owner-only pinning", () => {
   function manualDatabase(
-    cycles: unknown[] = [{ id: "cycle-1", name: "My Reset" }],
+    cycleSelections: unknown[][] = [[{ id: "cycle-1", name: "My Reset" }]],
   ) {
     const create = vi.fn().mockResolvedValue({
       ...ROW,
@@ -232,9 +201,21 @@ describe("manual context creation and owner-only pinning", () => {
       pinnedAt: null,
       tags: [{ name: "Work" }],
     });
-    const findMany = vi.fn().mockResolvedValue(cycles);
+    let cycleReadIndex = 0;
+    const findMany = vi.fn(async () => {
+      const cycles =
+        cycleSelections[Math.min(cycleReadIndex, cycleSelections.length - 1)] ??
+        [];
+      cycleReadIndex += 1;
+      return cycles;
+    });
+    const queryRaw = vi.fn().mockResolvedValue([{ id: "cycle-1" }]);
     const updateMany = vi.fn().mockResolvedValue({ count: 0 });
-    const transaction = { resetCycle: { findMany }, contextItem: { create } };
+    const transaction = {
+      $queryRaw: queryRaw,
+      resetCycle: { findMany },
+      contextItem: { create, updateMany },
+    };
     const database = {
       resetCycle: { findMany },
       contextItem: { create, updateMany },
@@ -242,7 +223,7 @@ describe("manual context creation and owner-only pinning", () => {
         callback(transaction),
       ),
     } as unknown as PrismaClient;
-    return { database, create, findMany, updateMany };
+    return { database, create, findMany, queryRaw, updateMany };
   }
 
   const validManual = {
@@ -288,6 +269,7 @@ describe("manual context creation and owner-only pinning", () => {
     expect(data).not.toHaveProperty("userId");
     expect(data).not.toHaveProperty("importedPayloadId");
     expect(data).not.toHaveProperty("pinnedAt");
+    expect(test.queryRaw).toHaveBeenCalledTimes(1);
   });
 
   it("rejects supplied ownership/provenance fields", async () => {
@@ -303,7 +285,34 @@ describe("manual context creation and owner-only pinning", () => {
   });
 
   it("does not mutate when no owned active cycle exists", async () => {
-    const test = manualDatabase([]);
+    const test = manualDatabase([[]]);
+    await expect(
+      createManualContextItem(test.database, "user-1", validManual),
+    ).resolves.toEqual({ status: "no_cycle" });
+    expect(test.create).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [
+      "two active cycles",
+      [
+        [
+          { id: "cycle-1", name: "First" },
+          { id: "cycle-2", name: "Second" },
+        ],
+      ],
+    ],
+    ["archived while waiting for lock", [[{ id: "cycle-1", name: "Old" }], []]],
+    [
+      "replaced while waiting for lock",
+      [
+        [{ id: "cycle-1", name: "Old" }],
+        [{ id: "cycle-2", name: "Replacement" }],
+      ],
+    ],
+  ])("does not manually create context with %s", async (_name, cycles) => {
+    const test = manualDatabase(cycles);
+
     await expect(
       createManualContextItem(test.database, "user-1", validManual),
     ).resolves.toEqual({ status: "no_cycle" });
@@ -320,7 +329,7 @@ describe("manual context creation and owner-only pinning", () => {
     expect(test.updateMany.mock.calls[0][0]).toEqual({
       where: {
         id: UUIDS[0],
-        cycle: { is: { userId: "user-1", status: "ACTIVE" } },
+        cycleId: "cycle-1",
         pinnedAt: null,
       },
       data: { pinnedAt },
@@ -328,7 +337,7 @@ describe("manual context creation and owner-only pinning", () => {
     expect(test.updateMany.mock.calls[1][0]).toEqual({
       where: {
         id: UUIDS[0],
-        cycle: { is: { userId: "user-1", status: "ACTIVE" } },
+        cycleId: "cycle-1",
         pinnedAt: { not: null },
       },
       data: { pinnedAt: null },
@@ -336,6 +345,20 @@ describe("manual context creation and owner-only pinning", () => {
     expect(JSON.stringify(test.updateMany.mock.calls)).not.toMatch(
       /title|summary|kind|domain|sourceType/,
     );
+  });
+
+  it("does not pin or unpin when active-cycle state is ambiguous", async () => {
+    const ambiguous = [
+      { id: "cycle-1", name: "First" },
+      { id: "cycle-2", name: "Second" },
+    ];
+    const test = manualDatabase([ambiguous]);
+
+    await setContextPinned(test.database, "user-1", UUIDS[0], true);
+    await setContextPinned(test.database, "user-1", UUIDS[0], false);
+
+    expect(test.queryRaw).not.toHaveBeenCalled();
+    expect(test.updateMany).not.toHaveBeenCalled();
   });
 
   it("gives nonexistent and unowned pin targets equivalent safe responses", async () => {

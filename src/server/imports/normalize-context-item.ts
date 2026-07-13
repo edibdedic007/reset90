@@ -1,7 +1,14 @@
 import { Prisma, type PrismaClient } from "../../generated/prisma/client";
 import { normalizeContextTag } from "../../lib/context";
+import {
+  findSingularActiveCycle,
+  lockAndRevalidateSingularActiveCycle,
+} from "../context-cycle";
 
-import { contextItemImportSchema } from "./schemas";
+import {
+  contextItemImportSchema,
+  LEGACY_CONTEXT_ITEM_SCHEMA_VERSION,
+} from "./schemas";
 
 export type ContextItemNormalizationDatabase = Pick<
   PrismaClient,
@@ -11,6 +18,7 @@ export type ContextItemNormalizationDatabase = Pick<
 export type ContextItemNormalizationResult =
   | { status: "not_applicable" }
   | { status: "processed"; contextItemId: string }
+  | { status: "accepted_raw_only" }
   | { status: "already_processed"; contextItemId: string | null }
   | {
       status: "failed";
@@ -54,6 +62,7 @@ export function normalizeContextItemImport(
       select: {
         id: true,
         kind: true,
+        schemaVersion: true,
         rawJson: true,
         validationStatus: true,
         processingStatus: true,
@@ -92,6 +101,26 @@ export function normalizeContextItemImport(
       );
     }
 
+    if (importedPayload.schemaVersion !== envelope.data.schema_version) {
+      return markFailed(
+        transaction,
+        importedPayloadId,
+        "invalid_stored_payload",
+      );
+    }
+
+    if (envelope.data.schema_version === LEGACY_CONTEXT_ITEM_SCHEMA_VERSION) {
+      await transaction.importedPayload.update({
+        where: { id: importedPayloadId },
+        data: {
+          processingStatus: "PROCESSED",
+          processedAt: new Date(),
+          errorMetadata: Prisma.DbNull,
+        },
+      });
+      return { status: "accepted_raw_only" };
+    }
+
     const owner = await transaction.user.findUnique({
       where: { authentikSubject: ownerAuthentikSubject },
       select: { id: true },
@@ -104,36 +133,42 @@ export function normalizeContextItemImport(
       );
     }
 
-    const cycles = await transaction.resetCycle.findMany({
-      where: { userId: owner.id, status: "ACTIVE" },
-      orderBy: { startDate: "desc" },
-      take: 2,
-      select: { id: true },
-    });
-    if (cycles.length === 0) {
+    const expectedCycle = await findSingularActiveCycle(transaction, owner.id);
+    if (!expectedCycle) {
+      const activeCycleCount = await transaction.resetCycle.count({
+        where: { userId: owner.id, status: "ACTIVE" },
+      });
       return markFailed(
         transaction,
         importedPayloadId,
-        "active_cycle_not_found",
-      );
-    }
-    if (cycles.length !== 1) {
-      return markFailed(
-        transaction,
-        importedPayloadId,
-        "active_cycle_ambiguous",
+        activeCycleCount === 0
+          ? "active_cycle_not_found"
+          : "active_cycle_ambiguous",
       );
     }
 
-    const cycleId = cycles[0].id;
-    await transaction.$queryRaw(
-      Prisma.sql`SELECT id FROM reset_cycles WHERE id = ${cycleId}::uuid FOR UPDATE`,
+    const cycle = await lockAndRevalidateSingularActiveCycle(
+      transaction,
+      owner.id,
+      expectedCycle.id,
     );
+    if (!cycle) {
+      const activeCycleCount = await transaction.resetCycle.count({
+        where: { userId: owner.id, status: "ACTIVE" },
+      });
+      return markFailed(
+        transaction,
+        importedPayloadId,
+        activeCycleCount === 0
+          ? "active_cycle_not_found"
+          : "active_cycle_ambiguous",
+      );
+    }
 
     const payload = envelope.data.payload;
     const contextItem = await transaction.contextItem.create({
       data: {
-        cycleId,
+        cycleId: cycle.id,
         kind: payload.kind,
         domain: payload.domain,
         title: payload.title,
@@ -142,7 +177,7 @@ export function normalizeContextItemImport(
         importedPayloadId,
         sourceRef: payload.source_ref,
         tags: {
-          create: payload.tags.map((name) => ({
+          create: (payload.tags ?? []).map((name) => ({
             name,
             normalizedName: normalizeContextTag(name),
           })),

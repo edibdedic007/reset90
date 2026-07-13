@@ -12,7 +12,7 @@ const RAW_SENTINEL = "RAW_ONLY_CONTEXT_SENTINEL_15";
 function contextEnvelope(idempotencyKey = "context-import-one") {
   return {
     kind: "context_item",
-    schema_version: "1.0",
+    schema_version: "2.0",
     idempotency_key: idempotencyKey,
     source: "custom_gpt",
     external_conversation_id: RAW_SENTINEL,
@@ -27,9 +27,27 @@ function contextEnvelope(idempotencyKey = "context-import-one") {
   };
 }
 
+function legacyContextEnvelope(idempotencyKey = "legacy-context-import-one") {
+  return {
+    kind: "context_item",
+    schema_version: "1.0",
+    idempotency_key: idempotencyKey,
+    source: "custom_gpt",
+    payload: {
+      kind: "decision_log",
+      title: "Legacy bounded work",
+      summary: RAW_SENTINEL,
+      importance: 4,
+      tags: ["legacy"],
+      is_sensitive: true,
+    },
+  };
+}
+
 type StoredImport = {
   id: string;
   kind: "CONTEXT_ITEM";
+  schemaVersion: string;
   rawJson: unknown;
   validationStatus: "VALID" | "INVALID";
   processingStatus: ProcessingStatus;
@@ -60,15 +78,21 @@ function createDatabase(
   options: {
     rawJson?: unknown;
     ownerFound?: boolean;
-    cycles?: Array<{ id: string }>;
+    cycleSelections?: Array<Array<{ id: string; name: string }>>;
+    lockedCycleExists?: boolean;
     failCreate?: boolean;
   } = {},
 ) {
   const rawJson = options.rawJson ?? contextEnvelope();
+  const schemaVersion =
+    typeof rawJson === "object" && rawJson !== null
+      ? String(Reflect.get(rawJson, "schema_version"))
+      : "2.0";
   let imports: StoredImport[] = [
     {
       id: "import-1",
       kind: "CONTEXT_ITEM",
+      schemaVersion,
       rawJson,
       validationStatus: "VALID",
       processingStatus: "PENDING",
@@ -82,6 +106,11 @@ function createDatabase(
   let transactionTail = Promise.resolve();
   const operations: string[] = [];
   const create = vi.fn();
+  const cycleSelections = options.cycleSelections ?? [
+    [{ id: "cycle-1", name: "My Reset" }],
+  ];
+  let cycleReadIndex = 0;
+  let latestCycles = cycleSelections[0] ?? [];
 
   const database = {
     $transaction: vi.fn(async (callback: (transaction: unknown) => unknown) => {
@@ -99,10 +128,12 @@ function createDatabase(
       const transaction = {
         $queryRaw: async (query: { strings: readonly string[] }) => {
           const sql = query.strings.join("?");
-          operations.push(
-            sql.includes("imported_payloads") ? "lock-import" : "lock-cycle",
-          );
-          return [];
+          if (sql.includes("imported_payloads")) {
+            operations.push("lock-import");
+            return [{ id: "import-1" }];
+          }
+          operations.push("lock-cycle");
+          return options.lockedCycleExists === false ? [] : [{ id: "cycle-1" }];
         },
         importedPayload: {
           findUnique: async ({ where }: { where: { id: string } }) => {
@@ -140,7 +171,22 @@ function createDatabase(
             options.ownerFound === false ? null : { id: "owner-1" },
         },
         resetCycle: {
-          findMany: async () => options.cycles ?? [{ id: "cycle-1" }],
+          findMany: async () => {
+            latestCycles =
+              cycleSelections[
+                Math.min(cycleReadIndex, cycleSelections.length - 1)
+              ] ?? [];
+            cycleReadIndex += 1;
+            operations.push("read-cycle");
+            return latestCycles;
+          },
+          count: async () => {
+            const nextCycles =
+              cycleSelections[
+                Math.min(cycleReadIndex, cycleSelections.length - 1)
+              ];
+            return (nextCycles ?? latestCycles).length;
+          },
         },
         contextItem: {
           findUnique: async ({
@@ -207,6 +253,7 @@ function createDatabase(
       imports.push({
         id,
         kind: "CONTEXT_ITEM",
+        schemaVersion: "2.0",
         rawJson: raw,
         validationStatus: "VALID",
         processingStatus: "PENDING",
@@ -254,7 +301,9 @@ describe("context import normalization", () => {
     expect(test.operations).toEqual([
       "lock-import",
       "read-import",
+      "read-cycle",
       "lock-cycle",
+      "read-cycle",
       "create-context",
       "mark-processed",
     ]);
@@ -292,10 +341,17 @@ describe("context import normalization", () => {
 
   it.each([
     ["missing owner", { ownerFound: false }, "import_owner_not_found"],
-    ["no active cycle", { cycles: [] }, "active_cycle_not_found"],
+    ["no active cycle", { cycleSelections: [[]] }, "active_cycle_not_found"],
     [
       "ambiguous active cycle",
-      { cycles: [{ id: "cycle-1" }, { id: "cycle-2" }] },
+      {
+        cycleSelections: [
+          [
+            { id: "cycle-1", name: "First" },
+            { id: "cycle-2", name: "Second" },
+          ],
+        ],
+      },
       "active_cycle_ambiguous",
     ],
   ])("fails safely for %s", async (_name, options, code) => {
@@ -314,6 +370,70 @@ describe("context import normalization", () => {
       errorMetadata: { code },
     });
     expect(JSON.stringify(result)).not.toContain(RAW_SENTINEL);
+  });
+
+  it.each([
+    [
+      "archived after selection",
+      [[{ id: "cycle-1", name: "Old" }], []],
+      "active_cycle_not_found",
+    ],
+    [
+      "replaced after selection",
+      [
+        [{ id: "cycle-1", name: "Old" }],
+        [{ id: "cycle-2", name: "Replacement" }],
+      ],
+      "active_cycle_ambiguous",
+    ],
+    [
+      "ambiguous after selection",
+      [
+        [{ id: "cycle-1", name: "Old" }],
+        [
+          { id: "cycle-1", name: "Old" },
+          { id: "cycle-2", name: "Second" },
+        ],
+      ],
+      "active_cycle_ambiguous",
+    ],
+  ])(
+    "does not create context when cycle becomes %s",
+    async (_name, cycles, code) => {
+      const test = createDatabase({ cycleSelections: cycles });
+
+      await expect(
+        normalizeContextItemImport(test.database, "import-1", OWNER_SUBJECT),
+      ).resolves.toEqual({ status: "failed", code });
+      expect(test.items()).toEqual([]);
+      expect(test.tags()).toEqual([]);
+      expect(test.create).not.toHaveBeenCalled();
+    },
+  );
+
+  it("keeps valid legacy 1.0 content raw-only in a terminal state", async () => {
+    const test = createDatabase({ rawJson: legacyContextEnvelope() });
+
+    await expect(
+      normalizeContextItemImport(test.database, "import-1", OWNER_SUBJECT),
+    ).resolves.toEqual({ status: "accepted_raw_only" });
+    await expect(
+      normalizeContextItemImport(test.database, "import-1", OWNER_SUBJECT),
+    ).resolves.toEqual({
+      status: "already_processed",
+      contextItemId: null,
+    });
+
+    expect(test.items()).toEqual([]);
+    expect(test.tags()).toEqual([]);
+    expect(test.imports()[0]).toMatchObject({
+      validationStatus: "VALID",
+      processingStatus: "PROCESSED",
+      errorMetadata: null,
+    });
+    expect(JSON.stringify(test.imports()[0]?.errorMetadata)).not.toContain(
+      "invalid_stored_payload",
+    );
   });
 
   it("rolls back item, tags, and success state when normalized creation fails", async () => {

@@ -2,14 +2,73 @@ import { describe, expect, it } from "vitest";
 
 import dailyPlan from "../examples/daily_plan_payload.json";
 import dailyReflection from "../examples/daily_reflection_payload.json";
+import contextItemJsonSchema from "../schemas/context-item.schema.json";
 import weeklyReview from "../examples/weekly_review_payload.json";
 import { CONTEXT_DOMAINS, CONTEXT_KINDS } from "../src/lib/context";
 import {
+  CONTEXT_LIBRARY_SCHEMA_VERSION,
+  contextItemImportSchemaForVersion,
   contextItemImportSchema,
+  contextItemPayloadSchema,
+  contextLibraryItemImportSchema,
   dailyReflectionImportSchema,
   importEnvelopeSchema,
+  legacyContextItemImportSchema,
+  LEGACY_CONTEXT_ITEM_SCHEMA_VERSION,
   weeklyReviewImportSchema,
 } from "../src/server/imports/schemas";
+
+type JsonSchema = {
+  type?: string;
+  const?: unknown;
+  enum?: unknown[];
+  pattern?: string;
+  minLength?: number;
+  maxLength?: number;
+  maxItems?: number;
+  items?: JsonSchema;
+  properties?: Record<string, JsonSchema>;
+  required?: string[];
+  additionalProperties?: boolean;
+};
+
+function acceptsJsonSchema(schema: JsonSchema, value: unknown): boolean {
+  if (schema.const !== undefined && value !== schema.const) return false;
+  if (schema.enum && !schema.enum.includes(value)) return false;
+  if (schema.type === "string") {
+    if (typeof value !== "string") return false;
+    if (schema.minLength !== undefined && value.length < schema.minLength)
+      return false;
+    if (schema.maxLength !== undefined && value.length > schema.maxLength)
+      return false;
+    return schema.pattern ? new RegExp(schema.pattern).test(value) : true;
+  }
+  if (schema.type === "array") {
+    return (
+      Array.isArray(value) &&
+      (schema.maxItems === undefined || value.length <= schema.maxItems) &&
+      (!schema.items ||
+        value.every((item) => acceptsJsonSchema(schema.items!, item)))
+    );
+  }
+  if (schema.type === "object") {
+    if (typeof value !== "object" || value === null || Array.isArray(value))
+      return false;
+    const record = value as Record<string, unknown>;
+    if (schema.required?.some((key) => !(key in record))) return false;
+    if (
+      schema.additionalProperties === false &&
+      Object.keys(record).some((key) => !(key in (schema.properties ?? {})))
+    )
+      return false;
+    return Object.entries(record).every(
+      ([key, item]) =>
+        !schema.properties?.[key] ||
+        acceptsJsonSchema(schema.properties[key], item),
+    );
+  }
+  return true;
+}
 
 describe("canonical GPT import validation", () => {
   it.each([
@@ -226,7 +285,7 @@ describe("canonical GPT import validation", () => {
 
   const validContextImport = {
     kind: "context_item" as const,
-    schema_version: "1.0" as const,
+    schema_version: CONTEXT_LIBRARY_SCHEMA_VERSION,
     idempotency_key: "context-day-1-summary-v1",
     source: "custom_gpt" as const,
     payload: {
@@ -238,6 +297,59 @@ describe("canonical GPT import validation", () => {
       source_ref: "visible-reference",
     },
   };
+
+  const validLegacyContextImport = {
+    kind: "context_item" as const,
+    schema_version: LEGACY_CONTEXT_ITEM_SCHEMA_VERSION,
+    idempotency_key: "legacy-context-item-v1",
+    source: "custom_gpt" as const,
+    payload: {
+      kind: "decision_log" as const,
+      title: "Legacy decision",
+      summary: "Published 1.0 content remains valid.",
+      importance: 4,
+      tags: ["legacy"],
+      source_ref: "legacy-visible-reference",
+      is_sensitive: true,
+    },
+  };
+
+  it("preserves the published legacy context-item 1.0 contract", () => {
+    expect(
+      legacyContextItemImportSchema.safeParse(validLegacyContextImport).success,
+    ).toBe(true);
+    expect(
+      importEnvelopeSchema.safeParse(validLegacyContextImport).success,
+    ).toBe(true);
+    const withoutTags = structuredClone(validLegacyContextImport);
+    Reflect.deleteProperty(withoutTags.payload, "tags");
+    expect(
+      legacyContextItemImportSchema.parse(withoutTags).payload.tags,
+    ).toEqual([]);
+  });
+
+  it("dispatches each context version only to its declared contract", () => {
+    expect(
+      contextItemImportSchemaForVersion(LEGACY_CONTEXT_ITEM_SCHEMA_VERSION),
+    ).toBe(legacyContextItemImportSchema);
+    expect(
+      contextItemImportSchemaForVersion(CONTEXT_LIBRARY_SCHEMA_VERSION),
+    ).toBe(contextLibraryItemImportSchema);
+    expect(contextItemImportSchemaForVersion("3.0")).toBeNull();
+    expect(
+      contextLibraryItemImportSchema.safeParse(validLegacyContextImport)
+        .success,
+    ).toBe(false);
+    expect(
+      legacyContextItemImportSchema.safeParse(validContextImport).success,
+    ).toBe(false);
+    expect(
+      contextItemImportSchema.safeParse(validLegacyContextImport).success,
+    ).toBe(true);
+    expect(contextItemImportSchema.safeParse(validContextImport).success).toBe(
+      true,
+    );
+  });
 
   it.each(CONTEXT_KINDS)("accepts context kind %s", (kind) => {
     expect(
@@ -291,6 +403,44 @@ describe("canonical GPT import validation", () => {
     expect(parsed.payload.summary).toBe("Visible summary.");
     expect(parsed.payload.tags).toEqual(["Work", "Continuity"]);
   });
+
+  it("defaults omitted Context Library tags to an empty list", () => {
+    const withoutTags = structuredClone(validContextImport);
+    Reflect.deleteProperty(withoutTags.payload, "tags");
+
+    expect(contextItemImportSchema.parse(withoutTags).payload.tags).toEqual([]);
+  });
+
+  it.each([
+    ["valid payload without tags", { tags: undefined }, true],
+    ["valid payload with tags", { tags: ["work", " bounded "] }, true],
+    ["whitespace-only title", { title: "  \n " }, false],
+    ["whitespace-only summary", { summary: "  " }, false],
+    ["whitespace-only tag", { tags: ["work", "  "] }, false],
+    ["omitted source reference", { source_ref: undefined }, true],
+    ["whitespace-only source reference", { source_ref: "  " }, false],
+    ["unknown property", { raw_prompt: "private" }, false],
+    ["oversized title", { title: "x".repeat(161) }, false],
+    ["oversized summary", { summary: "x".repeat(4_001) }, false],
+    ["oversized tag", { tags: ["x".repeat(41)] }, false],
+    ["oversized source reference", { source_ref: "x".repeat(501) }, false],
+  ])(
+    "keeps runtime and generated Context Library contracts aligned for %s",
+    (_name, change, expected) => {
+      const payload: Record<string, unknown> = {
+        ...validContextImport.payload,
+        ...change,
+      };
+      for (const [key, value] of Object.entries(change)) {
+        if (value === undefined) Reflect.deleteProperty(payload, key);
+      }
+
+      expect(contextItemPayloadSchema.safeParse(payload).success).toBe(
+        expected,
+      );
+      expect(acceptsJsonSchema(contextItemJsonSchema, payload)).toBe(expected);
+    },
+  );
 
   it.each([
     "chain_of_thought",

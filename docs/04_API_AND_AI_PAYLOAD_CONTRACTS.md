@@ -316,8 +316,21 @@ sanitized codes and never expose raw payload contents or configured identifiers.
 
 ## Context item rules
 
-Canonical standalone context imports use `kind: "context_item"` and this
-payload shape:
+`context_item` dispatch is deterministic by declared `schema_version`:
+
+- version `1.0` remains the published legacy contract with lowercase kinds,
+  required `importance`, optional `tags`, `source_ref`, and `is_sensitive`, and
+  no `domain`;
+- version `2.0` is the Phase 15 Context Library contract shown below.
+
+Valid legacy `1.0` imports remain valid raw records. They reach the existing
+terminal `PROCESSED` state without a normalized Context Library row, do not
+invent a domain or reinterpret legacy fields, and therefore remain absent from
+`GET /api/context` and `/context`. Exact retries are terminal no-ops. Unknown
+versions and payloads that fail their declared version remain rejected.
+
+Phase 15 Context Library imports use `kind: "context_item"`,
+`schema_version: "2.0"`, and this payload shape:
 
 ```json
 {
@@ -335,15 +348,22 @@ Accepted `kind` values are `CONVERSATION_SUMMARY`, `TASK_SUMMARY`, `DECISION`,
 `CONTEXT_SNAPSHOT`. `domain` uses the closed `FocusDomain` enum. Title is 1-160
 trimmed characters, summary is 1-4,000, source reference is at most 500, and up
 to 10 tags may each contain 1-40 trimmed characters. Unknown fields and enum
-values are rejected. Tags are trimmed and deduplicated case-insensitively while
-preserving one display value.
+values are rejected. Title, summary, supplied tags, and supplied source
+references must contain nonblank trimmed content. Tags may be omitted and then
+normalize to `[]`; supplied tags are trimmed and deduplicated
+case-insensitively while preserving one display value. Runtime validation and
+generated Draft 2020-12 schemas describe the same input acceptance rules.
 
 Machine imports require the GPT bearer boundary. Raw storage precedes trusted
 owner/active-cycle resolution. Normalized item, relational tags, and successful
 processing state are one transaction protected by raw-import and cycle locks.
-An exact retry returns the existing terminal result; a different idempotency
-identity may create a separate similar item. Imported provenance links to the
-raw payload, but raw JSON and processing metadata never enter browser data.
+After resolving exactly one owned active cycle, import normalization locks that
+cycle and revalidates the same singular owned-active selection before creating
+context. Archive, removal, replacement, or ambiguity during lock acquisition
+creates no item. An exact retry returns the existing terminal result; a
+different idempotency identity may create a separate similar item. Imported
+provenance links to the raw payload, but raw JSON and processing metadata never
+enter browser data.
 
 Authenticated `GET /api/context` supports case-insensitive literal substring
 search over title and summary plus exact domain, kind, normalized tag, pinned
@@ -353,10 +373,12 @@ creation time descending, then ID descending. Invalid filters return bounded
 validation details.
 
 Authenticated `POST /api/context` accepts only the payload fields shown above;
-the server assigns user, active cycle, manual provenance, timestamps, and
-initial unpinned state. `PATCH /api/context/:id/pin` accepts only a boolean
-`pinned` field. Missing and unowned valid UUIDs return the same safe idempotent
-success and never disclose existence.
+the server resolves exactly one owned active cycle inside the transaction,
+locks it, revalidates the same singular selection, and only then assigns manual
+provenance and inserts. `PATCH /api/context/:id/pin` accepts only a boolean
+`pinned` field and uses the same singular-cycle lock/revalidation rule. Zero or
+multiple active cycles cause no mutation. Missing and unowned valid UUIDs
+return the same safe idempotent success and never disclose existence.
 
 Browser DTOs contain only ID, title, summary, kind, domain, display tags, safe
 provenance/source reference, pin timestamp, and created/updated timestamps. No

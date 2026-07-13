@@ -72,6 +72,11 @@ deletion, bulk/archive/version flows, and analytics remain deferred.
 - Store summaries, decisions, and context snapshots; never hidden chain-of-thought.
 - Context belongs to exactly one active reset cycle, uses relational normalized
   tags, and exposes no raw-import or ownership metadata through browser DTOs.
+- `context_item` version `1.0` remains the legacy raw-only contract; Phase 15
+  Context Library imports use version `2.0`, with deterministic declared-version
+  validation and no legacy field/domain inference.
+- Context imports, manual creation, pinning, and unpinning lock and revalidate
+  the same singular owned active cycle before mutation.
 - Recovery-aware statuses replace harsh streaks.
 - Production reverse proxy default is Traefik; change only through an explicit
   decision.

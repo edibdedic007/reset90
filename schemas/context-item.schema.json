@@ -30,17 +30,28 @@
         "OTHER"
       ]
     },
-    "title": { "type": "string", "minLength": 1, "maxLength": 160 },
-    "summary": { "type": "string", "minLength": 1, "maxLength": 4000 },
+    "title": {
+      "type": "string",
+      "pattern": "^\\s*\\S(?:[\\s\\S]{0,158}\\S)?\\s*$"
+    },
+    "summary": {
+      "type": "string",
+      "pattern": "^\\s*\\S(?:[\\s\\S]{0,3998}\\S)?\\s*$"
+    },
     "tags": {
-      "default": [],
       "maxItems": 10,
       "type": "array",
-      "items": { "type": "string", "minLength": 1, "maxLength": 40 }
+      "items": {
+        "type": "string",
+        "pattern": "^\\s*\\S(?:[\\s\\S]{0,38}\\S)?\\s*$"
+      }
     },
-    "source_ref": { "type": "string", "minLength": 1, "maxLength": 500 }
+    "source_ref": {
+      "type": "string",
+      "pattern": "^\\s*\\S(?:[\\s\\S]{0,498}\\S)?\\s*$"
+    }
   },
-  "required": ["kind", "domain", "title", "summary", "tags"],
+  "required": ["kind", "domain", "title", "summary"],
   "additionalProperties": false,
-  "title": "Reset90 Context Item Payload"
+  "title": "Reset90 Context Library Item Payload 2.0"
 }

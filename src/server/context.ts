@@ -7,6 +7,10 @@ import {
   type ContextLibrary,
   normalizeContextTag,
 } from "@/lib/context";
+import {
+  findSingularActiveCycle,
+  lockAndRevalidateSingularActiveCycle,
+} from "@/server/context-cycle";
 import { contextItemPayloadSchema } from "@/server/imports/schemas";
 import { z } from "zod";
 
@@ -167,16 +171,6 @@ export function parseContextQuery(input: unknown): ContextQueryResult {
   };
 }
 
-async function activeCycle(database: ContextDatabase, userId: string) {
-  const cycles = await database.resetCycle.findMany({
-    where: { userId, status: "ACTIVE" },
-    orderBy: { startDate: "desc" },
-    take: 2,
-    select: { id: true, name: true },
-  });
-  return cycles.length === 1 ? cycles[0] : null;
-}
-
 export async function getContextLibrary(
   database: ContextDatabase,
   userId: string,
@@ -190,7 +184,7 @@ export async function getContextLibrary(
     return { status: "invalid", issues: parsed.issues };
   }
 
-  const cycle = await activeCycle(database, userId);
+  const cycle = await findSingularActiveCycle(database, userId);
   if (!cycle) {
     return {
       status: "valid",
@@ -320,7 +314,15 @@ export async function createManualContextItem(
   }
 
   return database.$transaction(async (transaction) => {
-    const cycle = await activeCycle(transaction as ContextDatabase, userId);
+    const expectedCycle = await findSingularActiveCycle(transaction, userId);
+    if (!expectedCycle) {
+      return { status: "no_cycle" as const };
+    }
+    const cycle = await lockAndRevalidateSingularActiveCycle(
+      transaction,
+      userId,
+      expectedCycle.id,
+    );
     if (!cycle) {
       return { status: "no_cycle" as const };
     }
@@ -336,7 +338,7 @@ export async function createManualContextItem(
         sourceType: "MANUAL",
         sourceRef: payload.source_ref,
         tags: {
-          create: payload.tags.map((name) => ({
+          create: (payload.tags ?? []).map((name) => ({
             name,
             normalizedName: normalizeContextTag(name),
           })),
@@ -377,13 +379,27 @@ export async function setContextPinned(
   pinned: boolean,
   now = new Date(),
 ): Promise<void> {
-  await database.contextItem.updateMany({
-    where: {
-      id: contextItemId,
-      cycle: { is: { userId, status: "ACTIVE" } },
-      pinnedAt: pinned ? null : { not: null },
-    },
-    data: { pinnedAt: pinned ? now : null },
+  await database.$transaction(async (transaction) => {
+    const expectedCycle = await findSingularActiveCycle(transaction, userId);
+    if (!expectedCycle) {
+      return;
+    }
+    const cycle = await lockAndRevalidateSingularActiveCycle(
+      transaction,
+      userId,
+      expectedCycle.id,
+    );
+    if (!cycle) {
+      return;
+    }
+    await transaction.contextItem.updateMany({
+      where: {
+        id: contextItemId,
+        cycleId: cycle.id,
+        pinnedAt: pinned ? null : { not: null },
+      },
+      data: { pinnedAt: pinned ? now : null },
+    });
   });
 }
 

@@ -4,15 +4,17 @@ Last updated: 2026-07-13
 
 ## Current phase
 
-Phase 15 Context Library implementation is complete and commit-ready. Phase 16
-has not started.
+Phase 15 Context Library implementation and bounded correction pass are
+complete and commit-ready. Phase 16 has not started.
 
 ## Active task
 
-Phase 15 added strict machine-authenticated context imports, authenticated
-manual creation, active-cycle relational search and exact filters, browser-safe
-DTOs, owner-only idempotent pinning, responsive `/context` UI, additive
-persistence, generated contracts, and focused tests.
+Phase 15 correction preserves legacy `context_item` version `1.0`, assigns the
+Context Library shape version `2.0`, dispatches validation/normalization by
+declared version, terminals valid legacy imports as raw-only, revalidates one
+singular locked active cycle for every context mutation, aligns runtime and
+generated schemas, executes PostgreSQL keyset pagination tests, and strengthens
+raw-import privacy verification.
 
 Phase 14 implementation, automated checks, review, commit, push, and merge were
 complete before this branch. Its manual `/reviews` browser verification was
@@ -26,15 +28,16 @@ endpoint, background job, UI placeholder, or preparatory abstraction was added.
 
 ## Next actions
 
-1. Review the Phase 15 diff and manual `/context` checklist below.
-2. Commit with `feat(context): add context memory library` after approval.
+1. Review the Phase 15 correction diff and manual `/context` checklist below.
+2. Commit with `fix(context): preserve versioned context contracts` after
+   approval.
 3. Do not start Phase 16 without explicit approval.
 
 ## Required completion checks
 
-- Strict context contract, import normalization, concurrency, rollback,
-  ownership, manual creation, query/filter, pagination, pin/tag, privacy, and
-  static UI tests.
+- Legacy/new context contract dispatch, raw-only fallback, deterministic retry,
+  active-cycle mutation races, real PostgreSQL pagination/filtering, DTO/API/UI
+  privacy, and runtime/generated-schema parity tests.
 - Generated schema drift, Prisma generation/validation, lint, typecheck, full
   tests, production build, shell syntax, and whitespace checks.
 - Additive migration applied to the current local database and a disposable
@@ -42,34 +45,48 @@ endpoint, background job, UI placeholder, or preparatory abstraction was added.
 
 ## Automated verification evidence
 
-- Final focused Phase 15 suite passed: 4 files, 116 tests.
+- Final focused correction suite passed: 5 files, 143 tests.
+- Targeted typecheck and generated-schema drift validation passed.
+- Real PostgreSQL query test passed with deterministic inserted records inside
+  a rolled-back transaction.
 - Migration `20260713130000_context_memory_library` applied successfully to the
   current local database.
 - All eight migrations applied successfully to disposable clean database
   `reset90_phase15_clean`; that temporary database was then dropped.
-- Final host-side `make check` passed once: format, lint, typecheck, 19 test
-  files with 264 tests, payload/schema drift, production build, Prisma
-  validation, shell syntax, and whitespace.
+- Final host-side `make check` passed once after correction edits: dependency,
+  format, lint, typecheck, full tests, payload/schema drift, production build,
+  Prisma validation, shell syntax, and whitespace.
 
 ## Manual `/context` verification
 
 No checked-in browser-smoke command exists, so no browser automation was added
-or run. Manual verification remains:
+or run. Interactive manual `/context` verification remains pending. Automated
+tests cover raw-only privacy, actual GET DTOs, server rendering, safe errors,
+logs, and PostgreSQL pagination. Manual verification remains:
 
-- unauthenticated `/context` follows the established redirect/rejection path;
-- authenticated primary navigation opens `/context`;
-- no-active-cycle and empty-library states render neutrally;
-- manual context creation enforces all bounds and active-cycle ownership;
-- title/summary search and domain, kind, tag, pin-state, and inclusive date
-  filters work separately and together;
-- pin and unpin are idempotent; filtered-empty state can clear filters;
-- layout has no page-level horizontal overflow near 402 × 874;
-- a sentinel stored only in raw import JSON is absent from browser responses,
-  server-rendered data, visible HTML, and application logs.
+- unauthenticated `/context` redirects or rejects correctly;
+- authenticated navigation to `/context` works;
+- active-cycle context loads;
+- no-active-cycle state renders correctly;
+- empty-library state renders correctly;
+- filtered-empty state renders correctly;
+- manual context creation works;
+- search works;
+- domain, kind, tag, pinned, and date filters work;
+- combined filters use AND semantics;
+- pagination shows no duplicate or skipped records;
+- pin works;
+- unpin works;
+- long title, summary, and tag text wraps;
+- layout has no horizontal page overflow near 402 × 874;
+- raw-import sentinel text is absent from visible content;
+- raw-import sentinel text is absent from browser-visible response data;
+- raw-import sentinel text is absent from application logs.
 
 ## Migration and rollback
 
 - Migration: `20260713130000_context_memory_library`.
+- Correction adds no migration and does not rewrite the Phase 15 migration.
 - Normal rollback: revert Phase 15 application code and leave additive context
   tables intact.
 - Production migration requires a current backup.
@@ -79,6 +96,7 @@ or run. Manual verification remains:
 ## Latest handoff
 
 - 2026-07-13T14:10:38Z — feature/context-memory-library — Phase 15 Context Library vertical slice complete; focused 116 tests and final host-side `make check` with 264 tests plus production build passed; current and clean database migrations passed; no browser harness exists, so manual authenticated/mobile/privacy `/context` checklist remains; next step: review and commit without starting Phase 16
+- 2026-07-13T14:48:58Z — feature/context-memory-library — Phase 15 correction preserved context-item 1.0 as terminal raw-only and assigned Context Library 2.0, added singular active-cycle lock/revalidation, aligned generated/runtime contracts, and replaced mocked pagination proof with PostgreSQL plus privacy coverage; focused 143 tests, schema drift, typecheck, and final host-side make check passed; interactive phone-width `/context` smoke remains pending; next step: review and commit without starting Phase 16
 
 ## Historical detail
 

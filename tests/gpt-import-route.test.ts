@@ -15,13 +15,27 @@ const TOKEN = "test-gpt-ingest-token";
 const contextItem = {
   ...structuredClone(weeklyReview),
   kind: "context_item",
-  idempotency_key: "2026-07-01-context-item-v1",
+  schema_version: "2.0",
+  idempotency_key: "2026-07-01-context-item-v2",
   payload: {
     kind: "DECISION",
     domain: "WORK",
     title: "Keep minimum plan visible",
     summary: "Minimum plan preserves continuity on low-energy days.",
     tags: ["minimum", "continuity"],
+  },
+};
+const legacyContextItem = {
+  ...structuredClone(contextItem),
+  schema_version: "1.0",
+  idempotency_key: "2026-07-01-legacy-context-item-v1",
+  payload: {
+    kind: "decision_log",
+    title: "Legacy context",
+    summary: "Published context contract content.",
+    importance: 3,
+    tags: ["legacy"],
+    is_sensitive: true,
   },
 };
 
@@ -336,6 +350,29 @@ describe("GPT import HTTP boundary", () => {
     });
   });
 
+  it("terminals a legacy context import without requiring owner configuration", async () => {
+    const { database } = createTestDatabase();
+    const normalizeContextItem = vi.fn().mockResolvedValue({
+      status: "accepted_raw_only",
+    });
+
+    const response = await handleGptImport(
+      createRequest(legacyContextItem),
+      createDependencies(database, {
+        env: { GPT_INGEST_TOKEN: TOKEN },
+        normalizeContextItem,
+      }),
+    );
+
+    expect(response.status).toBe(201);
+    await expect(responseJson(response)).resolves.toEqual({
+      ok: true,
+      status: "created",
+      imported_payload_id: "import-1",
+    });
+    expect(normalizeContextItem).toHaveBeenCalledWith(database, "import-1", "");
+  });
+
   it("normalizes a newly stored context item for the configured owner", async () => {
     const { database } = createTestDatabase();
     const normalizeContextItem = vi.fn().mockResolvedValue({
@@ -361,6 +398,44 @@ describe("GPT import HTTP boundary", () => {
       "owner-subject",
     );
   });
+
+  it.each([
+    ["legacy 1.0", legacyContextItem, "accepted_raw_only"],
+    ["Context Library 2.0", contextItem, "processed"],
+  ])(
+    "keeps exact %s context retries terminal",
+    async (_name, payload, status) => {
+      const { database, rows, create } = createTestDatabase();
+      const normalizeContextItem = vi.fn(async () => {
+        if (rows[0]) rows[0].processingStatus = "PROCESSED";
+        return status === "processed"
+          ? ({ status, contextItemId: "context-1" } as const)
+          : ({ status: "accepted_raw_only" } as const);
+      });
+      const dependencies = createDependencies(database, {
+        normalizeContextItem,
+      });
+
+      const created = await handleGptImport(
+        createRequest(payload),
+        dependencies,
+      );
+      const duplicate = await handleGptImport(
+        createRequest(payload),
+        dependencies,
+      );
+
+      expect(created.status).toBe(201);
+      expect(duplicate.status).toBe(200);
+      expect(create).toHaveBeenCalledTimes(1);
+      expect(normalizeContextItem).toHaveBeenCalledTimes(1);
+      expect(rows[0]).toMatchObject({
+        schemaVersion: payload.schema_version,
+        validationStatus: "VALID",
+        processingStatus: "PROCESSED",
+      });
+    },
+  );
 
   it("does not normalize context without machine authentication", async () => {
     const { database } = createTestDatabase();
@@ -421,6 +496,52 @@ describe("GPT import HTTP boundary", () => {
       code: "day_log_not_found",
       imported_payload_id: "import-1",
     });
+  });
+
+  it("keeps raw-only sentinel, auth, and internal metadata out of errors and logs", async () => {
+    const sentinel = "RAW_ERROR_PRIVACY_SENTINEL_CONTEXT_15";
+    const payload = {
+      ...contextItem,
+      external_conversation_id: sentinel,
+      idempotency_key: "context-private-failure-v2",
+    };
+    const { database, rows } = createTestDatabase();
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    try {
+      const response = await handleGptImport(
+        createRequest(payload),
+        createDependencies(database, {
+          normalizeContextItem: async () => ({
+            status: "failed",
+            code: "active_cycle_not_found",
+          }),
+        }),
+      );
+      const body = JSON.stringify(await responseJson(response));
+      const logs = JSON.stringify([
+        ...errorSpy.mock.calls,
+        ...logSpy.mock.calls,
+        ...warnSpy.mock.calls,
+      ]);
+
+      expect(response.status).toBe(422);
+      expect(rows[0]?.rawJson).toMatchObject({
+        external_conversation_id: sentinel,
+      });
+      expect(body).not.toContain(sentinel);
+      expect(body).not.toMatch(
+        /rawJson|raw_prompt|processingAttempts|processingStatus|authorization|errorMetadata|test-gpt-ingest-token/,
+      );
+      expect(logs).not.toContain(sentinel);
+      expect(logs).not.toContain(TOKEN);
+    } finally {
+      errorSpy.mockRestore();
+      logSpy.mockRestore();
+      warnSpy.mockRestore();
+    }
   });
 
   it("returns the existing import for a duplicate idempotency key", async () => {

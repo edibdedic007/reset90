@@ -20,6 +20,7 @@ import {
   type WeeklyReviewNormalizationDatabase,
   type WeeklyReviewNormalizationResult,
 } from "./normalize-weekly-review";
+import { LEGACY_CONTEXT_ITEM_SCHEMA_VERSION } from "./schemas";
 import type { RawImportDatabase } from "./store";
 import { storeRawImport } from "./store";
 
@@ -214,7 +215,7 @@ async function normalizeStoredImport(
 
   const storedImport = await database.importedPayload.findUnique({
     where: { id: importedPayloadId },
-    select: { kind: true },
+    select: { kind: true, schemaVersion: true },
   });
   if (
     storedImport?.kind !== "DAILY_REFLECTION" &&
@@ -222,6 +223,24 @@ async function normalizeStoredImport(
     storedImport?.kind !== "CONTEXT_ITEM"
   ) {
     return { status: "not_applicable" };
+  }
+
+  if (storedImport.kind === "CONTEXT_ITEM") {
+    const ownerAuthentikSubject =
+      dependencies.env.GPT_INGEST_OWNER_SUBJECT?.trim();
+    if (
+      !ownerAuthentikSubject &&
+      storedImport.schemaVersion !== LEGACY_CONTEXT_ITEM_SCHEMA_VERSION
+    ) {
+      return { status: "service_unavailable" };
+    }
+    const normalizeContextItem =
+      dependencies.normalizeContextItem ?? normalizeContextItemImport;
+    return normalizeContextItem(
+      database,
+      importedPayloadId,
+      ownerAuthentikSubject ?? "",
+    );
   }
 
   const ownerAuthentikSubject =
@@ -234,16 +253,6 @@ async function normalizeStoredImport(
     const normalizeDailyReflection =
       dependencies.normalizeDailyReflection ?? normalizeDailyReflectionImport;
     return normalizeDailyReflection(
-      database,
-      importedPayloadId,
-      ownerAuthentikSubject,
-    );
-  }
-
-  if (storedImport.kind === "CONTEXT_ITEM") {
-    const normalizeContextItem =
-      dependencies.normalizeContextItem ?? normalizeContextItemImport;
-    return normalizeContextItem(
       database,
       importedPayloadId,
       ownerAuthentikSubject,
