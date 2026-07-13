@@ -90,6 +90,18 @@ Fields:
 - `created_at`
 - `updated_at`
 
+Database invariant:
+
+- each user may have at most one Reset Cycle with status `ACTIVE`;
+- PostgreSQL enforces this invariant with a partial unique index on `user_id`
+  where `status = 'ACTIVE'`;
+- the corrective migration checks for existing duplicate active cycles and
+  fails before creating the index when any duplicates exist;
+- the corrective migration does not archive, delete, select a winner among, or
+  otherwise modify existing cycles;
+- replacing an active cycle requires archiving the current cycle before, or in
+  the same transaction as, activating the replacement.
+
 ### reset_phases
 
 Fields:

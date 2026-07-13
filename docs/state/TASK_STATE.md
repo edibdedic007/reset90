@@ -29,7 +29,7 @@ endpoint, background job, UI placeholder, or preparatory abstraction was added.
 
 ## Next actions
 
-1. Review the Phase 15 correction diff and manual `/context` checklist below.
+1. Review the Phase 15 correction diff and final documentation updates.
 2. Commit with `fix(context): preserve versioned context contracts` after
    approval.
 3. Do not start Phase 16 without explicit approval.
@@ -71,31 +71,31 @@ endpoint, background job, UI placeholder, or preparatory abstraction was added.
   test files with 295 tests, payload/schema drift, production build, Prisma
   validation, shell syntax, and whitespace.
 
-## Manual `/context` verification
+## Manual `/context` browser verification
 
-No checked-in browser-smoke command exists, so no browser automation was added
-or run. Interactive manual `/context` verification remains pending. Automated
-tests cover raw-only privacy, actual GET DTOs, server rendering, safe errors,
-logs, and PostgreSQL pagination. Manual verification remains:
+Interactive manual `/context` browser verification passed. The following were
+verified:
 
-- unauthenticated `/context` redirects or rejects correctly;
-- authenticated navigation to `/context` works;
-- active-cycle context loads;
-- no-active-cycle state renders correctly;
-- empty-library state renders correctly;
-- filtered-empty state renders correctly;
-- manual context creation works;
-- search works;
-- domain, kind, tag, pinned, and date filters work;
-- combined filters use AND semantics;
-- pagination shows no duplicate or skipped records;
-- pin works;
-- unpin works;
-- long title, summary, and tag text wraps;
-- layout has no horizontal page overflow near 402 × 874;
-- raw-import sentinel text is absent from visible content;
-- raw-import sentinel text is absent from browser-visible response data;
-- raw-import sentinel text is absent from application logs.
+- authenticated `/context` page loading;
+- Context navigation entry;
+- active-cycle empty-library state;
+- manual context creation;
+- displayed title, summary, kind, domain, tags, source reference, and manual
+  provenance;
+- title and summary search;
+- filtered-empty behavior;
+- domain, kind, tag, pinned-state, and date filters;
+- combined filter AND behavior;
+- pin persistence after refresh;
+- unpin persistence after refresh;
+- responsive behavior near 402 × 874;
+- no horizontal page overflow;
+- no raw payload, processing metadata, ownership identifiers, authentication
+  data, or internal errors in browser-visible context responses.
+
+GPT import was intentionally not exercised manually. Automated tests cover
+import authentication, schema dispatch, normalization, idempotency, transaction
+behavior, concurrency, and raw-import privacy.
 
 ## Migration and rollback
 
@@ -113,9 +113,11 @@ logs, and PostgreSQL pagination. Manual verification remains:
 
 ## Latest handoff
 
-- 2026-07-13T14:10:38Z — feature/context-memory-library — Phase 15 Context Library vertical slice complete; focused 116 tests and final host-side `make check` with 264 tests plus production build passed; current and clean database migrations passed; no browser harness exists, so manual authenticated/mobile/privacy `/context` checklist remains; next step: review and commit without starting Phase 16
-- 2026-07-13T14:48:58Z — feature/context-memory-library — Phase 15 correction preserved context-item 1.0 as terminal raw-only and assigned Context Library 2.0, added singular active-cycle lock/revalidation, aligned generated/runtime contracts, and replaced mocked pagination proof with PostgreSQL plus privacy coverage; focused 143 tests, schema drift, typecheck, and final host-side make check passed; interactive phone-width `/context` smoke remains pending; next step: review and commit without starting Phase 16
-- 2026-07-13T15:39:57Z — feature/context-memory-library — bounded Phase 15 correction restored the legacy standalone context schema, published versioned Context Library schema, and added duplicate-refusing one-active-cycle database enforcement; focused 147 tests, current and clean migrations, PostgreSQL migration/concurrency proofs, and final make check with 295 tests passed; manual `/context` verification remains pending; next step: review and commit without starting Phase 16
+- 2026-07-13T14:10:38Z — feature/context-memory-library — Phase 15 Context Library vertical slice complete; focused 116 tests and final host-side `make check` with 264 tests plus production build passed; current and clean database migrations passed; manual authenticated/mobile/privacy `/context` browser verification was not run at this handoff; next step: review and commit without starting Phase 16
+- 2026-07-13T14:48:58Z — feature/context-memory-library — Phase 15 correction preserved context-item 1.0 as terminal raw-only and assigned Context Library 2.0, added singular active-cycle lock/revalidation, aligned generated/runtime contracts, and replaced mocked pagination proof with PostgreSQL plus privacy coverage; focused 143 tests, schema drift, typecheck, and final host-side make check passed; interactive phone-width `/context` browser verification was not run at this handoff; next step: review and commit without starting Phase 16
+- 2026-07-13T15:39:57Z — feature/context-memory-library — bounded Phase 15 correction restored the legacy standalone context schema, published versioned Context Library schema, and added duplicate-refusing one-active-cycle database enforcement; focused 147 tests, current and clean migrations, PostgreSQL migration/concurrency proofs, and final make check with 295 tests passed; manual `/context` browser verification was not run at this handoff; next step: review and commit without starting Phase 16
+- 2026-07-13T16:17:38Z — feature/context-memory-library — Phase 15 final documentation records the one-active-cycle database invariant and migration behavior; interactive `/context` browser verification was intentionally skipped and accepted as a documented skipped check, with no remaining browser gate; `git diff --check` passed; next step: review and commit without starting Phase 16
+- 2026-07-13T18:52:46Z — feature/context-memory-library — Phase 15 manual `/context` browser verification passed for authenticated loading, navigation, empty state, manual creation, displayed fields, search, filters, pin persistence, responsive layout, and browser-response privacy; GPT import remained intentionally manual-test-excluded with automated coverage; `git diff --check` passed; next step: review and commit without starting Phase 16
 
 ## Historical detail
 
