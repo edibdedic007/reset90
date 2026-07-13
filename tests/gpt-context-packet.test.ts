@@ -1,10 +1,28 @@
 import { describe, expect, it, vi } from "vitest";
 
+const routeMocks = vi.hoisted(() => ({
+  getBrowserSession: vi.fn(),
+  getReadOnlyBrowserSession: vi.fn(),
+  getPrismaClient: vi.fn(),
+}));
+
+vi.mock("@/server/auth/session", () => ({
+  getBrowserSession: routeMocks.getBrowserSession,
+  getReadOnlyBrowserSession: routeMocks.getReadOnlyBrowserSession,
+}));
+
+vi.mock("@/server/db/client", () => ({
+  getPrismaClient: routeMocks.getPrismaClient,
+}));
+
 import generatedPacketSchema from "../schemas/gpt-context-packet.schema.json";
 import type { PrismaClient } from "../src/generated/prisma/client";
 import {
   assembleGptContextPacket,
+  fitGptContextPacketToByteLimit,
+  gptContextPacketByteLength,
   GPT_CONTEXT_DECISION_LIMIT,
+  GPT_CONTEXT_PACKET_MAX_BYTES,
   GPT_CONTEXT_PINNED_LIMIT,
   GPT_CONTEXT_TAG_LIMIT,
   handleGptContextPacketRequest,
@@ -374,6 +392,154 @@ describe("GPT context packet contract and assembly", () => {
     );
   });
 
+  it("deterministically prunes complete optional items in priority order", async () => {
+    const base = await readyPacket(packetDatabase());
+    const maxTags = Array.from(
+      { length: GPT_CONTEXT_TAG_LIMIT },
+      (_, index) => `${"T".repeat(39)}${index}`,
+    );
+    const packet = gptContextPacketSchema.parse({
+      ...base,
+      active_patterns: Array.from({ length: 10 }, (_, index) => ({
+        title: `${"P".repeat(299)}${index}`,
+        evidence: "界".repeat(2_000),
+      })),
+      open_decisions: Array.from({ length: 10 }, (_, index) => ({
+        title: `${"D".repeat(159)}${index}`,
+        summary: "界".repeat(4_000),
+        tags: maxTags,
+      })),
+      pinned_context: Array.from({ length: 12 }, (_, index) => ({
+        kind: "DECISION",
+        title: `${"C".repeat(158)}${String(index).padStart(2, "0")}`,
+        summary: "界".repeat(4_000),
+        tags: maxTags,
+      })),
+    });
+
+    expect(gptContextPacketSchema.safeParse(packet).success).toBe(true);
+    expect(gptContextPacketByteLength(packet)).toBeGreaterThan(
+      GPT_CONTEXT_PACKET_MAX_BYTES,
+    );
+
+    const fitted = fitGptContextPacketToByteLimit(packet);
+    if (!fitted) throw new Error("Expected oversized optional data to fit");
+
+    expect(fitted.active_patterns).toEqual([]);
+    expect(fitted.open_decisions).toEqual([]);
+    expect(fitted.pinned_context.length).toBeGreaterThan(0);
+    expect(fitted.pinned_context.length).toBeLessThan(
+      packet.pinned_context.length,
+    );
+    expect(fitted.pinned_context).toEqual(
+      packet.pinned_context.slice(0, fitted.pinned_context.length),
+    );
+    expect(fitted.pinned_context.at(-1)?.summary).toBe("界".repeat(4_000));
+    for (const key of [
+      "schema_version",
+      "generated_at",
+      "cycle",
+      "current_day",
+      "recent_days",
+      "metrics_7d",
+      "recovery",
+    ] as const) {
+      expect(fitted[key]).toEqual(packet[key]);
+    }
+    expect(gptContextPacketByteLength(fitted)).toBeLessThanOrEqual(
+      GPT_CONTEXT_PACKET_MAX_BYTES,
+    );
+    expect(gptContextPacketSchema.safeParse(fitted).success).toBe(true);
+    expect(fitGptContextPacketToByteLimit(packet)).toEqual(fitted);
+    expect(packet.active_patterns).toHaveLength(10);
+    expect(packet.open_decisions).toHaveLength(10);
+    expect(packet.pinned_context).toHaveLength(12);
+  });
+
+  it("measures serialized UTF-8 bytes instead of JavaScript string length", async () => {
+    const base = await readyPacket(packetDatabase());
+    const packet = gptContextPacketSchema.parse({
+      ...base,
+      pinned_context: Array.from({ length: 7 }, (_, index) => ({
+        kind: "DECISION",
+        title: `Unicode ${index}`,
+        summary: "界".repeat(1_500),
+        tags: [],
+      })),
+    });
+    const serialized = JSON.stringify(packet);
+
+    expect(serialized.length).toBeLessThan(GPT_CONTEXT_PACKET_MAX_BYTES);
+    expect(gptContextPacketByteLength(packet)).toBeGreaterThan(
+      GPT_CONTEXT_PACKET_MAX_BYTES,
+    );
+
+    const fitted = fitGptContextPacketToByteLimit(packet);
+    if (!fitted) throw new Error("Expected Unicode optional data to fit");
+    expect(fitted.pinned_context.length).toBeLessThan(7);
+    expect(gptContextPacketByteLength(fitted)).toBeLessThanOrEqual(
+      GPT_CONTEXT_PACKET_MAX_BYTES,
+    );
+    expect(gptContextPacketSchema.safeParse(fitted).success).toBe(true);
+  });
+
+  it("returns a size error when required sections alone exceed 32 KiB", async () => {
+    const requiredDays = [5, 6, 7].map((dayNumber) =>
+      day(dayNumber, {
+        status: "GREEN",
+        dailyPlan: {
+          mission: "界".repeat(1_000),
+          tasks: [],
+        },
+        dailyReflection: { summary: "界".repeat(1_500) },
+        checkins: [scores(10)],
+      }),
+    );
+    const oversized = packetDatabase({
+      cycles: [
+        cycle({
+          phases: [
+            { name: "界".repeat(200), dayStart: 1, dayEnd: 30 },
+            ...PHASES.slice(1),
+          ],
+        }),
+      ],
+      days: requiredDays,
+    });
+
+    await expect(
+      assembleGptContextPacket(oversized.database, "user-1", NOW),
+    ).resolves.toEqual({ status: "size_error" });
+
+    const routeDatabase = packetDatabase({
+      cycles: [
+        cycle({
+          phases: [
+            { name: "界".repeat(200), dayStart: 1, dayEnd: 30 },
+            ...PHASES.slice(1),
+          ],
+        }),
+      ],
+      days: requiredDays,
+    });
+    const response = await handleGptContextPacketRequest(
+      new Request("http://localhost/api/context/export"),
+      {
+        getSession: async () => ({ userId: "user-1" }),
+        getDatabase: () => routeDatabase.database,
+        now: () => NOW,
+      },
+    );
+    expect(response.status).toBe(500);
+    expect(response.headers.get("Content-Disposition")).toBeNull();
+    await expect(response.json()).resolves.toEqual({
+      ok: false,
+      error: "context_export_too_large",
+      message:
+        "GPT context packet could not be generated within safe size limits.",
+    });
+  });
+
   it("excludes other-owner cycles and other-cycle normalized records", async () => {
     const ownedPinned = contextItem(1);
     const otherCyclePinned = {
@@ -638,6 +804,23 @@ describe("GPT context packet contract and assembly", () => {
 });
 
 describe("GPT context packet browser endpoint", () => {
+  it("uses read-only session resolution and keeps a missing user safe", async () => {
+    routeMocks.getBrowserSession.mockReset();
+    routeMocks.getReadOnlyBrowserSession.mockReset();
+    routeMocks.getPrismaClient.mockReset();
+    routeMocks.getReadOnlyBrowserSession.mockResolvedValue(null);
+    const { GET } = await import("../src/app/api/context/export/route");
+
+    const response = await GET(
+      new Request("http://localhost/api/context/export"),
+    );
+
+    expect(response.status).toBe(401);
+    expect(routeMocks.getReadOnlyBrowserSession).toHaveBeenCalledTimes(1);
+    expect(routeMocks.getBrowserSession).not.toHaveBeenCalled();
+    expect(routeMocks.getPrismaClient).not.toHaveBeenCalled();
+  });
+
   it("returns safe 401 before database access", async () => {
     const getDatabase = vi.fn();
     const response = await handleGptContextPacketRequest(

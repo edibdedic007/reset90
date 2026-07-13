@@ -5,15 +5,17 @@ import { getPrismaClient } from "../db/client";
 import { getAuthMode } from "./config";
 import {
   createDevBrowserIdentity,
+  resolveExistingBrowserUser,
   storeBrowserUser,
+  type BrowserUserIdentity,
   type BrowserUserSession,
 } from "./users";
 
 export type { BrowserUserSession } from "./users";
 
-export async function getBrowserSession(): Promise<BrowserUserSession | null> {
+async function getBrowserIdentity(): Promise<BrowserUserIdentity | null> {
   if (getAuthMode() === "dev") {
-    return storeBrowserUser(getPrismaClient(), createDevBrowserIdentity());
+    return createDevBrowserIdentity();
   }
 
   const session = await auth();
@@ -23,12 +25,24 @@ export async function getBrowserSession(): Promise<BrowserUserSession | null> {
     return null;
   }
 
-  return storeBrowserUser(getPrismaClient(), {
+  return {
     authentikSubject,
     email: session.user.email ?? null,
     displayName: session.user.name ?? null,
     isDev: false,
-  });
+  };
+}
+
+export async function getBrowserSession(): Promise<BrowserUserSession | null> {
+  const identity = await getBrowserIdentity();
+  return identity ? storeBrowserUser(getPrismaClient(), identity) : null;
+}
+
+export async function getReadOnlyBrowserSession(): Promise<BrowserUserSession | null> {
+  const identity = await getBrowserIdentity();
+  return identity
+    ? resolveExistingBrowserUser(getPrismaClient(), identity)
+    : null;
 }
 
 export async function requireBrowserSession(): Promise<BrowserUserSession> {

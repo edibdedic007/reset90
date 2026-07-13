@@ -105,7 +105,7 @@ export async function downloadGptContextPacket(
       responseFilename(response, dependencies.now?.() ?? new Date()),
     );
   } finally {
-    revokeObjectUrl(url);
+    setTimeout(() => revokeObjectUrl(url), 0);
   }
 }
 

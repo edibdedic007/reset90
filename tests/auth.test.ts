@@ -1,7 +1,8 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   createDevBrowserIdentity,
+  resolveExistingBrowserUser,
   storeBrowserUser,
   type BrowserUserRecord,
 } from "../src/server/auth/users";
@@ -13,6 +14,30 @@ import {
   shouldTrustAuthHost,
   shouldUseSecureCookies,
 } from "../src/server/auth/config";
+
+async function loadReadOnlyBrowserSession(
+  authSession: unknown,
+  database: unknown,
+) {
+  vi.resetModules();
+  vi.stubEnv("AUTH_MODE", "oidc");
+  const auth = vi.fn().mockResolvedValue(authSession);
+  const getPrismaClient = vi.fn(() => database);
+
+  vi.doMock("../src/auth", () => ({ auth }));
+  vi.doMock("../src/server/db/client", () => ({ getPrismaClient }));
+
+  const { getReadOnlyBrowserSession } =
+    await import("../src/server/auth/session");
+  return { auth, getPrismaClient, getReadOnlyBrowserSession };
+}
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+  vi.doUnmock("../src/auth");
+  vi.doUnmock("../src/server/db/client");
+  vi.resetModules();
+});
 
 describe("browser auth config", () => {
   it("defaults to dev auth outside production", () => {
@@ -97,5 +122,128 @@ describe("browser user persistence", () => {
       displayName: "Local Dev",
       isDev: true,
     });
+  });
+
+  it("resolves an existing browser user without calling persistence", async () => {
+    const identity = createDevBrowserIdentity();
+    const record: BrowserUserRecord = {
+      id: "user-1",
+      authentikSubject: identity.authentikSubject,
+      email: "stored@example.test",
+      displayName: "Stored Name",
+    };
+    const findUnique = vi.fn().mockResolvedValue(record);
+    const upsert = vi.fn();
+    const database = { user: { findUnique, upsert } };
+
+    await expect(
+      resolveExistingBrowserUser(database, identity),
+    ).resolves.toEqual({
+      userId: "user-1",
+      authentikSubject: "local-dev-user",
+      email: "stored@example.test",
+      displayName: "Stored Name",
+      isDev: true,
+    });
+    expect(findUnique).toHaveBeenCalledWith({
+      where: { authentikSubject: "local-dev-user" },
+      select: {
+        id: true,
+        authentikSubject: true,
+        email: true,
+        displayName: true,
+      },
+    });
+    expect(upsert).not.toHaveBeenCalled();
+  });
+
+  it("returns null for a missing browser user without creating one", async () => {
+    const findUnique = vi.fn().mockResolvedValue(null);
+    const upsert = vi.fn();
+    const database = { user: { findUnique, upsert } };
+
+    await expect(
+      resolveExistingBrowserUser(database, createDevBrowserIdentity()),
+    ).resolves.toBeNull();
+    expect(upsert).not.toHaveBeenCalled();
+  });
+});
+
+describe("read-only browser session resolution", () => {
+  const authenticatedSession = {
+    user: {
+      authentikSubject: "authentik-user",
+      email: "browser@example.test",
+      name: "Browser User",
+    },
+  };
+
+  it("returns an existing user through lookup without persistence", async () => {
+    const record: BrowserUserRecord = {
+      id: "user-1",
+      authentikSubject: "authentik-user",
+      email: "stored@example.test",
+      displayName: "Stored Name",
+    };
+    const findUnique = vi.fn().mockResolvedValue(record);
+    const upsert = vi.fn();
+    const { getReadOnlyBrowserSession } = await loadReadOnlyBrowserSession(
+      authenticatedSession,
+      { user: { findUnique, upsert } },
+    );
+
+    await expect(getReadOnlyBrowserSession()).resolves.toEqual({
+      userId: "user-1",
+      authentikSubject: "authentik-user",
+      email: "stored@example.test",
+      displayName: "Stored Name",
+      isDev: false,
+    });
+    expect(findUnique).toHaveBeenCalledWith({
+      where: { authentikSubject: "authentik-user" },
+      select: {
+        id: true,
+        authentikSubject: true,
+        email: true,
+        displayName: true,
+      },
+    });
+    expect(upsert).not.toHaveBeenCalled();
+  });
+
+  it("returns null for a missing user without persistence", async () => {
+    const findUnique = vi.fn().mockResolvedValue(null);
+    const upsert = vi.fn();
+    const { getReadOnlyBrowserSession } = await loadReadOnlyBrowserSession(
+      authenticatedSession,
+      { user: { findUnique, upsert } },
+    );
+
+    await expect(getReadOnlyBrowserSession()).resolves.toBeNull();
+    expect(findUnique).toHaveBeenCalledWith({
+      where: { authentikSubject: "authentik-user" },
+      select: {
+        id: true,
+        authentikSubject: true,
+        email: true,
+        displayName: true,
+      },
+    });
+    expect(upsert).not.toHaveBeenCalled();
+  });
+
+  it("keeps unauthenticated resolution null without database access", async () => {
+    const findUnique = vi.fn();
+    const upsert = vi.fn();
+    const { auth, getPrismaClient, getReadOnlyBrowserSession } =
+      await loadReadOnlyBrowserSession(null, {
+        user: { findUnique, upsert },
+      });
+
+    await expect(getReadOnlyBrowserSession()).resolves.toBeNull();
+    expect(auth).toHaveBeenCalledTimes(1);
+    expect(getPrismaClient).not.toHaveBeenCalled();
+    expect(findUnique).not.toHaveBeenCalled();
+    expect(upsert).not.toHaveBeenCalled();
   });
 });

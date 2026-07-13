@@ -469,7 +469,8 @@ describe("Context Library UI", () => {
     expect(html).toContain("disabled");
   });
 
-  it("invokes one successful JSON download and releases the object URL", async () => {
+  it("defers object URL cleanup until after the download click", async () => {
+    vi.useFakeTimers();
     const triggerDownload = vi.fn();
     const revokeObjectUrl = vi.fn();
     const fetcher = vi.fn(
@@ -483,23 +484,31 @@ describe("Context Library UI", () => {
         }),
     );
 
-    await downloadGptContextPacket({
-      fetcher,
-      createObjectUrl: () => "blob:packet",
-      revokeObjectUrl,
-      triggerDownload,
-    });
+    try {
+      await downloadGptContextPacket({
+        fetcher,
+        createObjectUrl: () => "blob:packet",
+        revokeObjectUrl,
+        triggerDownload,
+      });
 
-    expect(fetcher).toHaveBeenCalledTimes(1);
-    expect(fetcher).toHaveBeenCalledWith("/api/context/export", {
-      method: "GET",
-      cache: "no-store",
-    });
-    expect(triggerDownload).toHaveBeenCalledWith(
-      "blob:packet",
-      "reset90-gpt-context-2026-07-13.json",
-    );
-    expect(revokeObjectUrl).toHaveBeenCalledWith("blob:packet");
+      expect(fetcher).toHaveBeenCalledTimes(1);
+      expect(fetcher).toHaveBeenCalledWith("/api/context/export", {
+        method: "GET",
+        cache: "no-store",
+      });
+      expect(triggerDownload).toHaveBeenCalledWith(
+        "blob:packet",
+        "reset90-gpt-context-2026-07-13.json",
+      );
+      expect(revokeObjectUrl).not.toHaveBeenCalled();
+
+      await vi.runAllTimersAsync();
+
+      expect(revokeObjectUrl).toHaveBeenCalledWith("blob:packet");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("presents only a bounded server-safe export error", async () => {

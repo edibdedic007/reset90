@@ -117,7 +117,15 @@ open decisions.
 Packet assembly uses explicit normalized-field allowlists. It never persists a
 packet, reads raw imports as fallback, exports internal or ownership IDs, sends
 data to a GPT, or includes hidden reasoning, private notes, detailed narratives,
-prompts, or transcripts. Missing normalized concepts remain null or empty.
+prompts, or transcripts. Export authentication resolves only an existing user
+and performs no create, update, or upsert. Missing normalized concepts remain
+null or empty.
+
+Serialized UTF-8 output cannot exceed 32 KiB. Oversized valid packets lose
+complete optional items deterministically from the ends of `active_patterns`,
+then `open_decisions`, then `pinned_context`; required sections remain intact.
+The final packet is validated again, and required-only oversize returns a safe
+server error instead of an invalid or oversized file.
 
 ## Deferred after Phase 16
 

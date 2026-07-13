@@ -1,11 +1,11 @@
-import { getBrowserSession } from "@/server/auth/session";
+import { getReadOnlyBrowserSession } from "@/server/auth/session";
 import { handleGptContextPacketRequest } from "@/server/context-export/gpt-context-packet";
 import { getPrismaClient } from "@/server/db/client";
 
 export const dynamic = "force-dynamic";
 
 const dependencies = {
-  getSession: getBrowserSession,
+  getSession: getReadOnlyBrowserSession,
   getDatabase: getPrismaClient,
 };
 

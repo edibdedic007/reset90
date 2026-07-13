@@ -425,7 +425,18 @@ ownership IDs, internal record IDs, prompts, or traces. Missing normalized data
 stays null/empty; no raw fallback or inferred context is allowed. No active
 cycle returns safe `404 no_active_cycle`; ambiguous active-cycle state returns
 a bounded invariant error; unauthenticated access returns safe
-`401 unauthorized`.
+`401 unauthorized`. Browser authentication resolves the existing application
+user with a non-mutating lookup for this route; it does not create, update, or
+upsert a user. A missing application user uses the same safe unauthorized
+response.
+
+After normal schema validation, the server measures serialized JSON as UTF-8
+and enforces a hard 32-KiB limit. If needed, it removes complete items from the
+ends of `active_patterns`, then `open_decisions`, then `pinned_context`,
+remeasuring after each removal. Required sections and scalar metadata are never
+altered. The final packet is schema-validated again. If required data alone
+cannot fit, export returns bounded `500 context_export_too_large` without a
+download.
 
 ## Response examples
 

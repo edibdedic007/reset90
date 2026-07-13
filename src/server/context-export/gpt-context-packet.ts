@@ -22,6 +22,7 @@ export const GPT_CONTEXT_PATTERN_LIMIT = 10;
 export const GPT_CONTEXT_PINNED_LIMIT = 12;
 export const GPT_CONTEXT_DECISION_LIMIT = 10;
 export const GPT_CONTEXT_TAG_LIMIT = 8;
+export const GPT_CONTEXT_PACKET_MAX_BYTES = 32 * 1_024;
 
 const DAY_STATUSES = [
   "GREEN",
@@ -100,7 +101,39 @@ type PacketDatabase = Pick<PrismaClient, "$transaction">;
 export type GptContextPacketResult =
   | { status: "ready"; packet: GptContextPacket }
   | { status: "no_cycle" }
-  | { status: "invariant_error" };
+  | { status: "invariant_error" }
+  | { status: "size_error" };
+
+export function gptContextPacketByteLength(packet: GptContextPacket) {
+  return new TextEncoder().encode(JSON.stringify(packet)).byteLength;
+}
+
+export function fitGptContextPacketToByteLimit(
+  packet: GptContextPacket,
+): GptContextPacket | null {
+  const fitted: GptContextPacket = {
+    ...packet,
+    active_patterns: [...packet.active_patterns],
+    open_decisions: [...packet.open_decisions],
+    pinned_context: [...packet.pinned_context],
+  };
+  let byteLength = gptContextPacketByteLength(fitted);
+
+  while (byteLength > GPT_CONTEXT_PACKET_MAX_BYTES) {
+    if (fitted.active_patterns.length > 0) {
+      fitted.active_patterns.pop();
+    } else if (fitted.open_decisions.length > 0) {
+      fitted.open_decisions.pop();
+    } else if (fitted.pinned_context.length > 0) {
+      fitted.pinned_context.pop();
+    } else {
+      return null;
+    }
+    byteLength = gptContextPacketByteLength(fitted);
+  }
+
+  return gptContextPacketSchema.parse(fitted);
+}
 
 function isoDate(date: Date) {
   return date.toISOString().slice(0, 10);
@@ -429,7 +462,10 @@ export async function assembleGptContextPacket(
           })),
       });
 
-      return { status: "ready" as const, packet };
+      const fittedPacket = fitGptContextPacketToByteLimit(packet);
+      return fittedPacket
+        ? { status: "ready" as const, packet: fittedPacket }
+        : { status: "size_error" as const };
     },
     { isolationLevel: "RepeatableRead" },
   );
@@ -484,6 +520,13 @@ export async function handleGptContextPacketRequest(
         "active_cycle_invariant",
         "Reset Cycle state is inconsistent. GPT context was not exported.",
         409,
+      );
+    }
+    if (result.status === "size_error") {
+      return safeError(
+        "context_export_too_large",
+        "GPT context packet could not be generated within safe size limits.",
+        500,
       );
     }
 
