@@ -577,91 +577,185 @@
       "additionalProperties": false
     },
     {
-      "type": "object",
-      "properties": {
-        "kind": { "type": "string", "const": "context_item" },
-        "schema_version": { "type": "string", "const": "1.0" },
-        "idempotency_key": {
-          "type": "string",
-          "minLength": 8,
-          "maxLength": 200,
-          "pattern": "\\S"
-        },
-        "source": {
-          "type": "string",
-          "enum": ["custom_gpt", "manual", "system"]
-        },
-        "external_conversation_id": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 500,
-          "pattern": "\\S"
-        },
-        "created_at": {
-          "type": "string",
-          "format": "date-time",
-          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
-        },
-        "payload": {
+      "oneOf": [
+        {
           "type": "object",
           "properties": {
-            "kind": {
+            "kind": { "type": "string", "const": "context_item" },
+            "schema_version": { "type": "string", "const": "1.0" },
+            "idempotency_key": {
               "type": "string",
-              "enum": [
-                "conversation",
-                "task_summary",
-                "decision_log",
-                "daily_summary",
-                "weekly_summary",
-                "context_snapshot",
-                "reasoning_summary"
-              ]
-            },
-            "title": {
-              "type": "string",
-              "minLength": 1,
+              "minLength": 8,
               "maxLength": 200,
               "pattern": "\\S"
             },
-            "summary": {
+            "source": {
               "type": "string",
-              "minLength": 1,
-              "maxLength": 4000,
-              "pattern": "\\S"
+              "enum": ["custom_gpt", "manual", "system"]
             },
-            "importance": { "type": "integer", "minimum": 1, "maximum": 5 },
-            "tags": {
-              "default": [],
-              "maxItems": 20,
-              "type": "array",
-              "items": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 80,
-                "pattern": "\\S"
-              }
-            },
-            "source_ref": {
+            "external_conversation_id": {
               "type": "string",
               "minLength": 1,
               "maxLength": 500,
               "pattern": "\\S"
             },
-            "is_sensitive": { "type": "boolean" }
+            "created_at": {
+              "type": "string",
+              "format": "date-time",
+              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+            },
+            "payload": {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "conversation",
+                    "task_summary",
+                    "decision_log",
+                    "daily_summary",
+                    "weekly_summary",
+                    "context_snapshot",
+                    "reasoning_summary"
+                  ]
+                },
+                "title": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200,
+                  "pattern": "\\S"
+                },
+                "summary": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 4000,
+                  "pattern": "\\S"
+                },
+                "importance": { "type": "integer", "minimum": 1, "maximum": 5 },
+                "tags": {
+                  "maxItems": 20,
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 80,
+                    "pattern": "\\S"
+                  }
+                },
+                "source_ref": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 500,
+                  "pattern": "\\S"
+                },
+                "is_sensitive": { "type": "boolean" }
+              },
+              "required": ["kind", "title", "summary", "importance"],
+              "additionalProperties": false,
+              "title": "Reset90 Legacy Context Item Payload 1.0"
+            }
           },
-          "required": ["kind", "title", "summary", "importance", "tags"],
-          "additionalProperties": false,
-          "title": "Reset90 Context Item Payload"
+          "required": [
+            "kind",
+            "schema_version",
+            "idempotency_key",
+            "source",
+            "payload"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": { "type": "string", "const": "context_item" },
+            "schema_version": { "type": "string", "const": "2.0" },
+            "idempotency_key": {
+              "type": "string",
+              "minLength": 8,
+              "maxLength": 200,
+              "pattern": "\\S"
+            },
+            "source": {
+              "type": "string",
+              "enum": ["custom_gpt", "manual", "system"]
+            },
+            "external_conversation_id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 500,
+              "pattern": "\\S"
+            },
+            "created_at": {
+              "type": "string",
+              "format": "date-time",
+              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+            },
+            "payload": {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "CONVERSATION_SUMMARY",
+                    "TASK_SUMMARY",
+                    "DECISION",
+                    "PREFERENCE",
+                    "DAILY_SUMMARY",
+                    "WEEKLY_SNAPSHOT",
+                    "CYCLE_REPORT",
+                    "CONTEXT_SNAPSHOT"
+                  ]
+                },
+                "domain": {
+                  "type": "string",
+                  "enum": [
+                    "BODY",
+                    "MOOD",
+                    "DIGITAL",
+                    "LEARNING",
+                    "WORK",
+                    "SYSTEM",
+                    "ENVIRONMENT",
+                    "SOCIAL",
+                    "OTHER"
+                  ]
+                },
+                "title": {
+                  "type": "string",
+                  "pattern": "^\\s*\\S(?:[\\s\\S]{0,158}\\S)?\\s*$"
+                },
+                "summary": {
+                  "type": "string",
+                  "pattern": "^\\s*\\S(?:[\\s\\S]{0,3998}\\S)?\\s*$"
+                },
+                "tags": {
+                  "maxItems": 10,
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "pattern": "^\\s*\\S(?:[\\s\\S]{0,38}\\S)?\\s*$"
+                  }
+                },
+                "source_ref": {
+                  "type": "string",
+                  "pattern": "^\\s*\\S(?:[\\s\\S]{0,498}\\S)?\\s*$"
+                }
+              },
+              "required": ["kind", "domain", "title", "summary"],
+              "additionalProperties": false,
+              "title": "Reset90 Context Library Item Payload 2.0"
+            }
+          },
+          "required": [
+            "kind",
+            "schema_version",
+            "idempotency_key",
+            "source",
+            "payload"
+          ],
+          "additionalProperties": false
         }
-      },
-      "required": [
-        "kind",
-        "schema_version",
-        "idempotency_key",
-        "source",
-        "payload"
-      ],
-      "additionalProperties": false
+      ]
     }
   ],
   "title": "Reset90 Import Envelope"

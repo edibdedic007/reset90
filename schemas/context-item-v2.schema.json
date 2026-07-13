@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://reset90.local/schemas/context-item-v2.schema.json",
+  "type": "object",
+  "properties": {
+    "kind": {
+      "type": "string",
+      "enum": [
+        "CONVERSATION_SUMMARY",
+        "TASK_SUMMARY",
+        "DECISION",
+        "PREFERENCE",
+        "DAILY_SUMMARY",
+        "WEEKLY_SNAPSHOT",
+        "CYCLE_REPORT",
+        "CONTEXT_SNAPSHOT"
+      ]
+    },
+    "domain": {
+      "type": "string",
+      "enum": [
+        "BODY",
+        "MOOD",
+        "DIGITAL",
+        "LEARNING",
+        "WORK",
+        "SYSTEM",
+        "ENVIRONMENT",
+        "SOCIAL",
+        "OTHER"
+      ]
+    },
+    "title": {
+      "type": "string",
+      "pattern": "^\\s*\\S(?:[\\s\\S]{0,158}\\S)?\\s*$"
+    },
+    "summary": {
+      "type": "string",
+      "pattern": "^\\s*\\S(?:[\\s\\S]{0,3998}\\S)?\\s*$"
+    },
+    "tags": {
+      "maxItems": 10,
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^\\s*\\S(?:[\\s\\S]{0,38}\\S)?\\s*$"
+      }
+    },
+    "source_ref": {
+      "type": "string",
+      "pattern": "^\\s*\\S(?:[\\s\\S]{0,498}\\S)?\\s*$"
+    }
+  },
+  "required": ["kind", "domain", "title", "summary"],
+  "additionalProperties": false,
+  "title": "Reset90 Context Library Item Payload 2.0"
+}

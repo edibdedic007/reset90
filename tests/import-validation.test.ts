@@ -2,13 +2,84 @@ import { describe, expect, it } from "vitest";
 
 import dailyPlan from "../examples/daily_plan_payload.json";
 import dailyReflection from "../examples/daily_reflection_payload.json";
+import contextItemJsonSchema from "../schemas/context-item.schema.json";
+import contextItemV2JsonSchema from "../schemas/context-item-v2.schema.json";
+import importEnvelopeJsonSchema from "../schemas/import-envelope.schema.json";
 import weeklyReview from "../examples/weekly_review_payload.json";
+import { CONTEXT_DOMAINS, CONTEXT_KINDS } from "../src/lib/context";
 import {
+  CONTEXT_LIBRARY_SCHEMA_VERSION,
+  contextItemImportSchemaForVersion,
   contextItemImportSchema,
+  contextItemPayloadSchema,
+  contextLibraryItemImportSchema,
   dailyReflectionImportSchema,
   importEnvelopeSchema,
+  legacyContextItemImportSchema,
+  legacyContextKindSchema,
+  LEGACY_CONTEXT_ITEM_SCHEMA_VERSION,
   weeklyReviewImportSchema,
 } from "../src/server/imports/schemas";
+
+type JsonSchema = {
+  $id?: string;
+  type?: string;
+  const?: unknown;
+  enum?: unknown[];
+  oneOf?: JsonSchema[];
+  pattern?: string;
+  minLength?: number;
+  maxLength?: number;
+  maxItems?: number;
+  items?: JsonSchema;
+  properties?: Record<string, JsonSchema | undefined>;
+  required?: string[];
+  additionalProperties?: boolean;
+};
+
+function acceptsJsonSchema(schema: JsonSchema, value: unknown): boolean {
+  if (schema.oneOf) {
+    return (
+      schema.oneOf.filter((candidate) => acceptsJsonSchema(candidate, value))
+        .length === 1
+    );
+  }
+  if (schema.const !== undefined && value !== schema.const) return false;
+  if (schema.enum && !schema.enum.includes(value)) return false;
+  if (schema.type === "string") {
+    if (typeof value !== "string") return false;
+    if (schema.minLength !== undefined && value.length < schema.minLength)
+      return false;
+    if (schema.maxLength !== undefined && value.length > schema.maxLength)
+      return false;
+    return schema.pattern ? new RegExp(schema.pattern).test(value) : true;
+  }
+  if (schema.type === "array") {
+    return (
+      Array.isArray(value) &&
+      (schema.maxItems === undefined || value.length <= schema.maxItems) &&
+      (!schema.items ||
+        value.every((item) => acceptsJsonSchema(schema.items!, item)))
+    );
+  }
+  if (schema.type === "object") {
+    if (typeof value !== "object" || value === null || Array.isArray(value))
+      return false;
+    const record = value as Record<string, unknown>;
+    if (schema.required?.some((key) => !(key in record))) return false;
+    if (
+      schema.additionalProperties === false &&
+      Object.keys(record).some((key) => !(key in (schema.properties ?? {})))
+    )
+      return false;
+    return Object.entries(record).every(
+      ([key, item]) =>
+        !schema.properties?.[key] ||
+        acceptsJsonSchema(schema.properties[key], item),
+    );
+  }
+  return true;
+}
 
 describe("canonical GPT import validation", () => {
   it.each([
@@ -223,38 +294,270 @@ describe("canonical GPT import validation", () => {
     expect(weeklyReviewImportSchema.safeParse(invalid).success).toBe(false);
   });
 
-  it("accepts user-visible context summaries", () => {
+  const validContextImport = {
+    kind: "context_item" as const,
+    schema_version: CONTEXT_LIBRARY_SCHEMA_VERSION,
+    idempotency_key: "context-day-1-summary-v1",
+    source: "custom_gpt" as const,
+    payload: {
+      kind: "DECISION" as const,
+      domain: "WORK" as const,
+      title: "Why minimum work counts",
+      summary: "Minimum actions preserve continuity without shame.",
+      tags: ["minimum", "continuity"],
+      source_ref: "visible-reference",
+    },
+  };
+
+  const validLegacyContextImport = {
+    kind: "context_item" as const,
+    schema_version: LEGACY_CONTEXT_ITEM_SCHEMA_VERSION,
+    idempotency_key: "legacy-context-item-v1",
+    source: "custom_gpt" as const,
+    payload: {
+      kind: "decision_log" as const,
+      title: "Legacy decision",
+      summary: "Published 1.0 content remains valid.",
+      importance: 4,
+      tags: ["legacy"],
+      source_ref: "legacy-visible-reference",
+      is_sensitive: true,
+    },
+  };
+
+  it("preserves the published legacy context-item 1.0 contract", () => {
+    expect(
+      legacyContextItemImportSchema.safeParse(validLegacyContextImport).success,
+    ).toBe(true);
+    expect(
+      importEnvelopeSchema.safeParse(validLegacyContextImport).success,
+    ).toBe(true);
+    const withoutTags = structuredClone(validLegacyContextImport);
+    Reflect.deleteProperty(withoutTags.payload, "tags");
+    expect(
+      legacyContextItemImportSchema.parse(withoutTags).payload.tags,
+    ).toEqual([]);
+  });
+
+  it("preserves the legacy standalone context-item schema resource", () => {
+    expect(
+      acceptsJsonSchema(
+        contextItemJsonSchema,
+        validLegacyContextImport.payload,
+      ),
+    ).toBe(true);
+    for (const kind of legacyContextKindSchema.options) {
+      expect(
+        acceptsJsonSchema(contextItemJsonSchema, {
+          ...validLegacyContextImport.payload,
+          kind,
+        }),
+      ).toBe(true);
+    }
+
+    const withoutImportance = structuredClone(
+      validLegacyContextImport.payload,
+    ) as Record<string, unknown>;
+    Reflect.deleteProperty(withoutImportance, "importance");
+    expect(acceptsJsonSchema(contextItemJsonSchema, withoutImportance)).toBe(
+      false,
+    );
+    expect(
+      acceptsJsonSchema(contextItemJsonSchema, validContextImport.payload),
+    ).toBe(false);
+    expect(contextItemJsonSchema.$id).toBe(
+      "https://reset90.local/schemas/context-item.schema.json",
+    );
+  });
+
+  it("publishes the Phase 15 standalone context-item schema under a versioned resource", () => {
+    expect(
+      acceptsJsonSchema(contextItemV2JsonSchema, validContextImport.payload),
+    ).toBe(true);
+    for (const kind of CONTEXT_KINDS) {
+      expect(
+        acceptsJsonSchema(contextItemV2JsonSchema, {
+          ...validContextImport.payload,
+          kind,
+        }),
+      ).toBe(true);
+    }
+
+    const withoutDomain = structuredClone(validContextImport.payload) as Record<
+      string,
+      unknown
+    >;
+    Reflect.deleteProperty(withoutDomain, "domain");
+    expect(acceptsJsonSchema(contextItemV2JsonSchema, withoutDomain)).toBe(
+      false,
+    );
+    expect(
+      acceptsJsonSchema(
+        contextItemV2JsonSchema,
+        validLegacyContextImport.payload,
+      ),
+    ).toBe(false);
+    expect(contextItemV2JsonSchema.$id).toBe(
+      "https://reset90.local/schemas/context-item-v2.schema.json",
+    );
+    expect(contextItemV2JsonSchema.$id).not.toBe(contextItemJsonSchema.$id);
+  });
+
+  it("dispatches each context version only to its declared contract", () => {
+    expect(
+      contextItemImportSchemaForVersion(LEGACY_CONTEXT_ITEM_SCHEMA_VERSION),
+    ).toBe(legacyContextItemImportSchema);
+    expect(
+      contextItemImportSchemaForVersion(CONTEXT_LIBRARY_SCHEMA_VERSION),
+    ).toBe(contextLibraryItemImportSchema);
+    expect(contextItemImportSchemaForVersion("3.0")).toBeNull();
+    expect(
+      contextLibraryItemImportSchema.safeParse(validLegacyContextImport)
+        .success,
+    ).toBe(false);
+    expect(
+      legacyContextItemImportSchema.safeParse(validContextImport).success,
+    ).toBe(false);
+    expect(
+      contextItemImportSchema.safeParse(validLegacyContextImport).success,
+    ).toBe(true);
+    expect(contextItemImportSchema.safeParse(validContextImport).success).toBe(
+      true,
+    );
+    expect(
+      acceptsJsonSchema(importEnvelopeJsonSchema, validLegacyContextImport),
+    ).toBe(true);
+    expect(
+      acceptsJsonSchema(importEnvelopeJsonSchema, validContextImport),
+    ).toBe(true);
+
+    const legacyWithV2 = {
+      ...validLegacyContextImport,
+      schema_version: CONTEXT_LIBRARY_SCHEMA_VERSION,
+    };
+    const v2WithLegacy = {
+      ...validContextImport,
+      schema_version: LEGACY_CONTEXT_ITEM_SCHEMA_VERSION,
+    };
+    expect(importEnvelopeSchema.safeParse(legacyWithV2).success).toBe(false);
+    expect(importEnvelopeSchema.safeParse(v2WithLegacy).success).toBe(false);
+    expect(acceptsJsonSchema(importEnvelopeJsonSchema, legacyWithV2)).toBe(
+      false,
+    );
+    expect(acceptsJsonSchema(importEnvelopeJsonSchema, v2WithLegacy)).toBe(
+      false,
+    );
+  });
+
+  it.each(CONTEXT_KINDS)("accepts context kind %s", (kind) => {
     expect(
       contextItemImportSchema.safeParse({
-        kind: "context_item",
-        schema_version: "1.0",
-        idempotency_key: "context-day-1-summary-v1",
-        source: "custom_gpt",
-        payload: {
-          kind: "reasoning_summary",
-          title: "Why minimum work counts",
-          summary: "Minimum actions preserve continuity without shame.",
-          importance: 4,
-          tags: ["minimum", "continuity"],
-        },
+        ...validContextImport,
+        payload: { ...validContextImport.payload, kind },
       }).success,
     ).toBe(true);
   });
 
-  it("rejects hidden reasoning-shaped context fields", () => {
+  it.each(CONTEXT_DOMAINS)("accepts context domain %s", (domain) => {
     expect(
       contextItemImportSchema.safeParse({
-        kind: "context_item",
-        schema_version: "1.0",
-        idempotency_key: "context-day-1-hidden-reasoning-v1",
-        source: "custom_gpt",
+        ...validContextImport,
+        payload: { ...validContextImport.payload, domain },
+      }).success,
+    ).toBe(true);
+  });
+
+  it.each([
+    ["unknown kind", { kind: "REASONING_SUMMARY" }],
+    ["unknown domain", { domain: "FINANCE" }],
+    ["blank title", { title: "  \n " }],
+    ["blank summary", { summary: "  " }],
+    ["oversized title", { title: "x".repeat(161) }],
+    ["oversized summary", { summary: "x".repeat(4_001) }],
+    ["oversized source reference", { source_ref: "x".repeat(501) }],
+    ["excess tags", { tags: Array.from({ length: 11 }, (_, i) => `tag-${i}`) }],
+    ["blank tag", { tags: ["work", "  "] }],
+    ["oversized tag", { tags: ["x".repeat(41)] }],
+  ])("rejects context payload with %s", (_name, change) => {
+    expect(
+      contextItemImportSchema.safeParse({
+        ...validContextImport,
+        payload: { ...validContextImport.payload, ...change },
+      }).success,
+    ).toBe(false);
+  });
+
+  it("trims context text and deduplicates tags case-insensitively", () => {
+    const parsed = contextItemImportSchema.parse({
+      ...validContextImport,
+      payload: {
+        ...validContextImport.payload,
+        title: "  Decision title  ",
+        summary: "  Visible summary.  ",
+        tags: ["Work", "work", " work ", "Continuity"],
+      },
+    });
+    expect(parsed.payload.title).toBe("Decision title");
+    expect(parsed.payload.summary).toBe("Visible summary.");
+    expect(parsed.payload.tags).toEqual(["Work", "Continuity"]);
+  });
+
+  it("defaults omitted Context Library tags to an empty list", () => {
+    const withoutTags = structuredClone(validContextImport);
+    Reflect.deleteProperty(withoutTags.payload, "tags");
+
+    expect(contextItemImportSchema.parse(withoutTags).payload.tags).toEqual([]);
+  });
+
+  it.each([
+    ["valid payload without tags", { tags: undefined }, true],
+    ["valid payload with tags", { tags: ["work", " bounded "] }, true],
+    ["whitespace-only title", { title: "  \n " }, false],
+    ["whitespace-only summary", { summary: "  " }, false],
+    ["whitespace-only tag", { tags: ["work", "  "] }, false],
+    ["omitted source reference", { source_ref: undefined }, true],
+    ["whitespace-only source reference", { source_ref: "  " }, false],
+    ["unknown property", { raw_prompt: "private" }, false],
+    ["oversized title", { title: "x".repeat(161) }, false],
+    ["oversized summary", { summary: "x".repeat(4_001) }, false],
+    ["oversized tag", { tags: ["x".repeat(41)] }, false],
+    ["oversized source reference", { source_ref: "x".repeat(501) }, false],
+  ])(
+    "keeps runtime and generated Context Library contracts aligned for %s",
+    (_name, change, expected) => {
+      const payload: Record<string, unknown> = {
+        ...validContextImport.payload,
+        ...change,
+      };
+      for (const [key, value] of Object.entries(change)) {
+        if (value === undefined) Reflect.deleteProperty(payload, key);
+      }
+
+      expect(contextItemPayloadSchema.safeParse(payload).success).toBe(
+        expected,
+      );
+      expect(acceptsJsonSchema(contextItemV2JsonSchema, payload)).toBe(
+        expected,
+      );
+    },
+  );
+
+  it.each([
+    "chain_of_thought",
+    "reasoning_summary",
+    "reasoning_trace",
+    "raw_prompt",
+    "tool_trace",
+    "user_id",
+    "cycle_id",
+    "pinned_at",
+  ])("rejects forbidden context property %s", (property) => {
+    expect(
+      contextItemImportSchema.safeParse({
+        ...validContextImport,
         payload: {
-          kind: "reasoning_summary",
-          title: "Unsafe payload",
-          summary: "Visible summary.",
-          importance: 4,
-          tags: [],
-          chain_of_thought: "private scratchpad",
+          ...validContextImport.payload,
+          [property]: "RAW_PRIVATE_SENTINEL_CONTEXT_15",
         },
       }).success,
     ).toBe(false);

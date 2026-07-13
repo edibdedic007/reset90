@@ -61,6 +61,8 @@ GPT ingest:
 | POST | `/api/recovery/complete` | user | Complete current-day recovery actions. |
 | GET | `/api/analytics/90-day` | user | Grid and trends. |
 | GET | `/api/context` | user | List/search context items. |
+| POST | `/api/context` | user | Manually create an active-cycle context item. |
+| PATCH | `/api/context/:id/pin` | user | Idempotently pin or unpin owned context. |
 | GET | `/api/export/full` | user | Full JSON export. |
 | POST | `/api/import/full` | user | Full JSON import/restore helper, optional. |
 
@@ -84,7 +86,9 @@ Rules:
 - `kind` determines payload schema.
 - Supported import kinds are `daily_plan`, `daily_reflection`, `weekly_review`,
   and `context_item`.
-- Current `schema_version` is exactly `1.0`; unsupported versions are rejected.
+- Daily plans, daily reflections, and weekly reviews currently use
+  `schema_version: "1.0"`. Context items support legacy `1.0` and Context
+  Library `2.0`; unsupported kind/version combinations are rejected.
 - `idempotency_key` is required and unique within its `source`.
 - Unknown envelope and payload fields are rejected.
 - Store full raw JSON in `imported_payloads.raw_json`.
@@ -99,6 +103,12 @@ definitions with `pnpm run generate:schemas`; do not hand-edit generated files.
 `make validate-payloads` validates all canonical examples and checks generated
 schema drift. Files under `examples/schemas/` remain pack-era references; use
 root `schemas/` for implementation and Custom GPT Action contracts.
+
+`schemas/context-item.schema.json` remains the legacy `1.0` standalone payload
+schema at its original resource identifier. Phase 15 publishes its standalone
+payload schema as `schemas/context-item-v2.schema.json` with a distinct,
+versioned `$id`. `schemas/import-envelope.schema.json` performs
+deterministic context-item dispatch from the declared `schema_version`.
 
 Phase 5 provides the service-layer `storeRawImport` boundary. It stores valid
 raw envelopes before normalization, stores identifiable invalid envelopes with
@@ -262,9 +272,11 @@ Only normalized summary/narrative fields and timestamps may enter authenticated
 day-detail data. Raw JSON, processing metadata, owner identifiers, and
 `day_status_recommendation` never enter the browser DTO. The recommendation is
 stored advisory data only and cannot alter canonical status or recovery state.
-Analytics remain deferred after Phase 14. `GPT_INGEST_OWNER_SUBJECT` is required
-when a `DAILY_REFLECTION` or `WEEKLY_REVIEW` reaches normalization. Daily-plan
-dispatch is unchanged; context-item imports remain raw-only.
+Analytics remain deferred after Phase 15. `GPT_INGEST_OWNER_SUBJECT` is required
+when a `DAILY_REFLECTION`, `WEEKLY_REVIEW`, or `CONTEXT_ITEM` reaches
+normalization. Daily-plan dispatch is unchanged. Phase 15 context imports
+normalize only their explicit bounded context payload; weekly review snapshots
+are not automatically promoted.
 
 ## Weekly review payload
 
@@ -312,32 +324,74 @@ sanitized codes and never expose raw payload contents or configured identifiers.
 
 ## Context item rules
 
-Context payloads may include:
+`context_item` dispatch is deterministic by declared `schema_version`:
 
-- `conversation` history summary;
-- `task_summary`;
-- `decision_log`;
-- `daily_summary`;
-- `weekly_summary`;
-- `context_snapshot`;
-- `reasoning_summary` as a user-visible rationale only.
+- version `1.0` remains the published legacy contract with lowercase kinds,
+  required `importance`, optional `tags`, `source_ref`, and `is_sensitive`, and
+  no `domain`;
+- version `2.0` is the Phase 15 Context Library contract shown below.
 
-Do not request or store raw hidden internal reasoning logs.
+Valid legacy `1.0` imports remain valid raw records. They reach the existing
+terminal `PROCESSED` state without a normalized Context Library row, do not
+invent a domain or reinterpret legacy fields, and therefore remain absent from
+`GET /api/context` and `/context`. Exact retries are terminal no-ops. Unknown
+versions and payloads that fail their declared version remain rejected.
 
-Canonical standalone context imports use `kind: "context_item"` and this
-payload shape:
+Phase 15 Context Library imports use `kind: "context_item"`,
+`schema_version: "2.0"`, and this payload shape:
 
 ```json
 {
-  "kind": "reasoning_summary",
+  "kind": "DECISION",
+  "domain": "WORK",
   "title": "Why the minimum plan counts",
   "summary": "User-visible rationale only.",
-  "importance": 4,
   "tags": ["minimum", "continuity"],
-  "source_ref": "optional-visible-source-reference",
-  "is_sensitive": false
+  "source_ref": "optional-visible-source-reference"
 }
 ```
+
+Accepted `kind` values are `CONVERSATION_SUMMARY`, `TASK_SUMMARY`, `DECISION`,
+`PREFERENCE`, `DAILY_SUMMARY`, `WEEKLY_SNAPSHOT`, `CYCLE_REPORT`, and
+`CONTEXT_SNAPSHOT`. `domain` uses the closed `FocusDomain` enum. Title is 1-160
+trimmed characters, summary is 1-4,000, source reference is at most 500, and up
+to 10 tags may each contain 1-40 trimmed characters. Unknown fields and enum
+values are rejected. Title, summary, supplied tags, and supplied source
+references must contain nonblank trimmed content. Tags may be omitted and then
+normalize to `[]`; supplied tags are trimmed and deduplicated
+case-insensitively while preserving one display value. Runtime validation and
+generated Draft 2020-12 schemas describe the same input acceptance rules.
+
+Machine imports require the GPT bearer boundary. Raw storage precedes trusted
+owner/active-cycle resolution. Normalized item, relational tags, and successful
+processing state are one transaction protected by raw-import and cycle locks.
+After resolving exactly one owned active cycle, import normalization locks that
+cycle and revalidates the same singular owned-active selection before creating
+context. Archive, removal, replacement, or ambiguity during lock acquisition
+creates no item. An exact retry returns the existing terminal result; a
+different idempotency identity may create a separate similar item. Imported
+provenance links to the raw payload, but raw JSON and processing metadata never
+enter browser data.
+
+Authenticated `GET /api/context` supports case-insensitive literal substring
+search over title and summary plus exact domain, kind, normalized tag, pinned
+state, and inclusive UTC creation-date filters. Filters combine with AND
+semantics. Results use bounded keyset pagination ordered by pinned state,
+creation time descending, then ID descending. Invalid filters return bounded
+validation details.
+
+Authenticated `POST /api/context` accepts only the payload fields shown above;
+the server resolves exactly one owned active cycle inside the transaction,
+locks it, revalidates the same singular selection, and only then assigns manual
+provenance and inserts. `PATCH /api/context/:id/pin` accepts only a boolean
+`pinned` field and uses the same singular-cycle lock/revalidation rule. Zero or
+multiple active cycles cause no mutation. Missing and unowned valid UUIDs
+return the same safe idempotent success and never disclose existence.
+
+Browser DTOs contain only ID, title, summary, kind, domain, display tags, safe
+provenance/source reference, pin timestamp, and created/updated timestamps. No
+raw JSON, owner/cycle identifiers, prompts, tool traces, processing metadata,
+internal errors, or hidden reasoning are included.
 
 ## Response examples
 
@@ -354,6 +408,8 @@ Created:
 
 For a normalized daily reflection, `normalized_records` is
 `["daily_reflection"]`.
+
+For a normalized context item, `normalized_records` is `["context_item"]`.
 
 Duplicate:
 
@@ -396,6 +452,6 @@ HTTP status behavior:
 | `401` | Missing or invalid GPT bearer token. |
 | `413` | Body exceeds `GPT_INGEST_MAX_BODY_BYTES`. |
 | `415` | Content type is not JSON. |
-| `422` | Canonical validation failed, or a normalizable import could not match its trusted active-cycle day. |
+| `422` | Canonical validation failed, or normalization could not resolve its trusted active-cycle target. |
 | `429` | Process-local authenticated request cap exceeded. |
 | `503` | Token/DB service configuration is unavailable. |

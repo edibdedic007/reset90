@@ -6,7 +6,12 @@ import {
   nonEmptyText,
   sourceSchema,
 } from "./common";
-import { contextItemPayloadSchema } from "./context-item";
+import {
+  CONTEXT_LIBRARY_SCHEMA_VERSION,
+  contextItemPayloadSchema,
+  legacyContextItemPayloadSchema,
+  LEGACY_CONTEXT_ITEM_SCHEMA_VERSION,
+} from "./context-item";
 import { dailyPlanPayloadSchema } from "./daily-plan";
 import { dailyReflectionPayloadSchema } from "./daily-reflection";
 import { weeklyReviewPayloadSchema } from "./weekly-review";
@@ -46,11 +51,34 @@ export const weeklyReviewImportSchema = z.strictObject({
   payload: weeklyReviewPayloadSchema,
 });
 
-export const contextItemImportSchema = z.strictObject({
+export const legacyContextItemImportSchema = z.strictObject({
   kind: z.literal("context_item"),
   ...envelopeFields,
+  schema_version: z.literal(LEGACY_CONTEXT_ITEM_SCHEMA_VERSION),
+  payload: legacyContextItemPayloadSchema,
+});
+
+export const contextLibraryItemImportSchema = z.strictObject({
+  kind: z.literal("context_item"),
+  ...envelopeFields,
+  schema_version: z.literal(CONTEXT_LIBRARY_SCHEMA_VERSION),
   payload: contextItemPayloadSchema,
 });
+
+export const contextItemImportSchema = z.discriminatedUnion("schema_version", [
+  legacyContextItemImportSchema,
+  contextLibraryItemImportSchema,
+]);
+
+export function contextItemImportSchemaForVersion(version: unknown) {
+  if (version === LEGACY_CONTEXT_ITEM_SCHEMA_VERSION) {
+    return legacyContextItemImportSchema;
+  }
+  if (version === CONTEXT_LIBRARY_SCHEMA_VERSION) {
+    return contextLibraryItemImportSchema;
+  }
+  return null;
+}
 
 export const importEnvelopeSchema = z
   .discriminatedUnion("kind", [

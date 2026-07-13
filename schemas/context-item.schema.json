@@ -29,7 +29,6 @@
     },
     "importance": { "type": "integer", "minimum": 1, "maximum": 5 },
     "tags": {
-      "default": [],
       "maxItems": 20,
       "type": "array",
       "items": {
@@ -47,7 +46,7 @@
     },
     "is_sensitive": { "type": "boolean" }
   },
-  "required": ["kind", "title", "summary", "importance", "tags"],
+  "required": ["kind", "title", "summary", "importance"],
   "additionalProperties": false,
-  "title": "Reset90 Context Item Payload"
+  "title": "Reset90 Legacy Context Item Payload 1.0"
 }
