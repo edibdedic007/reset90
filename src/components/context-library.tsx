@@ -38,6 +38,155 @@ function nextPageHref(filters: ContextFilterValues, cursor: string) {
   return `/context?${params.toString()}`;
 }
 
+export type ContextPacketDownloadDependencies = {
+  fetcher?: typeof fetch;
+  createObjectUrl?: (blob: Blob) => string;
+  revokeObjectUrl?: (url: string) => void;
+  triggerDownload?: (url: string, filename: string) => void;
+  now?: () => Date;
+};
+
+export class ContextPacketDownloadError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+  ) {
+    super(message);
+    this.name = "ContextPacketDownloadError";
+  }
+}
+
+function responseFilename(response: Response, now: Date) {
+  const disposition = response.headers.get("Content-Disposition") ?? "";
+  const match = disposition.match(
+    /filename="(reset90-gpt-context-\d{4}-\d{2}-\d{2}\.json)"/,
+  );
+  return (
+    match?.[1] ?? `reset90-gpt-context-${now.toISOString().slice(0, 10)}.json`
+  );
+}
+
+function browserDownload(url: string, filename: string) {
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = filename;
+  document.body.append(anchor);
+  anchor.click();
+  anchor.remove();
+}
+
+export async function downloadGptContextPacket(
+  dependencies: ContextPacketDownloadDependencies = {},
+) {
+  const response = await (dependencies.fetcher ?? fetch)(
+    "/api/context/export",
+    { method: "GET", cache: "no-store" },
+  );
+  if (!response.ok) {
+    const payload = (await response.json().catch(() => null)) as {
+      message?: unknown;
+    } | null;
+    const message =
+      typeof payload?.message === "string" && payload.message.length <= 200
+        ? payload.message
+        : "GPT context packet could not be downloaded. Try again.";
+    throw new ContextPacketDownloadError(message, response.status);
+  }
+
+  const blob = await response.blob();
+  const createObjectUrl =
+    dependencies.createObjectUrl ?? URL.createObjectURL.bind(URL);
+  const revokeObjectUrl =
+    dependencies.revokeObjectUrl ?? URL.revokeObjectURL.bind(URL);
+  const url = createObjectUrl(blob);
+  try {
+    (dependencies.triggerDownload ?? browserDownload)(
+      url,
+      responseFilename(response, dependencies.now?.() ?? new Date()),
+    );
+  } finally {
+    revokeObjectUrl(url);
+  }
+}
+
+export function ContextPacketExportControl({
+  disabled,
+  loading,
+  notice,
+  onExport,
+}: {
+  disabled: boolean;
+  loading: boolean;
+  notice: string | null;
+  onExport: () => void;
+}) {
+  return (
+    <section className="min-w-0 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-5 sm:p-6">
+      <h2 className="text-xl font-semibold">GPT context packet</h2>
+      <p className="mt-2 max-w-2xl text-sm text-[var(--muted)]">
+        Download compact, normalized context from this active reset cycle.
+      </p>
+      <div className="mt-4 flex min-w-0 flex-col items-start gap-3 sm:flex-row sm:items-center">
+        <button
+          className="w-full rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-semibold text-white disabled:opacity-60 sm:w-auto"
+          disabled={disabled || loading}
+          onClick={onExport}
+          type="button"
+        >
+          {loading ? "Exporting…" : "Export GPT context packet"}
+        </button>
+        {disabled ? (
+          <span className="text-sm text-[var(--muted)]">
+            An active reset cycle is required before exporting GPT context.
+          </span>
+        ) : null}
+        <span aria-live="polite" className="text-sm text-[var(--muted)]">
+          {notice}
+        </span>
+      </div>
+    </section>
+  );
+}
+
+function ContextPacketExport({ disabled }: { disabled: boolean }) {
+  const router = useRouter();
+  const running = useRef(false);
+  const [loading, setLoading] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
+
+  async function exportPacket() {
+    if (disabled || running.current) return;
+    running.current = true;
+    setLoading(true);
+    setNotice(null);
+    try {
+      await downloadGptContextPacket();
+      setNotice("GPT context packet downloaded.");
+    } catch (error) {
+      if (error instanceof ContextPacketDownloadError && error.status === 401) {
+        router.refresh();
+      }
+      setNotice(
+        error instanceof ContextPacketDownloadError
+          ? error.message
+          : "GPT context packet could not be downloaded. Try again.",
+      );
+    } finally {
+      running.current = false;
+      setLoading(false);
+    }
+  }
+
+  return (
+    <ContextPacketExportControl
+      disabled={disabled}
+      loading={loading}
+      notice={notice}
+      onExport={() => void exportPacket()}
+    />
+  );
+}
+
 function ManualContextForm({ disabled }: { disabled: boolean }) {
   const router = useRouter();
   const formRef = useRef<HTMLFormElement>(null);
@@ -408,6 +557,8 @@ export function ContextLibraryPage({
           Curated, user-visible memory for this active reset cycle.
         </p>
       </section>
+
+      <ContextPacketExport disabled={noCycle} />
 
       {noCycle ? (
         <section className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-6">

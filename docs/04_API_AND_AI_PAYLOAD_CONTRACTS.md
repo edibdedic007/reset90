@@ -63,6 +63,7 @@ GPT ingest:
 | GET | `/api/context` | user | List/search context items. |
 | POST | `/api/context` | user | Manually create an active-cycle context item. |
 | PATCH | `/api/context/:id/pin` | user | Idempotently pin or unpin owned context. |
+| GET | `/api/context/export` | user | Download the owned active cycle's compact GPT context packet. |
 | GET | `/api/export/full` | user | Full JSON export. |
 | POST | `/api/import/full` | user | Full JSON import/restore helper, optional. |
 
@@ -392,6 +393,39 @@ Browser DTOs contain only ID, title, summary, kind, domain, display tags, safe
 provenance/source reference, pin timestamp, and created/updated timestamps. No
 raw JSON, owner/cycle identifiers, prompts, tool traces, processing metadata,
 internal errors, or hidden reasoning are included.
+
+## GPT context packet export
+
+Phase 16 adds authenticated browser-session `GET /api/context/export`. The
+endpoint accepts no owner, cycle, date, day, or range selectors. It resolves
+the signed-in user's one active Reset Cycle, reads only that cycle in one
+bounded repeatable-read transaction, validates the assembled packet against the
+outbound runtime schema, and returns compact JSON with:
+
+```http
+Content-Type: application/json; charset=utf-8
+Content-Disposition: attachment; filename="reset90-gpt-context-YYYY-MM-DD.json"
+Cache-Control: no-store
+```
+
+The outbound contract is `gpt_context_packet` version `1.0`. Its exact
+top-level fields are `schema_version`, `generated_at`, `cycle`, `current_day`,
+`recent_days`, `metrics_7d`, `active_patterns`, `pinned_context`, `recovery`,
+and `open_decisions`. The runtime contract lives in
+`src/server/context-export/gpt-context-packet-schema.ts`; the generated Draft
+2020-12 contract is `schemas/gpt-context-packet.schema.json` and participates in
+the existing schema-drift check.
+
+The export is read-only and allowlist-based. It uses normalized cycle/day,
+latest check-in, compact reflection, task-count, weekly-pattern, pinned-context,
+open-decision, and canonical recovery/status data only. It never stores a
+packet, creates an imported payload, reconciles status, consumes recovery
+credit, or exposes raw imports, narratives, notes, authentication/account data,
+ownership IDs, internal record IDs, prompts, or traces. Missing normalized data
+stays null/empty; no raw fallback or inferred context is allowed. No active
+cycle returns safe `404 no_active_cycle`; ambiguous active-cycle state returns
+a bounded invariant error; unauthenticated access returns safe
+`401 unauthorized`.
 
 ## Response examples
 

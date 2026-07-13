@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { gptContextPacketSchema } from "../context-export/gpt-context-packet-schema";
+
 import {
   contextItemPayloadSchema,
   dailyPlanPayloadSchema,
@@ -46,5 +48,9 @@ export const jsonSchemaDocuments = {
   "context-item-v2.schema.json": toJsonSchema(
     contextItemPayloadSchema,
     "context-item-v2.schema.json",
+  ),
+  "gpt-context-packet.schema.json": toJsonSchema(
+    gptContextPacketSchema,
+    "gpt-context-packet.schema.json",
   ),
 } as const;

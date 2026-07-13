@@ -11,7 +11,7 @@ import {
 
 export type { BrowserUserSession } from "./users";
 
-export async function requireBrowserSession(): Promise<BrowserUserSession> {
+export async function getBrowserSession(): Promise<BrowserUserSession | null> {
   if (getAuthMode() === "dev") {
     return storeBrowserUser(getPrismaClient(), createDevBrowserIdentity());
   }
@@ -20,7 +20,7 @@ export async function requireBrowserSession(): Promise<BrowserUserSession> {
   const authentikSubject = session?.user?.authentikSubject;
 
   if (!authentikSubject) {
-    redirect("/api/auth/signin?callbackUrl=/");
+    return null;
   }
 
   return storeBrowserUser(getPrismaClient(), {
@@ -29,4 +29,12 @@ export async function requireBrowserSession(): Promise<BrowserUserSession> {
     displayName: session.user.name ?? null,
     isDev: false,
   });
+}
+
+export async function requireBrowserSession(): Promise<BrowserUserSession> {
+  const session = await getBrowserSession();
+  if (!session) {
+    redirect("/api/auth/signin?callbackUrl=/");
+  }
+  return session;
 }

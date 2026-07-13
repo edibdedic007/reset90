@@ -5,7 +5,12 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({ refresh: vi.fn() }),
 }));
 
-import { ContextLibraryPage } from "../src/components/context-library";
+import {
+  ContextLibraryPage,
+  ContextPacketDownloadError,
+  ContextPacketExportControl,
+  downloadGptContextPacket,
+} from "../src/components/context-library";
 import type { PrismaClient } from "../src/generated/prisma/client";
 import type { ContextItemDto, ContextLibrary } from "../src/lib/context";
 import {
@@ -422,7 +427,101 @@ describe("Context Library UI", () => {
     expect(html).toContain(
       "Start an active reset cycle before adding context.",
     );
+    expect(html).toContain("Export GPT context packet");
+    expect(html).toContain(
+      "An active reset cycle is required before exporting GPT context.",
+    );
     expect(html).toContain("disabled");
+  });
+
+  it("renders an enabled phone-width export action for an active cycle", () => {
+    const html = renderToStaticMarkup(
+      <ContextLibraryPage
+        library={{
+          status: "ready",
+          cycleName: "My Reset",
+          filters: {},
+          hasStoredItems: false,
+          items: [],
+          nextCursor: null,
+        }}
+        queryIssues={[]}
+      />,
+    );
+    expect(html).toContain("Export GPT context packet");
+    expect(html).toContain("w-full");
+    expect(html).toContain("sm:w-auto");
+    expect(html).not.toContain(
+      "An active reset cycle is required before exporting GPT context.",
+    );
+  });
+
+  it("disables repeated export submission while loading", () => {
+    const html = renderToStaticMarkup(
+      <ContextPacketExportControl
+        disabled={false}
+        loading
+        notice={null}
+        onExport={() => undefined}
+      />,
+    );
+    expect(html).toContain("Exporting…");
+    expect(html).toContain("disabled");
+  });
+
+  it("invokes one successful JSON download and releases the object URL", async () => {
+    const triggerDownload = vi.fn();
+    const revokeObjectUrl = vi.fn();
+    const fetcher = vi.fn(
+      async () =>
+        new Response('{"schema_version":"1.0"}', {
+          headers: {
+            "Content-Type": "application/json; charset=utf-8",
+            "Content-Disposition":
+              'attachment; filename="reset90-gpt-context-2026-07-13.json"',
+          },
+        }),
+    );
+
+    await downloadGptContextPacket({
+      fetcher,
+      createObjectUrl: () => "blob:packet",
+      revokeObjectUrl,
+      triggerDownload,
+    });
+
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(fetcher).toHaveBeenCalledWith("/api/context/export", {
+      method: "GET",
+      cache: "no-store",
+    });
+    expect(triggerDownload).toHaveBeenCalledWith(
+      "blob:packet",
+      "reset90-gpt-context-2026-07-13.json",
+    );
+    expect(revokeObjectUrl).toHaveBeenCalledWith("blob:packet");
+  });
+
+  it("presents only a bounded server-safe export error", async () => {
+    const request = downloadGptContextPacket({
+      fetcher: async () =>
+        Response.json(
+          {
+            ok: false,
+            error: "context_export_failed",
+            message: "GPT context packet could not be generated. Try again.",
+            stack: "PRIVATE_STACK_SENTINEL_16",
+          },
+          { status: 500 },
+        ),
+    });
+    await expect(request).rejects.toEqual(
+      new ContextPacketDownloadError(
+        "GPT context packet could not be generated. Try again.",
+        500,
+      ),
+    );
+    await expect(request).rejects.not.toThrow("PRIVATE_STACK_SENTINEL_16");
   });
 
   it("distinguishes empty library from filtered-empty state", () => {
