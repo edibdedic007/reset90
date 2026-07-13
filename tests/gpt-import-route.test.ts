@@ -17,10 +17,10 @@ const contextItem = {
   kind: "context_item",
   idempotency_key: "2026-07-01-context-item-v1",
   payload: {
-    kind: "decision_log",
+    kind: "DECISION",
+    domain: "WORK",
     title: "Keep minimum plan visible",
     summary: "Minimum plan preserves continuity on low-energy days.",
-    importance: 4,
     tags: ["minimum", "continuity"],
   },
 };
@@ -99,6 +99,7 @@ function createDependencies(
     getDatabase: () => database,
     rateLimiter: { check: () => ({ allowed: true }) },
     normalizeDailyPlan: async () => ({ status: "not_applicable" }),
+    normalizeContextItem: async () => ({ status: "not_applicable" }),
     normalizeDailyReflection: async () => ({ status: "not_applicable" }),
     normalizeWeeklyReview: async () => ({ status: "not_applicable" }),
     ...overrides,
@@ -314,7 +315,7 @@ describe("GPT import HTTP boundary", () => {
     );
   });
 
-  it("stores a context item without reflection owner configuration", async () => {
+  it("stores raw context then returns unavailable without owner configuration", async () => {
     const { database, rows } = createTestDatabase();
 
     const response = await handleGptImport(
@@ -324,16 +325,54 @@ describe("GPT import HTTP boundary", () => {
       }),
     );
 
-    expect(response.status).toBe(201);
+    expect(response.status).toBe(503);
     await expect(responseJson(response)).resolves.toEqual({
-      ok: true,
-      status: "created",
-      imported_payload_id: "import-1",
+      ok: false,
+      error: "service_unavailable",
     });
     expect(rows[0]).toMatchObject({
       kind: "CONTEXT_ITEM",
       processingStatus: "PENDING",
     });
+  });
+
+  it("normalizes a newly stored context item for the configured owner", async () => {
+    const { database } = createTestDatabase();
+    const normalizeContextItem = vi.fn().mockResolvedValue({
+      status: "processed",
+      contextItemId: "context-1",
+    });
+
+    const response = await handleGptImport(
+      createRequest(contextItem),
+      createDependencies(database, { normalizeContextItem }),
+    );
+
+    expect(response.status).toBe(201);
+    await expect(responseJson(response)).resolves.toEqual({
+      ok: true,
+      status: "created",
+      imported_payload_id: "import-1",
+      normalized_records: ["context_item"],
+    });
+    expect(normalizeContextItem).toHaveBeenCalledWith(
+      database,
+      "import-1",
+      "owner-subject",
+    );
+  });
+
+  it("does not normalize context without machine authentication", async () => {
+    const { database } = createTestDatabase();
+    const normalizeContextItem = vi.fn();
+
+    const response = await handleGptImport(
+      createRequest(contextItem, { token: null }),
+      createDependencies(database, { normalizeContextItem }),
+    );
+
+    expect(response.status).toBe(401);
+    expect(normalizeContextItem).not.toHaveBeenCalled();
   });
 
   it("normalizes a newly stored daily plan without reflection owner configuration", async () => {

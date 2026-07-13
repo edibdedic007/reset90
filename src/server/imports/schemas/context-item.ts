@@ -1,26 +1,30 @@
 import { z } from "zod";
 
-import { nonEmptyText, stringList } from "./common";
+import {
+  CONTEXT_DOMAINS,
+  CONTEXT_KINDS,
+  normalizeContextTags,
+} from "../../../lib/context";
 
-export const contextKindSchema = z.enum([
-  "conversation",
-  "task_summary",
-  "decision_log",
-  "daily_summary",
-  "weekly_summary",
-  "context_snapshot",
-  "reasoning_summary",
-]);
+export const contextKindSchema = z.enum(CONTEXT_KINDS);
+export const contextDomainSchema = z.enum(CONTEXT_DOMAINS);
+
+const contextTitleSchema = z.string().trim().min(1).max(160);
+const contextSummarySchema = z.string().trim().min(1).max(4_000);
+const contextSourceRefSchema = z.string().trim().min(1).max(500);
+const contextTagsSchema = z
+  .array(z.string().trim().min(1).max(40))
+  .max(10)
+  .overwrite(normalizeContextTags);
 
 export const contextItemPayloadSchema = z
   .strictObject({
     kind: contextKindSchema,
-    title: nonEmptyText(200),
-    summary: nonEmptyText(4_000),
-    importance: z.number().int().min(1).max(5),
-    tags: stringList(20, 80).default([]),
-    source_ref: nonEmptyText(500).optional(),
-    is_sensitive: z.boolean().optional(),
+    domain: contextDomainSchema,
+    title: contextTitleSchema,
+    summary: contextSummarySchema,
+    tags: contextTagsSchema.default([]),
+    source_ref: contextSourceRefSchema.optional(),
   })
   .meta({ title: "Reset90 Context Item Payload" });
 

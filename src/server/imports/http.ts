@@ -1,6 +1,11 @@
 import { createHash, timingSafeEqual } from "node:crypto";
 
 import {
+  type ContextItemNormalizationDatabase,
+  type ContextItemNormalizationResult,
+  normalizeContextItemImport,
+} from "./normalize-context-item";
+import {
   type DailyPlanNormalizationDatabase,
   type DailyPlanNormalizationResult,
   normalizeDailyPlanImport,
@@ -36,6 +41,7 @@ export type GptImportRateLimiter = {
 };
 
 export type GptImportDatabase = RawImportDatabase &
+  ContextItemNormalizationDatabase &
   DailyPlanNormalizationDatabase &
   DailyReflectionNormalizationDatabase &
   WeeklyReviewNormalizationDatabase;
@@ -48,6 +54,11 @@ export type GptImportHandlerDependencies = {
     database: DailyPlanNormalizationDatabase,
     importedPayloadId: string,
   ) => Promise<DailyPlanNormalizationResult>;
+  normalizeContextItem?: (
+    database: ContextItemNormalizationDatabase,
+    importedPayloadId: string,
+    ownerAuthentikSubject: string,
+  ) => Promise<ContextItemNormalizationResult>;
   normalizeDailyReflection?: (
     database: DailyReflectionNormalizationDatabase,
     importedPayloadId: string,
@@ -61,6 +72,7 @@ export type GptImportHandlerDependencies = {
 };
 
 type ImportNormalizationResult =
+  | ContextItemNormalizationResult
   | DailyPlanNormalizationResult
   | DailyReflectionNormalizationResult
   | WeeklyReviewNormalizationResult;
@@ -206,7 +218,8 @@ async function normalizeStoredImport(
   });
   if (
     storedImport?.kind !== "DAILY_REFLECTION" &&
-    storedImport?.kind !== "WEEKLY_REVIEW"
+    storedImport?.kind !== "WEEKLY_REVIEW" &&
+    storedImport?.kind !== "CONTEXT_ITEM"
   ) {
     return { status: "not_applicable" };
   }
@@ -221,6 +234,16 @@ async function normalizeStoredImport(
     const normalizeDailyReflection =
       dependencies.normalizeDailyReflection ?? normalizeDailyReflectionImport;
     return normalizeDailyReflection(
+      database,
+      importedPayloadId,
+      ownerAuthentikSubject,
+    );
+  }
+
+  if (storedImport.kind === "CONTEXT_ITEM") {
+    const normalizeContextItem =
+      dependencies.normalizeContextItem ?? normalizeContextItemImport;
+    return normalizeContextItem(
       database,
       importedPayloadId,
       ownerAuthentikSubject,
@@ -355,7 +378,9 @@ export async function handleGptImport(
                     ? ["daily_plan", "tasks"]
                     : "dailyReflectionId" in normalization
                       ? ["daily_reflection"]
-                      : ["weekly_review"],
+                      : "weeklyReviewId" in normalization
+                        ? ["weekly_review"]
+                        : ["context_item"],
               }
             : {}),
         },

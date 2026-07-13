@@ -200,14 +200,25 @@ editing, detail routes, charts, and context integration are not shown in Phase
 
 ## Context library
 
-Allow:
+`/context` is authenticated and scoped to the signed-in user's one active reset
+cycle. It provides:
 
-- list context items;
-- search;
-- filter by kind/tag/date;
-- view source payload;
-- edit/delete user-created context items;
-- generate context pack.
+- manual create with title, summary, kind, domain, tags, and optional safe source
+  reference;
+- server-side title/summary search;
+- exact domain, kind, normalized tag, pin-state, and inclusive UTC date filters;
+- bounded results with pinned items first;
+- owner-only idempotent pin and unpin controls;
+- safe manual/imported provenance labels and creation date.
+
+No active cycle shows a calm unavailable state and disables manual creation. An
+active empty library explains manual creation and explicit import. A filtered
+empty state preserves data and offers clear filters. Long titles, summaries,
+tags, and source references wrap. The layout stays single-column and avoids
+horizontal page overflow near 402 × 874.
+
+Phase 15 does not show raw payloads, add a detail route, edit/delete items,
+generate context packs, browse other cycles, or create context automatically.
 
 ## Analytics
 

@@ -608,48 +608,41 @@
             "kind": {
               "type": "string",
               "enum": [
-                "conversation",
-                "task_summary",
-                "decision_log",
-                "daily_summary",
-                "weekly_summary",
-                "context_snapshot",
-                "reasoning_summary"
+                "CONVERSATION_SUMMARY",
+                "TASK_SUMMARY",
+                "DECISION",
+                "PREFERENCE",
+                "DAILY_SUMMARY",
+                "WEEKLY_SNAPSHOT",
+                "CYCLE_REPORT",
+                "CONTEXT_SNAPSHOT"
               ]
             },
-            "title": {
+            "domain": {
               "type": "string",
-              "minLength": 1,
-              "maxLength": 200,
-              "pattern": "\\S"
+              "enum": [
+                "BODY",
+                "MOOD",
+                "DIGITAL",
+                "LEARNING",
+                "WORK",
+                "SYSTEM",
+                "ENVIRONMENT",
+                "SOCIAL",
+                "OTHER"
+              ]
             },
-            "summary": {
-              "type": "string",
-              "minLength": 1,
-              "maxLength": 4000,
-              "pattern": "\\S"
-            },
-            "importance": { "type": "integer", "minimum": 1, "maximum": 5 },
+            "title": { "type": "string", "minLength": 1, "maxLength": 160 },
+            "summary": { "type": "string", "minLength": 1, "maxLength": 4000 },
             "tags": {
               "default": [],
-              "maxItems": 20,
+              "maxItems": 10,
               "type": "array",
-              "items": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 80,
-                "pattern": "\\S"
-              }
+              "items": { "type": "string", "minLength": 1, "maxLength": 40 }
             },
-            "source_ref": {
-              "type": "string",
-              "minLength": 1,
-              "maxLength": 500,
-              "pattern": "\\S"
-            },
-            "is_sensitive": { "type": "boolean" }
+            "source_ref": { "type": "string", "minLength": 1, "maxLength": 500 }
           },
-          "required": ["kind", "title", "summary", "importance", "tags"],
+          "required": ["kind", "domain", "title", "summary", "tags"],
           "additionalProperties": false,
           "title": "Reset90 Context Item Payload"
         }

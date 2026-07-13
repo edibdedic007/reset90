@@ -1,132 +1,115 @@
 # 05 - Context Memory Design
 
-    ## Purpose
-    Define how Reset90 stores conversational and thinking context without requiring raw hidden reasoning logs.
+## Purpose
 
-    ## Scope
-    - Conversation history, task summaries, decision logs, daily/weekly summaries, context snapshots, optional embeddings-based retrieval.
-- Rules for what may and may not be stored.
-- Context export and context pack generation for Custom GPT/Codex handoff.
+Define how Reset90 stores curated user-visible context without raw hidden
+reasoning logs.
 
-    ## Assumptions
-    - The app should become the durable source of truth across many Custom GPT chats.
-- The user will often speak or type messy reflections into GPT, which then sends structured summaries.
-- The app stores summaries and decisions, not private chain-of-thought.
-- Embeddings are optional and should not block MVP.
+## Phase 15 scope
 
-    ## Success Criteria
-    - Future GPT/Codex sessions can retrieve key decisions and patterns.
-- Context is searchable, taggable, and exportable.
-- Sensitive logs are not exposed unnecessarily.
-- No raw internal reasoning is required.
+Phase 15 stores explicitly imported or manually created summaries, decisions,
+preferences, snapshots, and reports. It provides active-cycle relational
+storage, tags, safe provenance, search, exact filters, bounded results, and
+pinning.
 
-    ## Deliverables
-    - Context item taxonomy.
-- Storage rules.
-- Retrieval rules.
-- Context pack generation strategy.
-- Embeddings optional plan.
+The app stores summaries and decisions, not private chain-of-thought. Semantic
+retrieval and automatic context construction remain deferred.
 
-    ## Concrete definition of stored context
+## Stored context
 
-Reset90 should store:
+Reset90 may store:
 
-1. Conversation history provided by the user or imported as visible transcript/summary.
+1. User-visible conversation summaries.
 2. Task summaries.
-3. Decision logs.
-4. Daily summaries.
-5. Weekly summaries.
-6. Context snapshots.
-7. User-visible reasoning summaries/rationales.
-8. Optional embeddings for retrieval over the above.
+3. Decisions, with an optional concise visible rationale inside the summary.
+4. Preferences scoped to the current reset cycle.
+5. Daily summaries.
+6. Weekly snapshots.
+7. Cycle reports.
+8. Context snapshots.
 
-Reset90 must not require:
+Reset90 does not store through this model:
 
-- raw internal chain-of-thought;
-- hidden model reasoning traces;
+- raw internal chain-of-thought or hidden reasoning traces;
 - private scratchpad logs;
-- unrestricted full prompt logs if summaries are sufficient.
+- unrestricted full prompts;
+- raw conversations or complete journal dumps;
+- tool traces, authentication data, or processing errors.
 
 ## Context item fields
-
-Recommended fields:
 
 ```text
 id
 cycle_id
-day_log_id nullable
-weekly_review_id nullable
 kind
+domain
 title
 summary
-source_ref
-importance 1-5
-tags_json
+source_type
+imported_payload_id nullable
+source_ref nullable
+pinned_at nullable
 created_at
 updated_at
 ```
 
-Optional:
+Every item belongs to exactly one reset cycle. The server derives ownership,
+active cycle, provenance, timestamps, and initial pin state. Imported items link
+to one raw payload; manual items never do.
 
-```text
-embedding_id
-expires_at
-is_sensitive
-```
+Tags live only in relational `context_tags` rows. Each row stores one bounded
+display name and a case-insensitive normalized name. Whitespace is trimmed,
+blank tags are rejected, and one item may contain only one row per normalized
+tag.
 
 ## Context kinds
 
 | Kind | Meaning |
 |---|---|
-| conversation | User-visible conversation or a summary of it. |
-| task_summary | Summary of a completed implementation/life task. |
-| decision_log | Explicit decision and why it was made, in user-visible form. |
-| daily_summary | Daily reflection summary. |
-| weekly_summary | Weekly review summary. |
-| context_snapshot | Condensed state for future planning. |
-| reasoning_summary | Short visible rationale, not hidden chain-of-thought. |
+| `CONVERSATION_SUMMARY` | User-visible conversation summary. |
+| `TASK_SUMMARY` | Summary of a completed implementation or life task. |
+| `DECISION` | Explicit decision; summary may include a concise visible rationale. |
+| `PREFERENCE` | Active-cycle preference recorded explicitly by the user. |
+| `DAILY_SUMMARY` | Explicit daily summary. |
+| `WEEKLY_SNAPSHOT` | Explicit weekly snapshot. |
+| `CYCLE_REPORT` | Explicit cycle report. |
+| `CONTEXT_SNAPSHOT` | Condensed active-cycle state. |
+
+Every item also has exactly one existing `FocusDomain` value.
 
 ## Retrieval strategy
 
-MVP retrieval:
+Phase 15 retrieval provides:
 
-- filter by date range;
-- filter by kind;
-- filter by tags;
-- sort by importance and recency;
-- full-text search over title/summary.
+- literal case-insensitive substring search over title and summary;
+- exact domain, kind, normalized tag, and pin-state filters;
+- inclusive UTC creation-date filters;
+- AND semantics across supplied filters;
+- pinned items first, then creation time and stable ID descending;
+- fixed bounded keyset pages.
 
-Optional later retrieval:
+The library reads the authenticated user's one active cycle only. No active
+cycle returns a neutral state and disables creation. Raw imports are never a
+fallback when normalized context is absent.
 
-- embeddings over `title + summary + tags`;
-- semantic search for patterns;
-- hybrid full-text + vector retrieval.
+## Provenance and privacy
 
-## Context pack generation
+Every item is either `MANUAL` or `IMPORT`. Imported items reference the raw
+payload that created them. Manual items cannot reference a raw import. Browser
+data may show only the safe provenance type, optional safe source reference,
+and creation date.
 
-Add a function/script/API that can generate a compact context pack for GPT/Codex:
+- Do not show summaries or raw imports in operational logs or safe errors.
+- Browser data exposes only normalized bounded fields and safe provenance.
+- Raw JSON, prompts, authentication, processing state/errors, and ownership IDs
+  stay behind trusted server boundaries.
+- Backups containing context must be treated as sensitive.
 
-```text
-Current cycle summary
-Active phase
-Last 7 days summaries
-Open decisions
-Important recurring patterns
-Recovery usage
-Current blockers
-Next recommended actions
-```
+## Deferred after Phase 15
 
-Output formats:
-
-- Markdown for humans/ChatGPT;
-- JSON for programmatic import;
-- optional clipped version under a token/character budget.
-
-## Privacy rules
-
-- Mark sensitive context items.
-- Do not show sensitive full text in logs.
-- Export must include sensitive items because the user owns the data.
-- UI should let user delete individual context items.
-- Backups should be treated as sensitive.
+- embeddings, vector storage, semantic/fuzzy/hybrid search, and RAG;
+- automatic retrieval, prompt assembly, context packs, or GPT export formatting;
+- automatic summary, snapshot, or report generation and historical backfill;
+- review/reflection conversion, cross-cycle memory, or preference application;
+- edit, delete, archive, bulk, version, detail-route, analytics, or tag-admin
+  flows.

@@ -46,6 +46,7 @@ erDiagram
     IMPORTED_PAYLOAD ||--o| DAILY_PLAN : may_create
     IMPORTED_PAYLOAD ||--o| DAILY_REFLECTION : may_create
     IMPORTED_PAYLOAD ||--o| WEEKLY_REVIEW : may_create
+    IMPORTED_PAYLOAD ||--o| CONTEXT_ITEM : may_create
 ```
 
 ## Core enums
@@ -56,7 +57,8 @@ TaskTier = NON_NEGOTIABLE | MINIMUM | STANDARD | IDEAL
 EnergyLevel = BURNED_OUT | LOW | NORMAL | HIGH | RESTLESS_CHAOTIC
 DayStatus = GREEN | YELLOW | BLUE | RED | GOLD | UNSET
 PayloadKind = DAILY_PLAN | DAILY_REFLECTION | WEEKLY_REVIEW | CONTEXT_ITEM
-ContextKind = CONVERSATION | TASK_SUMMARY | DECISION_LOG | DAILY_SUMMARY | WEEKLY_SUMMARY | CONTEXT_SNAPSHOT | REASONING_SUMMARY
+ContextKind = CONVERSATION_SUMMARY | TASK_SUMMARY | DECISION | PREFERENCE | DAILY_SUMMARY | WEEKLY_SNAPSHOT | CYCLE_REPORT | CONTEXT_SNAPSHOT
+ContextSourceType = MANUAL | IMPORT
 RecoveryType = deferred after Phase 11
 CheckinKind = MORNING | MIDDAY | EVENING | MANUAL
 ```
@@ -315,19 +317,41 @@ Fields:
 
 - `id`
 - `cycle_id`
-- `day_log_id` nullable
-- `weekly_review_id` nullable
 - `kind`
+- `domain`
 - `title`
 - `summary`
-- `source_ref`
-- `importance`
-- `tags_json`
-- `embedding_id` nullable
+- `source_type`
+- `imported_payload_id` nullable
+- `source_ref` nullable
+- `pinned_at` nullable
 - `created_at`
 - `updated_at`
 
-Context items must store user-visible summaries, decisions, and facts. Do not store hidden chain-of-thought.
+Every item belongs to one reset cycle. Cycle deletion cascades to context items.
+Imported items reference exactly one immutable raw payload; manual items do not.
+The imported-payload relationship is unique and restricts raw-payload deletion.
+Title and summary have database checks rejecting blank values. Indexes support
+cycle/pin/creation ordering plus exact kind and domain filtering.
+
+Context items store bounded user-visible summaries, decisions, preferences,
+snapshots, and reports. They do not store prompts, tool traces, raw
+conversations, private journals, or hidden chain-of-thought.
+
+### context_tags
+
+Fields:
+
+- `id`
+- `context_item_id`
+- `name`
+- `normalized_name`
+- `created_at`
+
+Tags are relational only. Context-item deletion cascades to tags. A unique
+`(context_item_id, normalized_name)` constraint enforces case-insensitive
+deduplication within one item. An index on normalized name plus item ID supports
+exact tag filtering.
 
 ### embedding_records optional
 
@@ -348,6 +372,18 @@ Optional MVP decision: create the table later if vector retrieval is implemented
 - Migrations must be safe for production data.
 - Before production migrations, run backup.
 - Destructive migrations require explicit note in PR and deploy plan.
+
+## Phase 15 context-memory baseline
+
+Migration `20260713130000_context_memory_library` additively creates the context
+enums, `context_items`, `context_tags`, their ownership/provenance constraints,
+and required indexes. It does not backfill or change daily plans, tasks,
+check-ins, reflections, weekly reviews, recovery data, analytics, or day status.
+
+Normal application rollback reverts Phase 15 application code and leaves the
+additive tables intact. Production migration requires a current backup. Dropping
+populated context tables is destructive and is not the default rollback.
+Removing PostgreSQL enum values may require a forward corrective migration.
 
 ## Phase 3 implementation baseline
 

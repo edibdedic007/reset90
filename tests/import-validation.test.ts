@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import dailyPlan from "../examples/daily_plan_payload.json";
 import dailyReflection from "../examples/daily_reflection_payload.json";
 import weeklyReview from "../examples/weekly_review_payload.json";
+import { CONTEXT_DOMAINS, CONTEXT_KINDS } from "../src/lib/context";
 import {
   contextItemImportSchema,
   dailyReflectionImportSchema,
@@ -223,38 +224,90 @@ describe("canonical GPT import validation", () => {
     expect(weeklyReviewImportSchema.safeParse(invalid).success).toBe(false);
   });
 
-  it("accepts user-visible context summaries", () => {
+  const validContextImport = {
+    kind: "context_item" as const,
+    schema_version: "1.0" as const,
+    idempotency_key: "context-day-1-summary-v1",
+    source: "custom_gpt" as const,
+    payload: {
+      kind: "DECISION" as const,
+      domain: "WORK" as const,
+      title: "Why minimum work counts",
+      summary: "Minimum actions preserve continuity without shame.",
+      tags: ["minimum", "continuity"],
+      source_ref: "visible-reference",
+    },
+  };
+
+  it.each(CONTEXT_KINDS)("accepts context kind %s", (kind) => {
     expect(
       contextItemImportSchema.safeParse({
-        kind: "context_item",
-        schema_version: "1.0",
-        idempotency_key: "context-day-1-summary-v1",
-        source: "custom_gpt",
-        payload: {
-          kind: "reasoning_summary",
-          title: "Why minimum work counts",
-          summary: "Minimum actions preserve continuity without shame.",
-          importance: 4,
-          tags: ["minimum", "continuity"],
-        },
+        ...validContextImport,
+        payload: { ...validContextImport.payload, kind },
       }).success,
     ).toBe(true);
   });
 
-  it("rejects hidden reasoning-shaped context fields", () => {
+  it.each(CONTEXT_DOMAINS)("accepts context domain %s", (domain) => {
     expect(
       contextItemImportSchema.safeParse({
-        kind: "context_item",
-        schema_version: "1.0",
-        idempotency_key: "context-day-1-hidden-reasoning-v1",
-        source: "custom_gpt",
+        ...validContextImport,
+        payload: { ...validContextImport.payload, domain },
+      }).success,
+    ).toBe(true);
+  });
+
+  it.each([
+    ["unknown kind", { kind: "REASONING_SUMMARY" }],
+    ["unknown domain", { domain: "FINANCE" }],
+    ["blank title", { title: "  \n " }],
+    ["blank summary", { summary: "  " }],
+    ["oversized title", { title: "x".repeat(161) }],
+    ["oversized summary", { summary: "x".repeat(4_001) }],
+    ["oversized source reference", { source_ref: "x".repeat(501) }],
+    ["excess tags", { tags: Array.from({ length: 11 }, (_, i) => `tag-${i}`) }],
+    ["blank tag", { tags: ["work", "  "] }],
+    ["oversized tag", { tags: ["x".repeat(41)] }],
+  ])("rejects context payload with %s", (_name, change) => {
+    expect(
+      contextItemImportSchema.safeParse({
+        ...validContextImport,
+        payload: { ...validContextImport.payload, ...change },
+      }).success,
+    ).toBe(false);
+  });
+
+  it("trims context text and deduplicates tags case-insensitively", () => {
+    const parsed = contextItemImportSchema.parse({
+      ...validContextImport,
+      payload: {
+        ...validContextImport.payload,
+        title: "  Decision title  ",
+        summary: "  Visible summary.  ",
+        tags: ["Work", "work", " work ", "Continuity"],
+      },
+    });
+    expect(parsed.payload.title).toBe("Decision title");
+    expect(parsed.payload.summary).toBe("Visible summary.");
+    expect(parsed.payload.tags).toEqual(["Work", "Continuity"]);
+  });
+
+  it.each([
+    "chain_of_thought",
+    "reasoning_summary",
+    "reasoning_trace",
+    "raw_prompt",
+    "tool_trace",
+    "user_id",
+    "cycle_id",
+    "pinned_at",
+  ])("rejects forbidden context property %s", (property) => {
+    expect(
+      contextItemImportSchema.safeParse({
+        ...validContextImport,
         payload: {
-          kind: "reasoning_summary",
-          title: "Unsafe payload",
-          summary: "Visible summary.",
-          importance: 4,
-          tags: [],
-          chain_of_thought: "private scratchpad",
+          ...validContextImport.payload,
+          [property]: "RAW_PRIVATE_SENTINEL_CONTEXT_15",
         },
       }).success,
     ).toBe(false);

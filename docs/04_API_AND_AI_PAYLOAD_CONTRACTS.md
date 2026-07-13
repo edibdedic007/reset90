@@ -61,6 +61,8 @@ GPT ingest:
 | POST | `/api/recovery/complete` | user | Complete current-day recovery actions. |
 | GET | `/api/analytics/90-day` | user | Grid and trends. |
 | GET | `/api/context` | user | List/search context items. |
+| POST | `/api/context` | user | Manually create an active-cycle context item. |
+| PATCH | `/api/context/:id/pin` | user | Idempotently pin or unpin owned context. |
 | GET | `/api/export/full` | user | Full JSON export. |
 | POST | `/api/import/full` | user | Full JSON import/restore helper, optional. |
 
@@ -262,9 +264,11 @@ Only normalized summary/narrative fields and timestamps may enter authenticated
 day-detail data. Raw JSON, processing metadata, owner identifiers, and
 `day_status_recommendation` never enter the browser DTO. The recommendation is
 stored advisory data only and cannot alter canonical status or recovery state.
-Analytics remain deferred after Phase 14. `GPT_INGEST_OWNER_SUBJECT` is required
-when a `DAILY_REFLECTION` or `WEEKLY_REVIEW` reaches normalization. Daily-plan
-dispatch is unchanged; context-item imports remain raw-only.
+Analytics remain deferred after Phase 15. `GPT_INGEST_OWNER_SUBJECT` is required
+when a `DAILY_REFLECTION`, `WEEKLY_REVIEW`, or `CONTEXT_ITEM` reaches
+normalization. Daily-plan dispatch is unchanged. Phase 15 context imports
+normalize only their explicit bounded context payload; weekly review snapshots
+are not automatically promoted.
 
 ## Weekly review payload
 
@@ -312,32 +316,52 @@ sanitized codes and never expose raw payload contents or configured identifiers.
 
 ## Context item rules
 
-Context payloads may include:
-
-- `conversation` history summary;
-- `task_summary`;
-- `decision_log`;
-- `daily_summary`;
-- `weekly_summary`;
-- `context_snapshot`;
-- `reasoning_summary` as a user-visible rationale only.
-
-Do not request or store raw hidden internal reasoning logs.
-
 Canonical standalone context imports use `kind: "context_item"` and this
 payload shape:
 
 ```json
 {
-  "kind": "reasoning_summary",
+  "kind": "DECISION",
+  "domain": "WORK",
   "title": "Why the minimum plan counts",
   "summary": "User-visible rationale only.",
-  "importance": 4,
   "tags": ["minimum", "continuity"],
-  "source_ref": "optional-visible-source-reference",
-  "is_sensitive": false
+  "source_ref": "optional-visible-source-reference"
 }
 ```
+
+Accepted `kind` values are `CONVERSATION_SUMMARY`, `TASK_SUMMARY`, `DECISION`,
+`PREFERENCE`, `DAILY_SUMMARY`, `WEEKLY_SNAPSHOT`, `CYCLE_REPORT`, and
+`CONTEXT_SNAPSHOT`. `domain` uses the closed `FocusDomain` enum. Title is 1-160
+trimmed characters, summary is 1-4,000, source reference is at most 500, and up
+to 10 tags may each contain 1-40 trimmed characters. Unknown fields and enum
+values are rejected. Tags are trimmed and deduplicated case-insensitively while
+preserving one display value.
+
+Machine imports require the GPT bearer boundary. Raw storage precedes trusted
+owner/active-cycle resolution. Normalized item, relational tags, and successful
+processing state are one transaction protected by raw-import and cycle locks.
+An exact retry returns the existing terminal result; a different idempotency
+identity may create a separate similar item. Imported provenance links to the
+raw payload, but raw JSON and processing metadata never enter browser data.
+
+Authenticated `GET /api/context` supports case-insensitive literal substring
+search over title and summary plus exact domain, kind, normalized tag, pinned
+state, and inclusive UTC creation-date filters. Filters combine with AND
+semantics. Results use bounded keyset pagination ordered by pinned state,
+creation time descending, then ID descending. Invalid filters return bounded
+validation details.
+
+Authenticated `POST /api/context` accepts only the payload fields shown above;
+the server assigns user, active cycle, manual provenance, timestamps, and
+initial unpinned state. `PATCH /api/context/:id/pin` accepts only a boolean
+`pinned` field. Missing and unowned valid UUIDs return the same safe idempotent
+success and never disclose existence.
+
+Browser DTOs contain only ID, title, summary, kind, domain, display tags, safe
+provenance/source reference, pin timestamp, and created/updated timestamps. No
+raw JSON, owner/cycle identifiers, prompts, tool traces, processing metadata,
+internal errors, or hidden reasoning are included.
 
 ## Response examples
 
@@ -354,6 +378,8 @@ Created:
 
 For a normalized daily reflection, `normalized_records` is
 `["daily_reflection"]`.
+
+For a normalized context item, `normalized_records` is `["context_item"]`.
 
 Duplicate:
 
@@ -396,6 +422,6 @@ HTTP status behavior:
 | `401` | Missing or invalid GPT bearer token. |
 | `413` | Body exceeds `GPT_INGEST_MAX_BODY_BYTES`. |
 | `415` | Content type is not JSON. |
-| `422` | Canonical validation failed, or a normalizable import could not match its trusted active-cycle day. |
+| `422` | Canonical validation failed, or normalization could not resolve its trusted active-cycle target. |
 | `429` | Process-local authenticated request cap exceeded. |
 | `503` | Token/DB service configuration is unavailable. |

@@ -17,7 +17,7 @@ shame-based streaks.
 - Docker Compose locally and in production, with Traefik expected in production
 - GitHub Actions CI
 
-## Implemented through Phase 14
+## Implemented through Phase 15
 
 - Repository, local environment, Prisma schema/migrations, seed data, readiness,
   quality gates, CI, backups/export/deployment helpers.
@@ -37,12 +37,16 @@ shame-based streaks.
 - Strict weekly-review imports with canonical cycle-relative week dates,
   deterministic transactional replacement, retained raw history, and an
   authenticated read-only Reviews page for the owned active cycle.
+- Strict machine context imports plus authenticated manual creation, active-cycle
+  relational search/exact filters, safe DTOs, and owner-only pinning in the
+  responsive Context Library.
 
 ## Current boundary
 
-Phase 14 implements normalized weekly reviews and read-only owned active-cycle
-display. Analytics, charts, trends, notifications, context-library behavior,
-and overrides remain deferred after Phase 14.
+Phase 15 implements curated active-cycle context storage and library behavior.
+Embeddings, semantic/fuzzy search, automatic retrieval/prompt assembly,
+context packs, automatic context generation, cross-cycle memory, editing,
+deletion, bulk/archive/version flows, and analytics remain deferred.
 
 ## Durable implementation rules
 
@@ -66,6 +70,8 @@ and overrides remain deferred after Phase 14.
 - Progress reads derive ownership from the authenticated user's active cycle,
   reuse Phase 11 status reconciliation, and never infer status for missing logs.
 - Store summaries, decisions, and context snapshots; never hidden chain-of-thought.
+- Context belongs to exactly one active reset cycle, uses relational normalized
+  tags, and exposes no raw-import or ownership metadata through browser DTOs.
 - Recovery-aware statuses replace harsh streaks.
 - Production reverse proxy default is Traefik; change only through an explicit
   decision.
