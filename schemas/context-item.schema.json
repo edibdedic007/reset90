@@ -6,52 +6,47 @@
     "kind": {
       "type": "string",
       "enum": [
-        "CONVERSATION_SUMMARY",
-        "TASK_SUMMARY",
-        "DECISION",
-        "PREFERENCE",
-        "DAILY_SUMMARY",
-        "WEEKLY_SNAPSHOT",
-        "CYCLE_REPORT",
-        "CONTEXT_SNAPSHOT"
-      ]
-    },
-    "domain": {
-      "type": "string",
-      "enum": [
-        "BODY",
-        "MOOD",
-        "DIGITAL",
-        "LEARNING",
-        "WORK",
-        "SYSTEM",
-        "ENVIRONMENT",
-        "SOCIAL",
-        "OTHER"
+        "conversation",
+        "task_summary",
+        "decision_log",
+        "daily_summary",
+        "weekly_summary",
+        "context_snapshot",
+        "reasoning_summary"
       ]
     },
     "title": {
       "type": "string",
-      "pattern": "^\\s*\\S(?:[\\s\\S]{0,158}\\S)?\\s*$"
+      "minLength": 1,
+      "maxLength": 200,
+      "pattern": "\\S"
     },
     "summary": {
       "type": "string",
-      "pattern": "^\\s*\\S(?:[\\s\\S]{0,3998}\\S)?\\s*$"
+      "minLength": 1,
+      "maxLength": 4000,
+      "pattern": "\\S"
     },
+    "importance": { "type": "integer", "minimum": 1, "maximum": 5 },
     "tags": {
-      "maxItems": 10,
+      "maxItems": 20,
       "type": "array",
       "items": {
         "type": "string",
-        "pattern": "^\\s*\\S(?:[\\s\\S]{0,38}\\S)?\\s*$"
+        "minLength": 1,
+        "maxLength": 80,
+        "pattern": "\\S"
       }
     },
     "source_ref": {
       "type": "string",
-      "pattern": "^\\s*\\S(?:[\\s\\S]{0,498}\\S)?\\s*$"
-    }
+      "minLength": 1,
+      "maxLength": 500,
+      "pattern": "\\S"
+    },
+    "is_sensitive": { "type": "boolean" }
   },
-  "required": ["kind", "domain", "title", "summary"],
+  "required": ["kind", "title", "summary", "importance"],
   "additionalProperties": false,
-  "title": "Reset90 Context Library Item Payload 2.0"
+  "title": "Reset90 Legacy Context Item Payload 1.0"
 }

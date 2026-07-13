@@ -5,6 +5,7 @@ import {
   dailyPlanPayloadSchema,
   dailyReflectionPayloadSchema,
   importEnvelopeSchema,
+  legacyContextItemPayloadSchema,
   weeklyReviewPayloadSchema,
 } from "./schemas";
 
@@ -39,7 +40,11 @@ export const jsonSchemaDocuments = {
     "weekly-review.schema.json",
   ),
   "context-item.schema.json": toJsonSchema(
-    contextItemPayloadSchema,
+    legacyContextItemPayloadSchema,
     "context-item.schema.json",
+  ),
+  "context-item-v2.schema.json": toJsonSchema(
+    contextItemPayloadSchema,
+    "context-item-v2.schema.json",
   ),
 } as const;

@@ -77,6 +77,8 @@ deletion, bulk/archive/version flows, and analytics remain deferred.
   validation and no legacy field/domain inference.
 - Context imports, manual creation, pinning, and unpinning lock and revalidate
   the same singular owned active cycle before mutation.
+- PostgreSQL enforces at most one `ACTIVE` Reset Cycle per user; its additive
+  migration refuses pre-existing duplicates without changing cycle data.
 - Recovery-aware statuses replace harsh streaks.
 - Production reverse proxy default is Traefik; change only through an explicit
   decision.

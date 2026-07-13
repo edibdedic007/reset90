@@ -1,4 +1,8 @@
+import { randomUUID } from "node:crypto";
+import { readFile } from "node:fs/promises";
+
 import { config as loadEnv } from "dotenv";
+import { Pool } from "pg";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterAll, describe, expect, it, vi } from "vitest";
 
@@ -11,8 +15,10 @@ import type { PrismaClient } from "../src/generated/prisma/client";
 import { createPrismaClient } from "../src/server/db/client";
 import {
   CONTEXT_PAGE_SIZE,
+  createManualContextItem,
   getContextLibrary,
   handleGetContextRequest,
+  setContextPinned,
 } from "../src/server/context";
 
 loadEnv({ path: process.env.DOTENV_CONFIG_PATH ?? ".env.local", quiet: true });
@@ -337,6 +343,287 @@ describeWithPostgres(
         expect(output).not.toMatch(
           /rawJson|raw_json|raw_prompt|private-raw-prompt-data|processingAttempts|processing_attempts|processingStatus|processing_status|authorization|authentication|private-auth-data|errorMetadata|error_metadata|internal_error|internal-auth-data|internal-error-data/,
         );
+      }
+    }, 20_000);
+
+    it("fails the active-cycle migration clearly without changing duplicate data", async () => {
+      if (!databaseUrl) throw new Error("DATABASE_URL is required");
+
+      const pool = new Pool({ connectionString: databaseUrl });
+      const connection = await pool.connect();
+      const schemaName = `active_cycle_migration_${randomUUID().replaceAll("-", "")}`;
+
+      try {
+        await connection.query(`CREATE SCHEMA "${schemaName}"`);
+        await connection.query(`SET search_path TO "${schemaName}"`);
+        await connection.query(
+          `CREATE TYPE "cycle_status" AS ENUM ('ACTIVE', 'COMPLETED', 'ARCHIVED')`,
+        );
+        await connection.query(`
+          CREATE TABLE "reset_cycles" (
+            "id" UUID PRIMARY KEY,
+            "user_id" UUID NOT NULL,
+            "status" "cycle_status" NOT NULL
+          )
+        `);
+        await connection.query(`
+          INSERT INTO "reset_cycles" ("id", "user_id", "status")
+          VALUES
+            ('11111111-1111-4111-8111-111111111111', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', 'ACTIVE'),
+            ('22222222-2222-4222-8222-222222222222', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', 'ACTIVE')
+        `);
+
+        const migrationSql = await readFile(
+          new URL(
+            "../prisma/migrations/20260713160000_single_active_reset_cycle/migration.sql",
+            import.meta.url,
+          ),
+          "utf8",
+        );
+        let migrationFailure: unknown = null;
+        try {
+          await connection.query(migrationSql);
+        } catch (error) {
+          migrationFailure = error;
+        }
+
+        expect(migrationFailure).toMatchObject({
+          message:
+            "Cannot enforce one active Reset Cycle per user: duplicate active cycles exist",
+        });
+        const duplicateRows = await connection.query<{ count: string }>(
+          `SELECT COUNT(*) AS count FROM "reset_cycles"`,
+        );
+        expect(duplicateRows.rows[0]?.count).toBe("2");
+        const indexRows = await connection.query<{ index_name: string | null }>(
+          `SELECT to_regclass('reset_cycles_one_active_per_user_key') AS index_name`,
+        );
+        expect(indexRows.rows[0]?.index_name).toBeNull();
+      } finally {
+        await connection.query(`SET search_path TO public`);
+        await connection.query(`DROP SCHEMA IF EXISTS "${schemaName}" CASCADE`);
+        connection.release();
+        await pool.end();
+      }
+    }, 20_000);
+
+    it("enforces one active cycle per user across concurrent connections and preserves context safety", async () => {
+      if (!database || !databaseUrl) {
+        throw new Error("DATABASE_URL is required");
+      }
+
+      const firstConnection = createPrismaClient(databaseUrl);
+      const secondConnection = createPrismaClient(databaseUrl);
+      const suffix = randomUUID();
+      const firstUserId = randomUUID();
+      const secondUserId = randomUUID();
+      const cycleDates = {
+        startDate: new Date("2026-07-01T00:00:00.000Z"),
+        endDate: new Date("2026-09-28T00:00:00.000Z"),
+      };
+
+      try {
+        await database.user.createMany({
+          data: [
+            {
+              id: firstUserId,
+              authentikSubject: `active-cycle-race-first-${suffix}`,
+            },
+            {
+              id: secondUserId,
+              authentikSubject: `active-cycle-race-second-${suffix}`,
+            },
+          ],
+        });
+
+        let readyCount = 0;
+        let releaseAttempts!: () => void;
+        const bothTransactionsReady = new Promise<void>((resolve) => {
+          releaseAttempts = resolve;
+        });
+        const attemptActiveCycle = (connection: PrismaClient, name: string) =>
+          connection.$transaction(async (transaction) => {
+            readyCount += 1;
+            if (readyCount === 2) releaseAttempts();
+            await bothTransactionsReady;
+            return transaction.resetCycle.create({
+              data: {
+                userId: firstUserId,
+                name,
+                ...cycleDates,
+                status: "ACTIVE",
+              },
+              select: { id: true },
+            });
+          });
+
+        const attempts = await Promise.allSettled([
+          attemptActiveCycle(firstConnection, "Concurrent active cycle A"),
+          attemptActiveCycle(secondConnection, "Concurrent active cycle B"),
+        ]);
+        const winners = attempts.filter(
+          (result) => result.status === "fulfilled",
+        );
+        const conflicts = attempts.filter(
+          (result) => result.status === "rejected",
+        );
+
+        expect(winners).toHaveLength(1);
+        expect(conflicts).toHaveLength(1);
+        expect(conflicts[0]).toMatchObject({
+          status: "rejected",
+          reason: { code: "P2002" },
+        });
+        expect(
+          await database.resetCycle.count({
+            where: { userId: firstUserId, status: "ACTIVE" },
+          }),
+        ).toBe(1);
+
+        const secondUserCycle = await database.resetCycle.create({
+          data: {
+            userId: secondUserId,
+            name: "Other user's active cycle",
+            ...cycleDates,
+            status: "ACTIVE",
+          },
+          select: { id: true },
+        });
+        expect(
+          await database.resetCycle.count({
+            where: {
+              userId: { in: [firstUserId, secondUserId] },
+              status: "ACTIVE",
+            },
+          }),
+        ).toBe(2);
+
+        const currentFirstCycle = await database.resetCycle.findFirstOrThrow({
+          where: { userId: firstUserId, status: "ACTIVE" },
+          select: { id: true },
+        });
+        const replacementCycle = await database.$transaction(
+          async (transaction) => {
+            await transaction.resetCycle.update({
+              where: { id: currentFirstCycle.id },
+              data: { status: "ARCHIVED" },
+            });
+            return transaction.resetCycle.create({
+              data: {
+                userId: firstUserId,
+                name: "Replacement active cycle",
+                ...cycleDates,
+                status: "ACTIVE",
+              },
+              select: { id: true },
+            });
+          },
+        );
+
+        const created = await createManualContextItem(database, firstUserId, {
+          kind: "DECISION",
+          domain: "WORK",
+          title: "Active-cycle invariant proof",
+          summary: "Context remains scoped to one active cycle.",
+          tags: ["cycle"],
+        });
+        expect(created.status).toBe("created");
+        if (created.status !== "created") {
+          throw new Error("expected context creation to succeed");
+        }
+        expect(
+          await database.contextItem.findUniqueOrThrow({
+            where: { id: created.item.id },
+            select: { cycleId: true },
+          }),
+        ).toEqual({ cycleId: replacementCycle.id });
+
+        const otherContext = await createManualContextItem(
+          database,
+          secondUserId,
+          {
+            kind: "DECISION",
+            domain: "WORK",
+            title: "Other user's context",
+            summary: "Must remain owned by the other active cycle.",
+          },
+        );
+        expect(otherContext.status).toBe("created");
+        if (otherContext.status !== "created") {
+          throw new Error("expected other-user context creation to succeed");
+        }
+        expect(
+          await database.contextItem.findUniqueOrThrow({
+            where: { id: otherContext.item.id },
+            select: { cycleId: true },
+          }),
+        ).toEqual({ cycleId: secondUserCycle.id });
+
+        await setContextPinned(
+          database,
+          firstUserId,
+          otherContext.item.id,
+          true,
+        );
+        expect(
+          await database.contextItem.findUniqueOrThrow({
+            where: { id: otherContext.item.id },
+            select: { pinnedAt: true },
+          }),
+        ).toEqual({ pinnedAt: null });
+
+        const originalPinnedAt = new Date("2026-07-13T15:00:00.000Z");
+        await setContextPinned(
+          database,
+          firstUserId,
+          created.item.id,
+          true,
+          originalPinnedAt,
+        );
+        await database.resetCycle.update({
+          where: { id: replacementCycle.id },
+          data: { status: "ARCHIVED" },
+        });
+
+        const contextCountBeforeUnavailableCreate =
+          await database.contextItem.count();
+        await expect(
+          createManualContextItem(database, firstUserId, {
+            kind: "DECISION",
+            domain: "WORK",
+            title: "Unavailable-cycle attempt",
+            summary: "Must not be stored.",
+          }),
+        ).resolves.toEqual({ status: "no_cycle" });
+        await setContextPinned(database, firstUserId, created.item.id, false);
+        await setContextPinned(
+          database,
+          firstUserId,
+          created.item.id,
+          true,
+          new Date("2026-07-13T16:00:00.000Z"),
+        );
+
+        expect(await database.contextItem.count()).toBe(
+          contextCountBeforeUnavailableCreate,
+        );
+        expect(
+          await database.contextItem.findUniqueOrThrow({
+            where: { id: created.item.id },
+            select: { pinnedAt: true },
+          }),
+        ).toEqual({ pinnedAt: originalPinnedAt });
+        expect(
+          await database.contextItem.count({
+            where: { cycleId: secondUserCycle.id },
+          }),
+        ).toBe(1);
+      } finally {
+        await firstConnection.$disconnect();
+        await secondConnection.$disconnect();
+        await database.user.deleteMany({
+          where: { id: { in: [firstUserId, secondUserId] } },
+        });
       }
     }, 20_000);
   },

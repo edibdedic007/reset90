@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 import dailyPlan from "../examples/daily_plan_payload.json";
 import dailyReflection from "../examples/daily_reflection_payload.json";
 import contextItemJsonSchema from "../schemas/context-item.schema.json";
+import contextItemV2JsonSchema from "../schemas/context-item-v2.schema.json";
+import importEnvelopeJsonSchema from "../schemas/import-envelope.schema.json";
 import weeklyReview from "../examples/weekly_review_payload.json";
 import { CONTEXT_DOMAINS, CONTEXT_KINDS } from "../src/lib/context";
 import {
@@ -14,25 +16,34 @@ import {
   dailyReflectionImportSchema,
   importEnvelopeSchema,
   legacyContextItemImportSchema,
+  legacyContextKindSchema,
   LEGACY_CONTEXT_ITEM_SCHEMA_VERSION,
   weeklyReviewImportSchema,
 } from "../src/server/imports/schemas";
 
 type JsonSchema = {
+  $id?: string;
   type?: string;
   const?: unknown;
   enum?: unknown[];
+  oneOf?: JsonSchema[];
   pattern?: string;
   minLength?: number;
   maxLength?: number;
   maxItems?: number;
   items?: JsonSchema;
-  properties?: Record<string, JsonSchema>;
+  properties?: Record<string, JsonSchema | undefined>;
   required?: string[];
   additionalProperties?: boolean;
 };
 
 function acceptsJsonSchema(schema: JsonSchema, value: unknown): boolean {
+  if (schema.oneOf) {
+    return (
+      schema.oneOf.filter((candidate) => acceptsJsonSchema(candidate, value))
+        .length === 1
+    );
+  }
   if (schema.const !== undefined && value !== schema.const) return false;
   if (schema.enum && !schema.enum.includes(value)) return false;
   if (schema.type === "string") {
@@ -328,6 +339,70 @@ describe("canonical GPT import validation", () => {
     ).toEqual([]);
   });
 
+  it("preserves the legacy standalone context-item schema resource", () => {
+    expect(
+      acceptsJsonSchema(
+        contextItemJsonSchema,
+        validLegacyContextImport.payload,
+      ),
+    ).toBe(true);
+    for (const kind of legacyContextKindSchema.options) {
+      expect(
+        acceptsJsonSchema(contextItemJsonSchema, {
+          ...validLegacyContextImport.payload,
+          kind,
+        }),
+      ).toBe(true);
+    }
+
+    const withoutImportance = structuredClone(
+      validLegacyContextImport.payload,
+    ) as Record<string, unknown>;
+    Reflect.deleteProperty(withoutImportance, "importance");
+    expect(acceptsJsonSchema(contextItemJsonSchema, withoutImportance)).toBe(
+      false,
+    );
+    expect(
+      acceptsJsonSchema(contextItemJsonSchema, validContextImport.payload),
+    ).toBe(false);
+    expect(contextItemJsonSchema.$id).toBe(
+      "https://reset90.local/schemas/context-item.schema.json",
+    );
+  });
+
+  it("publishes the Phase 15 standalone context-item schema under a versioned resource", () => {
+    expect(
+      acceptsJsonSchema(contextItemV2JsonSchema, validContextImport.payload),
+    ).toBe(true);
+    for (const kind of CONTEXT_KINDS) {
+      expect(
+        acceptsJsonSchema(contextItemV2JsonSchema, {
+          ...validContextImport.payload,
+          kind,
+        }),
+      ).toBe(true);
+    }
+
+    const withoutDomain = structuredClone(validContextImport.payload) as Record<
+      string,
+      unknown
+    >;
+    Reflect.deleteProperty(withoutDomain, "domain");
+    expect(acceptsJsonSchema(contextItemV2JsonSchema, withoutDomain)).toBe(
+      false,
+    );
+    expect(
+      acceptsJsonSchema(
+        contextItemV2JsonSchema,
+        validLegacyContextImport.payload,
+      ),
+    ).toBe(false);
+    expect(contextItemV2JsonSchema.$id).toBe(
+      "https://reset90.local/schemas/context-item-v2.schema.json",
+    );
+    expect(contextItemV2JsonSchema.$id).not.toBe(contextItemJsonSchema.$id);
+  });
+
   it("dispatches each context version only to its declared contract", () => {
     expect(
       contextItemImportSchemaForVersion(LEGACY_CONTEXT_ITEM_SCHEMA_VERSION),
@@ -348,6 +423,29 @@ describe("canonical GPT import validation", () => {
     ).toBe(true);
     expect(contextItemImportSchema.safeParse(validContextImport).success).toBe(
       true,
+    );
+    expect(
+      acceptsJsonSchema(importEnvelopeJsonSchema, validLegacyContextImport),
+    ).toBe(true);
+    expect(
+      acceptsJsonSchema(importEnvelopeJsonSchema, validContextImport),
+    ).toBe(true);
+
+    const legacyWithV2 = {
+      ...validLegacyContextImport,
+      schema_version: CONTEXT_LIBRARY_SCHEMA_VERSION,
+    };
+    const v2WithLegacy = {
+      ...validContextImport,
+      schema_version: LEGACY_CONTEXT_ITEM_SCHEMA_VERSION,
+    };
+    expect(importEnvelopeSchema.safeParse(legacyWithV2).success).toBe(false);
+    expect(importEnvelopeSchema.safeParse(v2WithLegacy).success).toBe(false);
+    expect(acceptsJsonSchema(importEnvelopeJsonSchema, legacyWithV2)).toBe(
+      false,
+    );
+    expect(acceptsJsonSchema(importEnvelopeJsonSchema, v2WithLegacy)).toBe(
+      false,
     );
   });
 
@@ -438,7 +536,9 @@ describe("canonical GPT import validation", () => {
       expect(contextItemPayloadSchema.safeParse(payload).success).toBe(
         expected,
       );
-      expect(acceptsJsonSchema(contextItemJsonSchema, payload)).toBe(expected);
+      expect(acceptsJsonSchema(contextItemV2JsonSchema, payload)).toBe(
+        expected,
+      );
     },
   );
 

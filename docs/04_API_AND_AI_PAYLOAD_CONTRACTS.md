@@ -86,7 +86,9 @@ Rules:
 - `kind` determines payload schema.
 - Supported import kinds are `daily_plan`, `daily_reflection`, `weekly_review`,
   and `context_item`.
-- Current `schema_version` is exactly `1.0`; unsupported versions are rejected.
+- Daily plans, daily reflections, and weekly reviews currently use
+  `schema_version: "1.0"`. Context items support legacy `1.0` and Context
+  Library `2.0`; unsupported kind/version combinations are rejected.
 - `idempotency_key` is required and unique within its `source`.
 - Unknown envelope and payload fields are rejected.
 - Store full raw JSON in `imported_payloads.raw_json`.
@@ -101,6 +103,12 @@ definitions with `pnpm run generate:schemas`; do not hand-edit generated files.
 `make validate-payloads` validates all canonical examples and checks generated
 schema drift. Files under `examples/schemas/` remain pack-era references; use
 root `schemas/` for implementation and Custom GPT Action contracts.
+
+`schemas/context-item.schema.json` remains the legacy `1.0` standalone payload
+schema at its original resource identifier. Phase 15 publishes its standalone
+payload schema as `schemas/context-item-v2.schema.json` with a distinct,
+versioned `$id`. `schemas/import-envelope.schema.json` performs
+deterministic context-item dispatch from the declared `schema_version`.
 
 Phase 5 provides the service-layer `storeRawImport` boundary. It stores valid
 raw envelopes before normalization, stores identifiable invalid envelopes with
