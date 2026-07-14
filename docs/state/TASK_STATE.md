@@ -1,116 +1,126 @@
 # Task State
 
-Last updated: 2026-07-13
+Last updated: 2026-07-14
 
 ## Current phase
 
-Phase 16 compact GPT context packet export and its bounded correction pass are
-implemented with direct read-only session regression coverage and automated
-verification complete. Manual phone-width export smoke remains pending. Phase
-17 has not started.
+Phase 17 Analytics MVP is implemented on `feature/analytics-dashboard` with
+focused and full automated verification complete. Manual authenticated desktop
+and phone-width smoke remains pending because no checked-in browser harness
+exists. Phase 18 has not started.
 
 ## Active task
 
-Phase 16 adds authenticated `GET /api/context/export` and one Context Library
-download action. Export authentication now resolves only an existing
-application user with a non-mutating lookup. One repeatable-read transaction
-resolves that user's singular active cycle and assembles `gpt_context_packet`
-version `1.0` from explicit normalized-field allowlists.
+Phase 17 adds authenticated, read-only `/analytics` for an existing application
+user's singular owned active cycle. The page uses non-mutating browser-user
+resolution, the existing singular-active-cycle safety behavior, established UTC
+cycle-day helpers, and Phase 11 bounded lazy status reconciliation.
 
-Normal packet assembly is schema-validated, measured as serialized UTF-8, and
-bounded to 32 KiB by removing complete optional items from the ends of
-`active_patterns`, then `open_decisions`, then `pinned_context`. Required
-sections remain unchanged, and the final packet is validated again. Required
-data that cannot fit returns a bounded safe server error. Browser Blob URL
-cleanup is deferred until after the synthetic download click can be consumed.
+One bounded server assembler reads normalized day logs, current daily-plan
+tasks, check-ins, and recovery events through the current UTC cycle day. It
+returns five mutually exclusive finalized status counts, finalized-day total,
+recovery allowance/use/remaining and qualifying completion totals, six
+latest-check-in-per-day trends, equal-length current/previous cycle-week windows,
+and overall/domain task completion in canonical domain order.
 
-Export never writes, reconciles, consumes credits, creates imports, persists
-packets, reads raw payload fallback, or exposes ownership/authentication/internal
-IDs, private notes, detailed narratives, prompts, or traces. JSON is the only
-Phase 16 format.
-
-This bounded correction directly executes `getReadOnlyBrowserSession` for an
-existing application user, a missing application user, and an unauthenticated
-identity. Existing and missing authenticated identities use the lookup path
-without user upsert; unauthenticated behavior remains `null` without database
-access. No production behavior changed.
+Analytics does not read raw imports, weekly-review metric snapshots, context
+packets, narratives, private notes, or ownership identifiers. It does not add a
+self-trust score, persisted metric model, analytics-specific write, migration,
+dependency, export, generated conclusion, or Phase 18 foundation.
 
 ## Next phase
 
-Phase 17 remains deferred. No Markdown export, direct GPT submission,
-embeddings, semantic retrieval, packet history/caching/scheduling, generated
-recommendations, decision lifecycle, cross-cycle context, analytics expansion,
-or other Phase 17 preparation was added.
+Phase 18 remains unplanned and unstarted. Self-trust scoring,
+loneliness/self-criticism trends, archived or cross-cycle analytics, selected
+date ranges, persisted metrics, generated insights, recommendations, advanced
+correlations, exports, alerts, and background jobs remain deferred.
 
 ## Next actions
 
-1. Run the documented manual phone-width `/context` export smoke when an
-   authenticated local browser is available.
-2. Review and commit the Phase 16 correction with
-   `test(auth): cover read-only browser session resolution` after approval.
-3. Do not start Phase 17 without explicit approval.
+1. Run the manual `/analytics` smoke checklist below with an authenticated local
+   browser and representative normalized active-cycle data.
+2. Review the Phase 17 diff and privacy/query boundaries.
+3. Commit after approval with `feat(analytics): add active-cycle progress overview`.
+4. Do not start Phase 18 without separate planning and approval.
 
 ## Required completion checks
 
-- Direct real-helper coverage for existing-user lookup, missing-user lookup,
-  no user upsert, and unchanged unauthenticated behavior, plus packet
-  runtime/generated-schema parity, singular active-cycle handling,
-  ownership/privacy, UTC windows, missing data, canonical statuses, metrics,
-  deterministic 32-KiB pruning, required-only oversize failure, download
-  headers, and deferred Blob URL cleanup tests.
-- Generated-schema drift, lint, typecheck, full tests, production build, Prisma
-  validation, shell syntax, and whitespace checks through the single final
-  quality gate.
-- Manual authenticated download/privacy/phone-width smoke remains pending and
-  uses the checklist below because no checked-in browser harness exists.
+- Focused Analytics, read-only auth, progress, and canonical day-status tests.
+- Formatting, lint, typecheck, full tests, payload/schema drift, production
+  build, Prisma validation, shell syntax, and whitespace through one final
+  `make check`.
+- Manual unauthenticated/authenticated/no-cycle/privacy/navigation/desktop/mobile
+  smoke using the checklist below.
 
 ## Automated verification evidence
 
-- Focused authentication regression passed: `tests/auth.test.ts`; 1 file, 13
-  tests.
-- Final host-side `make check` passed: 21 test files, 328 tests, generated-schema
-  and example drift, formatting, lint, typecheck, production build, Prisma
-  validation, shell syntax, and whitespace checks.
-- The added tests directly execute the real `getReadOnlyBrowserSession`, prove
-  existing and missing authenticated identities use `findUnique` without
-  `upsert`, prove the stored existing user is returned, and preserve
-  unauthenticated `null` behavior without database access.
-- This correction changes tests and state evidence only; no migration or
-  production behavior change was introduced.
+- Focused command passed: `pnpm exec vitest run tests/analytics.test.tsx
+  tests/auth.test.ts tests/progress.test.ts tests/day-status.test.ts`; 4 files,
+  56 tests.
+- Focused coverage verifies read-only page auth, no database access without an
+  existing application user, owned singular-cycle selection, duplicate-cycle
+  protection, canonical reconciliation use, finalized status exclusivity,
+  recovery qualification, UTC latest-daily check-ins and gaps, week 1/day
+  8/day 10/full-week/week 13 windows, missing denominators, task skip rules,
+  domain ordering, privacy allowlists, accessible charts, empty states, and nav.
+- Targeted TypeScript check passed before final validation.
+- First and only host-side `make check` passed: 22 test files, 347 tests,
+  formatting, lint, typecheck, payload/schema drift, production build including
+  dynamic `/analytics`, Prisma validation, shell syntax, and whitespace.
 
-## Manual Phase 16 browser verification
+## Manual Phase 17 browser verification
 
 No checked-in browser-smoke command exists, so no browser framework was
 installed and interactive smoke was not run. Manual scope:
 
-1. Sign in and open the Context Library page.
-2. Confirm the GPT context export action is enabled with an active cycle.
-3. Trigger the export and confirm only one request can run at a time.
-4. Confirm the JSON file downloads successfully.
-5. Confirm the filename follows `reset90-gpt-context-YYYY-MM-DD.json`.
-6. Confirm the downloaded file parses as JSON.
-7. Confirm the packet is at most 32 KiB.
-8. Confirm required sections remain present after any deterministic pruning.
-9. Confirm no raw payloads, private notes, authentication data, ownership
-   identifiers, or internal IDs are present.
-10. Confirm the control and error text are usable at phone width.
-11. Confirm the no-active-cycle state disables or hides the export action and
-    presents calm explanatory text.
+1. Open `/analytics` while unauthenticated and confirm established sign-in
+   redirect behavior.
+2. Sign in with an existing application user and confirm the owned active cycle
+   renders.
+3. Confirm a user with no active cycle sees the calm no-active-cycle state.
+4. Confirm status totals match the same active cycle's 90-day grid through the
+   current UTC day.
+5. Confirm recovery limit, used, remaining, and any differing qualifying-day
+   count match normalized recovery events.
+6. Confirm missing status, check-in, task, and weekly data use neutral explicit
+   empty states.
+7. Confirm all six trend sections render with correct higher/lower direction and
+   daily gaps.
+8. Confirm a partial current week compares only the equal elapsed portion of the
+   immediately previous cycle week.
+9. Confirm overall and represented-domain task completion counts and percentages
+   match current normalized plans.
+10. Confirm Analytics appears in primary navigation and is marked current.
+11. Check desktop layout.
+12. Check approximately 390 px phone layout.
+13. Confirm no horizontal page overflow.
+14. Confirm charts remain understandable without color and expose accessible
+    names/text equivalents.
+15. Confirm no private notes, narrative text, raw payloads, ownership values, or
+    internal IDs appear in the page or browser response.
 
-## Migration and rollback
+## Migration, deployment, and rollback
 
-- Phase 16 and this test-only correction add no migration, backfill, data
-  correction, worker, or background job.
-- Rollback reverts the export route, packet schema/assembler and generated
-  schema registration, Context Library control, focused tests, and Phase 16
-  documentation.
-- Rolling back this correction removes only the direct auth regression tests
-  and verification evidence; no database restoration or user-data cleanup is
-  required.
+- No Prisma schema change, migration, backfill, data correction, index,
+  dependency, worker, cache, materialized view, or scheduled job was added.
+- Deployment requires application-code deployment plus normal `/analytics`
+  smoke only.
+- Rollback reverts the Analytics route, assembler, UI, navigation entry, focused
+  tests, and directly related docs. No data restoration, migration reversal,
+  import replay, or cleanup is required.
 
 ## Latest handoff
 
-- 2026-07-13T20:54:57Z — feature/gpt-context-export — bounded Phase 16 auth correction added direct real-helper coverage for existing, missing, and unauthenticated read-only browser sessions; focused `tests/auth.test.ts` passed with 13 tests; final host-side `make check` passed with 21 test files and 328 tests plus production build; no migration or production behavior change; manual phone-width export smoke remains; next step: run that smoke, review, and commit with `test(auth): cover read-only browser session resolution` without starting Phase 17
+- 2026-07-14T18:23:13Z — feature/analytics-dashboard — bounded Phase 17 handoff
+  correction verified the Analytics route, server assembler, responsive UI, and
+  focused tests are present; corrected the Phase 17 plan branch and preserved
+  the documented focused 4-file/56-test result plus the first/final host-side
+  `make check` result of 22 files and 347 tests with a production build rather
+  than rerunning valid evidence for a documentation-only correction; no
+  migration, dependency, product-behavior, or Phase 18 work; manual
+  authenticated desktop/phone/privacy smoke remains; next step: inspect the
+  corrected review bundle, complete manual smoke, then review and commit after
+  approval
 
 ## Historical detail
 

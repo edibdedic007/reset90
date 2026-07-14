@@ -227,12 +227,15 @@ MVP charts/cards:
 - day status count;
 - recovery credits used/remaining;
 - weekly comparison;
-- mood/fog trend;
+- mood trend;
+- fog trend;
 - digital control trend;
 - learning resistance trend;
 - body relationship trend;
 - work confidence trend;
-- self-trust score.
+
+Self-trust scoring remains deferred until a formula, weighting, missing-data
+rule, and versioning policy are separately approved.
 
 ## Copy rules
 

@@ -1581,7 +1581,7 @@ After implementation:
 Add useful progress visibility without quantified-self overkill.
 
 ## Branch
-`feature/analytics-mvp`
+`feature/analytics-dashboard`
 
 ## Source docs
 

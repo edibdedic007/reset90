@@ -17,7 +17,7 @@ shame-based streaks.
 - Docker Compose locally and in production, with Traefik expected in production
 - GitHub Actions CI
 
-## Implemented through Phase 16
+## Implemented through Phase 17
 
 - Repository, local environment, Prisma schema/migrations, seed data, readiness,
   quality gates, CI, backups/export/deployment helpers.
@@ -44,14 +44,16 @@ shame-based streaks.
   active cycle, with schema validation, deterministic bounded windows, normalized
   patterns/pinned context/open decisions, canonical recovery/status summaries,
   and explicit privacy allowlists.
+- Authenticated, read-only Analytics for the singular owned active cycle, with
+  canonical finalized-status counts, normalized recovery/task totals, six
+  latest-daily check-in trends, and equal-window cycle-week comparison.
 
 ## Current boundary
 
-Phase 16 exports compact normalized active-cycle context on demand. Markdown
-export, direct GPT submission, packet persistence/history/caching, embeddings,
-semantic/fuzzy search, automatic retrieval/prompt assembly, automatic context
-generation, cross-cycle memory, decision lifecycle, editing,
-deletion, bulk/archive/version flows, and analytics expansion remain deferred.
+Phase 17 provides bounded live Analytics from normalized active-cycle data.
+Self-trust scoring, loneliness/self-criticism trends, archived or cross-cycle
+analytics, date selection, persisted metrics, generated insights, advanced
+correlations, and all Phase 18 expansion remain deferred.
 
 ## Durable implementation rules
 
@@ -77,6 +79,9 @@ deletion, bulk/archive/version flows, and analytics expansion remain deferred.
 - Current-day browser APIs derive ownership and active UTC day server-side.
 - Progress reads derive ownership from the authenticated user's active cycle,
   reuse Phase 11 status reconciliation, and never infer status for missing logs.
+- Analytics resolves an existing browser user without upsert, requires exactly
+  one owned active cycle, reuses canonical UTC/status behavior, and never reads
+  raw imports, private narratives, or weekly-review metric snapshots.
 - Store summaries, decisions, and context snapshots; never hidden chain-of-thought.
 - Context belongs to exactly one active reset cycle, uses relational normalized
   tags, and exposes no raw-import or ownership metadata through browser DTOs.
