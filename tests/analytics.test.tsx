@@ -556,15 +556,70 @@ describe("Analytics equal-window weekly comparison", () => {
     expect(result.weeklyComparison.current).toMatchObject({
       averageMood: 8,
       averageFog: 3,
-      taskCompletionPercentage: null,
+      taskCompletion: { completed: 0, total: 0, percentage: null },
       recoveryCreditsUsed: 1,
     });
     expect(result.weeklyComparison.previous).toMatchObject({
       averageMood: 3,
       averageFog: 7,
-      taskCompletionPercentage: null,
+      taskCompletion: { completed: 0, total: 0, percentage: null },
       recoveryCreditsUsed: 0,
     });
+  });
+
+  it("retains weekly counts while skipped tasks stay eligible and missing plans add no tasks", async () => {
+    const days = [
+      day(1, {
+        dailyPlan: {
+          tasks: [
+            task("BODY", "complete"),
+            task("BODY", "skipped"),
+            task("BODY", "incomplete"),
+          ],
+        },
+      }),
+      day(2),
+      day(8, {
+        dailyPlan: {
+          tasks: [task("BODY", "complete"), task("BODY", "skipped")],
+        },
+      }),
+      day(9, {
+        dailyPlan: { tasks: [task("BODY", "complete")] },
+      }),
+      day(10),
+    ];
+    const { database } = databaseWithCycle(cycle(days));
+
+    const result = await getAnalyticsDashboard(
+      database,
+      "user-1",
+      new Date("2026-07-10T12:00:00Z"),
+    );
+    if (
+      result.status !== "ready" ||
+      result.weeklyComparison.status !== "ready"
+    ) {
+      throw new Error("Expected ready weekly comparison");
+    }
+
+    expect(result.weeklyComparison.current.taskCompletion).toEqual({
+      completed: 2,
+      total: 3,
+      percentage: 67,
+    });
+    expect(result.weeklyComparison.previous.taskCompletion).toEqual({
+      completed: 1,
+      total: 3,
+      percentage: 33,
+    });
+    expect(
+      result.weeklyComparison.current.dayTo -
+        result.weeklyComparison.current.dayFrom,
+    ).toBe(
+      result.weeklyComparison.previous.dayTo -
+        result.weeklyComparison.previous.dayFrom,
+    );
   });
 });
 
@@ -676,7 +731,7 @@ describe("Analytics page presentation", () => {
           dayFrom: 8,
           dayTo: 10,
           finalizedDays: 1,
-          taskCompletionPercentage: null,
+          taskCompletion: { completed: 0, total: 0, percentage: null },
           averageMood: 5.5,
           averageFog: null,
           recoveryCreditsUsed: 0,
@@ -686,7 +741,7 @@ describe("Analytics page presentation", () => {
           dayFrom: 1,
           dayTo: 3,
           finalizedDays: 0,
-          taskCompletionPercentage: 50,
+          taskCompletion: { completed: 1, total: 2, percentage: 50 },
           averageMood: null,
           averageFog: 4,
           recoveryCreditsUsed: 0,
@@ -707,8 +762,13 @@ describe("Analytics page presentation", () => {
     expect(html).toContain("Incomplete or abandoned");
     expect(html).toContain("Completed qualifying recovery days");
     expect(html).toContain("1/2 · 50%");
+    expect(html).toContain("1 / 2 · 50%");
+    expect(html).toMatch(
+      /Task completion<\/span><span[^>]*>No data<\/span><span[^>]*>1 \/ 2 · 50%/,
+    );
     expect(html).toContain("Other");
     expect(html).toContain("No data");
+    expect(html).not.toContain("0 / 0 · 0%");
     expect(html).not.toMatch(/NaN|Infinity|INTERNAL_|PRIVATE_|RAW_/);
   });
 

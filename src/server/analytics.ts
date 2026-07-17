@@ -86,7 +86,7 @@ export type AnalyticsWeek = {
   dayFrom: number;
   dayTo: number;
   finalizedDays: number;
-  taskCompletionPercentage: number | null;
+  taskCompletion: CompletionSummary;
   averageMood: number | null;
   averageFog: number | null;
   recoveryCreditsUsed: number;
@@ -227,7 +227,7 @@ function buildWeek(
     dayFrom,
     dayTo,
     finalizedDays: windowDays.filter((day) => day.status !== "UNSET").length,
-    taskCompletionPercentage: completionSummary(tasks).percentage,
+    taskCompletion: completionSummary(tasks),
     averageMood: average(moodValues),
     averageFog: average(fogValues),
     recoveryCreditsUsed: windowDays.filter(

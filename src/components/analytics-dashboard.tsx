@@ -168,14 +168,20 @@ function weekValue(
   week: AnalyticsWeek,
   metric:
     | "finalizedDays"
-    | "taskCompletionPercentage"
+    | "taskCompletion"
     | "averageMood"
     | "averageFog"
     | "recoveryCreditsUsed",
 ) {
+  if (metric === "taskCompletion") {
+    const summary = week.taskCompletion;
+    return summary.percentage === null
+      ? "No data"
+      : `${summary.completed} / ${summary.total} · ${summary.percentage}%`;
+  }
+
   const value = week[metric];
   if (value === null) return "No data";
-  if (metric === "taskCompletionPercentage") return `${value}%`;
   if (metric === "averageMood" || metric === "averageFog") {
     return `${value}/10`;
   }
@@ -201,7 +207,7 @@ function WeeklyComparison({
 
   const rows = [
     ["Finalized days", "finalizedDays"],
-    ["Task completion", "taskCompletionPercentage"],
+    ["Task completion", "taskCompletion"],
     ["Average mood", "averageMood"],
     ["Average fog", "averageFog"],
     ["Recovery credits used", "recoveryCreditsUsed"],
