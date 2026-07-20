@@ -514,6 +514,81 @@ describe("Phase 18 owned full export", () => {
     ).toBe(true);
   });
 
+  it("orders check-ins globally by timestamp then ID in JSON and CSV", async () => {
+    const user = fullUser();
+    const activeCycle = user.resetCycles.find(
+      (cycle) => cycle.id === "cycle-active",
+    ) as
+      | {
+          dayLogs: Array<{
+            id: string;
+            checkins: Array<Record<string, unknown>>;
+          }>;
+        }
+      | undefined;
+    const firstDay = activeCycle?.dayLogs[0];
+    const secondDay = activeCycle?.dayLogs[1];
+    const template = firstDay?.checkins[0];
+    if (!firstDay || !secondDay || !template) {
+      throw new Error("Expected active-cycle check-in fixtures");
+    }
+
+    firstDay.checkins = [
+      {
+        ...template,
+        id: "checkin-b",
+        timestamp: timestamp(1, 8),
+        note: null,
+      },
+      {
+        ...template,
+        id: "checkin-d",
+        timestamp: timestamp(2, 8),
+        note: null,
+      },
+    ];
+    secondDay.checkins = [
+      {
+        ...template,
+        id: "checkin-a",
+        dayLogId: secondDay.id,
+        timestamp: timestamp(1, 8),
+        note: null,
+      },
+      {
+        ...template,
+        id: "checkin-c",
+        dayLogId: secondDay.id,
+        timestamp: timestamp(1, 9),
+        note: null,
+      },
+    ];
+
+    const { data } = await assembled(exportDatabase(user));
+    const expected = [
+      ["checkin-a", "2026-07-01T08:00:00.000Z"],
+      ["checkin-b", "2026-07-01T08:00:00.000Z"],
+      ["checkin-c", "2026-07-01T09:00:00.000Z"],
+      ["checkin-d", "2026-07-02T08:00:00.000Z"],
+    ];
+    const json = JSON.parse(serializeFullJsonExport(data)) as {
+      checkins: Array<{ id: string; timestamp: string }>;
+    };
+    expect(json.checkins.map((row) => [row.id, row.timestamp])).toEqual(
+      expected,
+    );
+
+    const csvRows = serializeCheckinsCsv(data)
+      .trimEnd()
+      .split("\r\n")
+      .slice(1)
+      .map((row) => {
+        const cells = row.split(",");
+        return [cells[0], cells[4]];
+      });
+    expect(csvRows).toEqual(expected);
+  });
+
   it("includes only deduplicated raw imports linked from owned normalized records", async () => {
     const { data, test } = await assembled();
     expect(data.imported_payloads.map((payload) => payload.id)).toEqual([

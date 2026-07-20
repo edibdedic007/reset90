@@ -4,13 +4,15 @@ Last updated: 2026-07-20
 
 ## Current phase
 
-Phase 18 browser-authenticated user-data export MVP is implemented on
-`feature/data-export-import`. It provides one canonical full JSON archive,
-day-log/task/check-in CSVs, stored weekly/cycle-report Markdown summaries, and
-five private Settings downloads. Accepted correction findings are implemented
-and covered by focused automated tests. Authenticated browser/download smoke has
-not been performed and remains required before merge, so Phase 18 is not yet
-release-ready. Data import remains deferred. Phase 19 has not started.
+Phase 18 browser-authenticated user-data export implementation and prior
+correction commits already exist on `feature/data-export-import`. They provide
+one canonical full JSON archive, day-log/task/check-in CSVs, stored
+weekly/cycle-report Markdown summaries, and five private Settings downloads.
+The global check-in timestamp/ID ordering correction is the only remaining code
+change and is present in the working tree with focused coverage. Authenticated
+browser/download smoke has not been performed and remains required before merge,
+so Phase 18 is not yet release-ready. Data import remains deferred. Phase 19 has
+not started.
 
 ## Active task
 
@@ -19,7 +21,9 @@ user and reads every owned active, archived, incomplete, or otherwise stored
 cycle. Explicit allowlists produce deterministic flat collections with stable
 IDs, parent IDs, UTC timestamps, date-only values, stored statuses, nullable
 values, normalized records, relational context tags, and linked-owned raw
-imports only. No active cycle and no cycles are successful export states.
+imports only. All owned check-ins are flattened before global timestamp/ID
+ordering, and both canonical JSON and check-ins CSV use that same collection. No
+active cycle and no cycles are successful export states.
 
 CSV serializers use fixed headers/order, correct UTF-8 quoting, preserved empty
 values, parent identifiers, and spreadsheet-formula neutralization. Markdown
@@ -46,8 +50,11 @@ download remain deferred.
 
 ## Next actions
 
-1. Complete the required authenticated manual Settings/download/privacy smoke.
-2. Review and commit only after the manual release blocker passes.
+1. Complete the user's separate authenticated manual
+   Settings/download/privacy smoke.
+2. After that verification passes, commit this bounded correction, push the
+   branch, open the pull request, and merge only after the verification remains
+   passing.
 3. Do not start Phase 19 without separate planning and approval.
 
 ## Required completion checks
@@ -66,15 +73,16 @@ download remain deferred.
 - Initial implementation focused tests passed with 3 files and 69 tests; its
   host-side `make check` passed with 23 files and 380 tests before this
   correction.
-- Final correction-focused command passed: `pnpm exec vitest run
+- Final global-ordering correction-focused command passed: `pnpm exec vitest run
   tests/user-data-export.test.tsx tests/auth.test.ts
-  tests/gpt-context-packet.test.ts`; 3 files, 86 tests.
+  tests/gpt-context-packet.test.ts`; 3 files, 87 tests.
 - Focused coverage now includes all-cycle ownership, linked-owned raw-import
   scope, deterministic and empty serializers, leading-whitespace/control CSV
   formula protection, one selected serializer per request, private `no-store`
   success/400/401/404/500 responses, detailed Settings auth states, filenames,
   MIME and attachment headers, responsive controls, concurrency protection, and
-  deferred Blob cleanup.
+  deferred Blob cleanup. One cross-day regression proves check-ins use global
+  timestamp-first and ID-second ordering in both canonical JSON and CSV.
 
 ## Manual Phase 18 browser verification
 
@@ -97,14 +105,14 @@ handoff.
 
 ## Latest handoff
 
-- 2026-07-20T14:25:45Z — feature/data-export-import — bounded Phase 18
-  correction now serializes only the requested format, applies private
-  `no-store` to every success/error response, root-anchors export ignores,
-  hardens CSV formula protection, and distinguishes Settings unauthenticated
-  from missing-user states; 3 focused files/86 tests passed; no migration,
-  dependency, persisted export, import, or Phase 19 work; no checked-in browser
-  harness exists, so exact authenticated download/privacy/~390 px manual smoke
-  remains required before merge and Phase 18 is not release-ready
+- 2026-07-20T16:35:53Z — feature/data-export-import — Phase 18 implementation
+  and prior correction commits already exist; this bounded working-tree
+  correction globally orders the final flattened check-in collection by
+  timestamp then ID for canonical JSON and CSV; 3 focused files/87 tests passed;
+  no migration, ownership, append-only, transaction, schema, CSV-column, import,
+  or Phase 19 change; next repository action is the user's separate authenticated
+  download/privacy/~390 px manual verification, then commit, push, pull request,
+  and merge only after it passes
 
 ## Historical detail
 

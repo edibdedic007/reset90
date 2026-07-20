@@ -337,26 +337,29 @@ export async function assembleUserDataExport(
           })),
         ),
       );
-      const checkins = user.resetCycles.flatMap((cycle) =>
-        cycle.dayLogs.flatMap((dayLog) =>
-          dayLog.checkins.map((checkin) => ({
-            id: checkin.id,
-            day_log_id: checkin.dayLogId,
-            kind: checkin.kind,
-            timestamp: isoTimestamp(checkin.timestamp),
-            energy_level: checkin.energyLevel,
-            mood_score: checkin.moodScore,
-            fog_score: checkin.fogScore,
-            loneliness_score: checkin.lonelinessScore,
-            self_criticism_score: checkin.selfCriticismScore,
-            digital_control_score: checkin.digitalControlScore,
-            learning_resistance_score: checkin.learningResistanceScore,
-            body_relationship_score: checkin.bodyRelationshipScore,
-            work_confidence_score: checkin.workConfidenceScore,
-            note: checkin.note,
-          })),
-        ),
-      );
+      const checkins = user.resetCycles
+        .flatMap((cycle) => cycle.dayLogs.flatMap((dayLog) => dayLog.checkins))
+        .sort(
+          (left, right) =>
+            left.timestamp.getTime() - right.timestamp.getTime() ||
+            left.id.localeCompare(right.id),
+        )
+        .map((checkin) => ({
+          id: checkin.id,
+          day_log_id: checkin.dayLogId,
+          kind: checkin.kind,
+          timestamp: isoTimestamp(checkin.timestamp),
+          energy_level: checkin.energyLevel,
+          mood_score: checkin.moodScore,
+          fog_score: checkin.fogScore,
+          loneliness_score: checkin.lonelinessScore,
+          self_criticism_score: checkin.selfCriticismScore,
+          digital_control_score: checkin.digitalControlScore,
+          learning_resistance_score: checkin.learningResistanceScore,
+          body_relationship_score: checkin.bodyRelationshipScore,
+          work_confidence_score: checkin.workConfidenceScore,
+          note: checkin.note,
+        }));
       const recoveryEvents = user.resetCycles.flatMap((cycle) =>
         cycle.dayLogs.flatMap((dayLog) =>
           dayLog.recoveryEvent
