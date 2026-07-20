@@ -222,17 +222,34 @@ generate context packs, browse other cycles, or create context automatically.
 
 ## Analytics
 
-MVP charts/cards:
+Phase 17 Analytics covers the active cycle through the current UTC day. Its
+status summary shows the finalized-day total and finalized Green, Yellow, Blue,
+Red, and Gold counts. Each finalized day counts under exactly one status, and a
+Gold day is not also counted as Green.
 
-- day status count;
-- recovery credits used/remaining;
-- weekly comparison;
-- mood/fog trend;
-- digital control trend;
-- learning resistance trend;
-- body relationship trend;
-- work confidence trend;
-- self-trust score.
+The recovery summary shows the recovery credit limit, credits used, credits
+remaining, and the completed qualifying recovery-day count when that differs
+from credited usage. Overall task completion and task completion for each
+represented domain show completed count, eligible total, and percentage.
+
+Trends use the latest check-in by timestamp for each UTC cycle day across mood,
+fog, digital control, learning resistance, body relationship, and work
+confidence. Missing trend days remain gaps.
+
+Weekly comparison uses equal-length elapsed portions of the current and previous
+cycle weeks. It compares finalized days, task completion, average mood, average
+fog, and recovery credits used. Weekly task completion is displayed as completed
+count, eligible total, and percentage in `completed / total · percentage` form;
+a zero task denominator displays `No data`. Skipped tasks remain in the
+denominator and not the numerator; days without normalized plans contribute no
+tasks.
+
+Normalized application data is the source of truth. Raw imports, private notes,
+reflection narrative, and weekly-review metrics are not Analytics data sources.
+Missing normalized data uses calm, explicit empty behavior.
+
+Self-trust, loneliness, self-criticism, cross-cycle analytics, generated
+insights, and persisted analytics remain deferred.
 
 ## Copy rules
 

@@ -1,116 +1,162 @@
 # Task State
 
-Last updated: 2026-07-13
+Last updated: 2026-07-20
 
 ## Current phase
 
-Phase 16 compact GPT context packet export and its bounded correction pass are
-implemented with direct read-only session regression coverage and automated
-verification complete. Manual phone-width export smoke remains pending. Phase
-17 has not started.
+Phase 17 Analytics MVP and bounded weekly-completion correction are implemented
+on `feature/analytics-dashboard`. Weekly comparison now retains and renders
+completed count, eligible-task total, and canonical percentage. Focused
+correction verification is complete, and the durable Analytics UX contract is
+restored. Manual browser/privacy smoke passed, its blocker is resolved, and
+Phase 17 is release-ready. Phase 18 has not started.
 
 ## Active task
 
-Phase 16 adds authenticated `GET /api/context/export` and one Context Library
-download action. Export authentication now resolves only an existing
-application user with a non-mutating lookup. One repeatable-read transaction
-resolves that user's singular active cycle and assembles `gpt_context_packet`
-version `1.0` from explicit normalized-field allowlists.
+Phase 17 adds authenticated, read-only `/analytics` for an existing application
+user's singular owned active cycle. The page uses non-mutating browser-user
+resolution, the existing singular-active-cycle safety behavior, established UTC
+cycle-day helpers, and Phase 11 bounded lazy status reconciliation.
 
-Normal packet assembly is schema-validated, measured as serialized UTF-8, and
-bounded to 32 KiB by removing complete optional items from the ends of
-`active_patterns`, then `open_decisions`, then `pinned_context`. Required
-sections remain unchanged, and the final packet is validated again. Required
-data that cannot fit returns a bounded safe server error. Browser Blob URL
-cleanup is deferred until after the synthetic download click can be consumed.
+One bounded server assembler reads normalized day logs, current daily-plan
+tasks, check-ins, and recovery events through the current UTC cycle day. It
+returns five mutually exclusive finalized status counts, finalized-day total,
+recovery allowance/use/remaining and qualifying completion totals, six
+latest-check-in-per-day trends, equal-length current/previous cycle-week windows
+with weekly completed/eligible/percentage task summaries, and overall/domain
+task completion in canonical domain order.
 
-Export never writes, reconciles, consumes credits, creates imports, persists
-packets, reads raw payload fallback, or exposes ownership/authentication/internal
-IDs, private notes, detailed narratives, prompts, or traces. JSON is the only
-Phase 16 format.
-
-This bounded correction directly executes `getReadOnlyBrowserSession` for an
-existing application user, a missing application user, and an unauthenticated
-identity. Existing and missing authenticated identities use the lookup path
-without user upsert; unauthenticated behavior remains `null` without database
-access. No production behavior changed.
+Analytics does not read raw imports, weekly-review metric snapshots, context
+packets, narratives, private notes, or ownership identifiers. It does not add a
+self-trust score, persisted metric model, analytics-specific write, migration,
+dependency, export, generated conclusion, or Phase 18 foundation.
 
 ## Next phase
 
-Phase 17 remains deferred. No Markdown export, direct GPT submission,
-embeddings, semantic retrieval, packet history/caching/scheduling, generated
-recommendations, decision lifecycle, cross-cycle context, analytics expansion,
-or other Phase 17 preparation was added.
+Phase 18 remains unplanned and unstarted. Self-trust scoring,
+loneliness/self-criticism trends, archived or cross-cycle analytics, selected
+date ranges, persisted metrics, generated insights, recommendations, advanced
+correlations, exports, alerts, and background jobs remain deferred.
 
 ## Next actions
 
-1. Run the documented manual phone-width `/context` export smoke when an
-   authenticated local browser is available.
-2. Review and commit the Phase 16 correction with
-   `test(auth): cover read-only browser session resolution` after approval.
-3. Do not start Phase 17 without explicit approval.
+1. Review the bounded Phase 17 correction and privacy/query boundaries.
+2. Commit after approval with the correction commit suggested in the handoff.
+3. Do not start Phase 18 without separate planning and approval.
 
 ## Required completion checks
 
-- Direct real-helper coverage for existing-user lookup, missing-user lookup,
-  no user upsert, and unchanged unauthenticated behavior, plus packet
-  runtime/generated-schema parity, singular active-cycle handling,
-  ownership/privacy, UTC windows, missing data, canonical statuses, metrics,
-  deterministic 32-KiB pruning, required-only oversize failure, download
-  headers, and deferred Blob URL cleanup tests.
-- Generated-schema drift, lint, typecheck, full tests, production build, Prisma
-  validation, shell syntax, and whitespace checks through the single final
-  quality gate.
-- Manual authenticated download/privacy/phone-width smoke remains pending and
-  uses the checklist below because no checked-in browser harness exists.
+- Focused Analytics, read-only auth, progress, and canonical day-status tests.
+- Formatting, lint, typecheck, full tests, payload/schema drift, production
+  build, Prisma validation, shell syntax, and whitespace through one final
+  `make check`.
+- Manual authenticated/privacy/navigation/desktop/mobile smoke using the
+  checklist below.
 
 ## Automated verification evidence
 
-- Focused authentication regression passed: `tests/auth.test.ts`; 1 file, 13
-  tests.
-- Final host-side `make check` passed: 21 test files, 328 tests, generated-schema
-  and example drift, formatting, lint, typecheck, production build, Prisma
-  validation, shell syntax, and whitespace checks.
-- The added tests directly execute the real `getReadOnlyBrowserSession`, prove
-  existing and missing authenticated identities use `findUnique` without
-  `upsert`, prove the stored existing user is returned, and preserve
-  unauthenticated `null` behavior without database access.
-- This correction changes tests and state evidence only; no migration or
-  production behavior change was introduced.
+- Focused command passed: `pnpm exec vitest run tests/analytics.test.tsx
+  tests/auth.test.ts tests/progress.test.ts tests/day-status.test.ts`; 4 files,
+  56 tests.
+- Focused coverage verifies read-only page auth, no database access without an
+  existing application user, owned singular-cycle selection, duplicate-cycle
+  protection, canonical reconciliation use, finalized status exclusivity,
+  recovery qualification, UTC latest-daily check-ins and gaps, week 1/day
+  8/day 10/full-week/week 13 windows, missing denominators, task skip rules,
+  domain ordering, privacy allowlists, accessible charts, empty states, and nav.
+- Targeted TypeScript check passed before final validation.
+- First and only host-side `make check` passed: 22 test files, 347 tests,
+  formatting, lint, typecheck, payload/schema drift, production build including
+  dynamic `/analytics`, Prisma validation, shell syntax, and whitespace.
+- Correction-focused command passed: `pnpm exec vitest run
+  tests/analytics.test.tsx`; 1 file, 20 tests. Coverage includes current and
+  previous weekly completed/eligible counts, canonical rounding, skipped-task
+  denominator behavior, missing-plan omission, equal-length partial-week
+  windows, exact `completed / total · percentage` rendering, and zero-denominator
+  `No data` behavior.
+- First and only correction `make check` passed host-side: formatting, lint,
+  typecheck, 22 test files with 348 tests, payload/schema drift, production build
+  including dynamic `/analytics`, Prisma validation, shell syntax, and whitespace.
+- This durable-contract correction changed documentation only. No focused test
+  was required because the bounded smoke found no application defect and no code
+  changed. Final `make check` passed once after all edits: formatting, lint,
+  typecheck, 22 test files with 348 tests, payload/schema drift, production build
+  including dynamic `/analytics`, Prisma validation, shell syntax, and whitespace.
 
-## Manual Phase 16 browser verification
+## Manual Phase 17 browser verification
 
-No checked-in browser-smoke command exists, so no browser framework was
-installed and interactive smoke was not run. Manual scope:
+The 2026-07-20 manual browser and privacy smoke passed:
 
-1. Sign in and open the Context Library page.
-2. Confirm the GPT context export action is enabled with an active cycle.
-3. Trigger the export and confirm only one request can run at a time.
-4. Confirm the JSON file downloads successfully.
-5. Confirm the filename follows `reset90-gpt-context-YYYY-MM-DD.json`.
-6. Confirm the downloaded file parses as JSON.
-7. Confirm the packet is at most 32 KiB.
-8. Confirm required sections remain present after any deterministic pruning.
-9. Confirm no raw payloads, private notes, authentication data, ownership
-   identifiers, or internal IDs are present.
-10. Confirm the control and error text are usable at phone width.
-11. Confirm the no-active-cycle state disables or hides the export action and
-    presents calm explanatory text.
+- authenticated Analytics rendering;
+- desktop rendering;
+- approximately 390 px phone-width rendering;
+- no horizontal overflow;
+- status and recovery display;
+- all six trend empty states;
+- equal-length weekly comparison;
+- zero task denominators displaying `No data`;
+- task empty state;
+- primary navigation;
+- color-independent comprehension; and
+- browser DOM and network-response privacy inspection.
 
-## Migration and rollback
+Populated check-in and task paths were not manually populated in the local
+cycle. Passing automated tests cover those populated paths, so this is accepted
+test coverage rather than a remaining manual blocker. The earlier 2026-07-17
+browser-environment block is resolved, and Phase 17 is release-ready.
 
-- Phase 16 and this test-only correction add no migration, backfill, data
-  correction, worker, or background job.
-- Rollback reverts the export route, packet schema/assembler and generated
-  schema registration, Context Library control, focused tests, and Phase 16
-  documentation.
-- Rolling back this correction removes only the direct auth regression tests
-  and verification evidence; no database restoration or user-data cleanup is
-  required.
+## Migration, deployment, and rollback
+
+- No Prisma schema change, migration, backfill, data correction, index,
+  dependency, worker, cache, materialized view, or scheduled job was added.
+- Deployment requires application-code deployment plus normal `/analytics`
+  smoke only.
+- Rollback is application-code-and-documentation-only: revert the Analytics
+  assembler/UI correction, focused tests, and directly related docs. No data
+  restoration, migration reversal, import replay, or cleanup is required.
 
 ## Latest handoff
 
-- 2026-07-13T20:54:57Z — feature/gpt-context-export — bounded Phase 16 auth correction added direct real-helper coverage for existing, missing, and unauthenticated read-only browser sessions; focused `tests/auth.test.ts` passed with 13 tests; final host-side `make check` passed with 21 test files and 328 tests plus production build; no migration or production behavior change; manual phone-width export smoke remains; next step: run that smoke, review, and commit with `test(auth): cover read-only browser session resolution` without starting Phase 17
+- 2026-07-20T12:56:46Z — feature/analytics-dashboard — manual authenticated
+  Analytics browser/privacy smoke passed for desktop and approximately 390 px
+  rendering, overflow, status/recovery display, six trend empty states,
+  equal-length weekly comparison, zero-denominator `No data`, task empty state,
+  primary navigation, color-independent comprehension, and DOM/network-response
+  privacy; populated check-in and task paths were covered by passing automated
+  tests but were not manually populated in the local cycle; browser-smoke
+  blocker resolved and Phase 17 release-ready; documentation-only update with
+  previous final `make check` preserved; Phase 18 not started
+- 2026-07-17T20:36:01Z — feature/analytics-dashboard — restored the complete
+  durable Analytics UX contract without changing product behavior; bounded host
+  smoke attempt found healthy PostgreSQL and free ports but no Chromium, Chrome,
+  Firefox, or Flatpak browser, so no browser item passed and every required item
+  remains explicitly unverified; no application defect, code change, focused
+  test, schema change, or migration; final `make check` passed once with 22 test
+  files/348 tests plus production build; rollback is application-code-and-
+  documentation-only; Phase 17 remains blocked on real-browser smoke with
+  representative normalized data; Phase 18 not started
+- 2026-07-17T20:21:13Z — feature/analytics-dashboard — bounded Phase 17
+  correction changed weekly task completion from percentage-only to completed
+  count, eligible total, and canonical percentage with `No data` for a zero
+  denominator; updated focused coverage and durable Analytics UX docs; final
+  focused Analytics tests passed with 1 file/20 tests and first/final host-side
+  `make check` passed with 22 files/348 tests plus production build; no schema or
+  migration change and rollback is application-code-only; bounded runtime checks
+  passed for active-cycle rendering, status/recovery parity, empty states,
+  equal-window text, navigation, and targeted response privacy, while full
+  browser/privacy smoke remains blocked by no browser binary, forced dev auth,
+  and no representative task/check-in data; Phase 18 not started; next step:
+  complete exact remaining manual smoke, review, and commit after approval
+- 2026-07-14T18:23:13Z — feature/analytics-dashboard — bounded Phase 17 handoff
+  correction verified the Analytics route, server assembler, responsive UI, and
+  focused tests are present; corrected the Phase 17 plan branch and preserved
+  the documented focused 4-file/56-test result plus the first/final host-side
+  `make check` result of 22 files and 347 tests with a production build rather
+  than rerunning valid evidence for a documentation-only correction; no
+  migration, dependency, product-behavior, or Phase 18 work; manual
+  authenticated desktop/phone/privacy smoke remains; next step: inspect the
+  corrected review bundle, complete manual smoke, then review and commit after
+  approval
 
 ## Historical detail
 
