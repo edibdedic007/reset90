@@ -1,9 +1,14 @@
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const routeMocks = vi.hoisted(() => ({
   getReadOnlyBrowserSessionResult: vi.fn(),
   getPrismaClient: vi.fn(),
+}));
+
+const navigationMocks = vi.hoisted(() => ({
+  notFound: vi.fn(),
+  redirect: vi.fn(),
 }));
 
 vi.mock("@/server/auth/session", () => ({
@@ -13,6 +18,15 @@ vi.mock("@/server/auth/session", () => ({
 vi.mock("@/server/db/client", () => ({
   getPrismaClient: routeMocks.getPrismaClient,
 }));
+
+vi.mock("@/auth", () => ({ signOut: vi.fn() }));
+
+vi.mock("next/navigation", () => ({
+  notFound: navigationMocks.notFound,
+  redirect: navigationMocks.redirect,
+}));
+
+import SettingsPage from "../src/app/settings/page";
 
 import {
   SettingsExportActions,
@@ -29,6 +43,7 @@ import {
   FULL_EXPORT_TYPE,
   RAW_IMPORT_SCOPE,
   TASK_CSV_HEADERS,
+  USER_DATA_EXPORT_KINDS,
   assembleUserDataExport,
   handleUserDataExportRequest,
   serializeCheckinsCsv,
@@ -36,6 +51,7 @@ import {
   serializeFullJsonExport,
   serializeSummariesMarkdown,
   serializeTasksCsv,
+  type UserDataExportSerializers,
 } from "../src/server/user-data-export";
 
 const NOW = new Date("2026-07-20T13:14:15.123Z");
@@ -610,6 +626,32 @@ describe("Phase 18 CSV and Markdown serializers", () => {
     expect(output).toContain('"Line one\r\nLine two, quoted"');
   });
 
+  it.each([
+    ["direct equals", "=HYPERLINK(...)"],
+    ["direct plus", "+SUM(...)"],
+    ["direct minus", "-CMD(...)"],
+    ["direct at", "@SUM(...)"],
+    ["leading space", " =HYPERLINK(...)"],
+    ["leading tab", "\t=HYPERLINK(...)"],
+    ["leading carriage return", "\r=HYPERLINK(...)"],
+  ])(
+    "neutralizes %s formula prefixes without stripping input",
+    async (_case, input) => {
+      const { data } = await assembled();
+      data.day_logs[0].mission = input;
+      const output = serializeDayLogsCsv(data);
+      expect(output).toContain(`'${input}`);
+    },
+  );
+
+  it("preserves ordinary internal whitespace and Unicode text", async () => {
+    const { data } = await assembled();
+    data.day_logs[0].mission = "Unicode Ž stays = ordinary text";
+    const output = serializeDayLogsCsv(data);
+    expect(output).toContain("Unicode Ž stays = ordinary text");
+    expect(output).not.toContain("'Unicode Ž stays");
+  });
+
   it("keeps task parent IDs plus distinct completed and skipped timestamps", async () => {
     const { data } = await assembled();
     const output = serializeTasksCsv(data);
@@ -676,6 +718,7 @@ describe("Phase 18 private HTTP export", () => {
       },
     );
     expect(response.status).toBe(401);
+    expect(response.headers.get("Cache-Control")).toBe("private, no-store");
     expect(getDatabase).not.toHaveBeenCalled();
     expect(response.headers.get("Content-Disposition")).toBeNull();
   });
@@ -691,6 +734,7 @@ describe("Phase 18 private HTTP export", () => {
       },
     );
     expect(response.status).toBe(404);
+    expect(response.headers.get("Cache-Control")).toBe("private, no-store");
     await expect(response.json()).resolves.toEqual({
       ok: false,
       error: "application_user_not_found",
@@ -709,6 +753,19 @@ describe("Phase 18 private HTTP export", () => {
       { getSessionResult: async () => authenticated(), getDatabase },
     );
     expect(response.status).toBe(400);
+    expect(response.headers.get("Cache-Control")).toBe("private, no-store");
+    expect(getDatabase).not.toHaveBeenCalled();
+  });
+
+  it("returns private no-store for an unknown format", async () => {
+    const getDatabase = vi.fn();
+    const response = await handleUserDataExportRequest(
+      new Request("http://localhost/api/export/unknown"),
+      "unknown",
+      { getSessionResult: async () => authenticated(), getDatabase },
+    );
+    expect(response.status).toBe(404);
+    expect(response.headers.get("Cache-Control")).toBe("private, no-store");
     expect(getDatabase).not.toHaveBeenCalled();
   });
 
@@ -739,7 +796,7 @@ describe("Phase 18 private HTTP export", () => {
       "reset90-summaries-2026-07-20T13-14-15Z.md",
     ],
   ])(
-    "streams private %s with fixed headers",
+    "returns private %s attachment with fixed headers",
     async (kind, contentType, filename) => {
       const test = exportDatabase();
       const response = await handleUserDataExportRequest(
@@ -758,6 +815,38 @@ describe("Phase 18 private HTTP export", () => {
       );
       expect(response.headers.get("Cache-Control")).toBe("private, no-store");
       expect(response.headers.get("Access-Control-Allow-Origin")).toBeNull();
+    },
+  );
+
+  it.each(USER_DATA_EXPORT_KINDS)(
+    "assembles once and invokes only the %s serializer",
+    async (kind) => {
+      const serializers: UserDataExportSerializers = {
+        "full-json": vi.fn(() => "full-json"),
+        "day-logs-csv": vi.fn(() => "day-logs-csv"),
+        "tasks-csv": vi.fn(() => "tasks-csv"),
+        "checkins-csv": vi.fn(() => "checkins-csv"),
+        "summaries-markdown": vi.fn(() => "summaries-markdown"),
+      };
+      const test = exportDatabase();
+      const response = await handleUserDataExportRequest(
+        new Request(`http://localhost/api/export/${kind}`),
+        kind,
+        {
+          getSessionResult: async () => authenticated(),
+          getDatabase: () => test.database,
+          now: () => NOW,
+          serializers,
+        },
+      );
+
+      expect(await response.text()).toBe(kind);
+      expect(test.transaction).toHaveBeenCalledTimes(1);
+      for (const [serializerKind, serializer] of Object.entries(serializers)) {
+        expect(serializer).toHaveBeenCalledTimes(
+          serializerKind === kind ? 1 : 0,
+        );
+      }
     },
   );
 
@@ -792,6 +881,7 @@ describe("Phase 18 private HTTP export", () => {
       },
     );
     expect(response.status).toBe(500);
+    expect(response.headers.get("Cache-Control")).toBe("private, no-store");
     expect(await response.text()).not.toContain("RAW_PRIVATE_SENTINEL");
   });
 
@@ -809,6 +899,62 @@ describe("Phase 18 private HTTP export", () => {
     expect(response.status).toBe(401);
     expect(routeMocks.getReadOnlyBrowserSessionResult).toHaveBeenCalledTimes(1);
     expect(routeMocks.getPrismaClient).not.toHaveBeenCalled();
+  });
+});
+
+describe("Phase 18 Settings page authentication", () => {
+  beforeEach(() => {
+    routeMocks.getReadOnlyBrowserSessionResult.mockReset();
+    navigationMocks.notFound.mockReset();
+    navigationMocks.redirect.mockReset();
+  });
+
+  it("redirects only unauthenticated browsers to sign-in", async () => {
+    routeMocks.getReadOnlyBrowserSessionResult.mockResolvedValue({
+      status: "unauthenticated",
+    });
+    navigationMocks.redirect.mockImplementation(() => {
+      throw new Error("settings_redirect");
+    });
+
+    await expect(SettingsPage()).rejects.toThrow("settings_redirect");
+    expect(navigationMocks.redirect).toHaveBeenCalledWith(
+      "/api/auth/signin?callbackUrl=/settings",
+    );
+    expect(navigationMocks.notFound).not.toHaveBeenCalled();
+  });
+
+  it("renders not-found state for an authenticated missing application user", async () => {
+    routeMocks.getReadOnlyBrowserSessionResult.mockResolvedValue({
+      status: "user_not_found",
+    });
+    navigationMocks.notFound.mockImplementation(() => {
+      throw new Error("settings_not_found");
+    });
+
+    await expect(SettingsPage()).rejects.toThrow("settings_not_found");
+    expect(navigationMocks.notFound).toHaveBeenCalledTimes(1);
+    expect(navigationMocks.redirect).not.toHaveBeenCalled();
+  });
+
+  it("renders export controls for an authenticated existing user", async () => {
+    routeMocks.getReadOnlyBrowserSessionResult.mockResolvedValue({
+      status: "authenticated",
+      session: {
+        userId: USER_ID,
+        authentikSubject: "AUTH_PROVIDER_PRIVATE_SENTINEL",
+        email: "owner@example.test",
+        displayName: "Owner",
+        isDev: false,
+      },
+    });
+
+    const html = renderToStaticMarkup(await SettingsPage());
+    expect(html).toContain("Download full JSON archive");
+    expect(html).toContain("Download weekly and cycle summaries Markdown");
+    expect(html).not.toContain("AUTH_PROVIDER_PRIVATE_SENTINEL");
+    expect(navigationMocks.notFound).not.toHaveBeenCalled();
+    expect(navigationMocks.redirect).not.toHaveBeenCalled();
   });
 });
 

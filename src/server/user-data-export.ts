@@ -520,7 +520,12 @@ export function serializeFullJsonExport(data: FullUserDataExport): string {
 function csvCell(value: unknown): string {
   if (value === null || value === undefined) return "";
   let text = String(value);
-  if (/^[=+\-@]/.test(text)) text = `'${text}`;
+  if (
+    typeof value === "string" &&
+    /^[\u0000-\u0020\u007f]*[=+\-@]/.test(value)
+  ) {
+    text = `'${value}`;
+  }
   return /[",\r\n]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
 }
 
@@ -761,10 +766,16 @@ export type UserDataExportHttpDependencies = {
   getSessionResult: () => Promise<ExportSessionResult>;
   getDatabase: () => UserDataExportDatabase;
   now?: () => Date;
+  serializers?: UserDataExportSerializers;
 };
 
+const PRIVATE_NO_STORE_HEADERS = { "Cache-Control": "private, no-store" };
+
 function safeError(error: string, message: string, status: number) {
-  return Response.json({ ok: false, error, message }, { status });
+  return Response.json(
+    { ok: false, error, message },
+    { status, headers: PRIVATE_NO_STORE_HEADERS },
+  );
 }
 
 function isExportKind(value: string): value is UserDataExportKind {
@@ -776,6 +787,59 @@ function filenameTimestamp(value: Date): string {
     .toISOString()
     .replace(/\.\d{3}Z$/, "Z")
     .replaceAll(":", "-");
+}
+
+export type UserDataExportSerializers = Record<
+  UserDataExportKind,
+  (data: FullUserDataExport) => string
+>;
+
+const DEFAULT_USER_DATA_EXPORT_SERIALIZERS: UserDataExportSerializers = {
+  "full-json": serializeFullJsonExport,
+  "day-logs-csv": serializeDayLogsCsv,
+  "tasks-csv": serializeTasksCsv,
+  "checkins-csv": serializeCheckinsCsv,
+  "summaries-markdown": serializeSummariesMarkdown,
+};
+
+function serializeRequestedExport(
+  format: UserDataExportKind,
+  data: FullUserDataExport,
+  timestamp: string,
+  serializers: UserDataExportSerializers,
+) {
+  switch (format) {
+    case "full-json":
+      return {
+        body: serializers[format](data),
+        contentType: "application/json; charset=utf-8",
+        filename: `reset90-full-export-${timestamp}.json`,
+      };
+    case "day-logs-csv":
+      return {
+        body: serializers[format](data),
+        contentType: "text/csv; charset=utf-8",
+        filename: `reset90-day-logs-${timestamp}.csv`,
+      };
+    case "tasks-csv":
+      return {
+        body: serializers[format](data),
+        contentType: "text/csv; charset=utf-8",
+        filename: `reset90-tasks-${timestamp}.csv`,
+      };
+    case "checkins-csv":
+      return {
+        body: serializers[format](data),
+        contentType: "text/csv; charset=utf-8",
+        filename: `reset90-checkins-${timestamp}.csv`,
+      };
+    case "summaries-markdown":
+      return {
+        body: serializers[format](data),
+        contentType: "text/markdown; charset=utf-8",
+        filename: `reset90-summaries-${timestamp}.md`,
+      };
+  }
 }
 
 export async function handleUserDataExportRequest(
@@ -824,44 +888,18 @@ export async function handleUserDataExportRequest(
       );
     }
 
-    const timestamp = filenameTimestamp(now);
-    const variants: Record<
-      UserDataExportKind,
-      { body: string; contentType: string; filename: string }
-    > = {
-      "full-json": {
-        body: serializeFullJsonExport(data),
-        contentType: "application/json; charset=utf-8",
-        filename: `reset90-full-export-${timestamp}.json`,
-      },
-      "day-logs-csv": {
-        body: serializeDayLogsCsv(data),
-        contentType: "text/csv; charset=utf-8",
-        filename: `reset90-day-logs-${timestamp}.csv`,
-      },
-      "tasks-csv": {
-        body: serializeTasksCsv(data),
-        contentType: "text/csv; charset=utf-8",
-        filename: `reset90-tasks-${timestamp}.csv`,
-      },
-      "checkins-csv": {
-        body: serializeCheckinsCsv(data),
-        contentType: "text/csv; charset=utf-8",
-        filename: `reset90-checkins-${timestamp}.csv`,
-      },
-      "summaries-markdown": {
-        body: serializeSummariesMarkdown(data),
-        contentType: "text/markdown; charset=utf-8",
-        filename: `reset90-summaries-${timestamp}.md`,
-      },
-    };
-    const variant = variants[format];
+    const variant = serializeRequestedExport(
+      format,
+      data,
+      filenameTimestamp(now),
+      dependencies.serializers ?? DEFAULT_USER_DATA_EXPORT_SERIALIZERS,
+    );
     return new Response(variant.body, {
       status: 200,
       headers: {
         "Content-Type": variant.contentType,
         "Content-Disposition": `attachment; filename="${variant.filename}"`,
-        "Cache-Control": "private, no-store",
+        ...PRIVATE_NO_STORE_HEADERS,
       },
     });
   } catch {

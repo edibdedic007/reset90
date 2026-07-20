@@ -7,8 +7,10 @@ Last updated: 2026-07-20
 Phase 18 browser-authenticated user-data export MVP is implemented on
 `feature/data-export-import`. It provides one canonical full JSON archive,
 day-log/task/check-in CSVs, stored weekly/cycle-report Markdown summaries, and
-five private Settings downloads. Data import remains deferred. Phase 19 has not
-started.
+five private Settings downloads. Accepted correction findings are implemented
+and covered by focused automated tests. Authenticated browser/download smoke has
+not been performed and remains required before merge, so Phase 18 is not yet
+release-ready. Data import remains deferred. Phase 19 has not started.
 
 ## Active task
 
@@ -22,9 +24,11 @@ imports only. No active cycle and no cycles are successful export states.
 CSV serializers use fixed headers/order, correct UTF-8 quoting, preserved empty
 values, parent identifiers, and spreadsheet-formula neutralization. Markdown
 renders only stored weekly reviews and `CYCLE_REPORT` context items with neutral
-missing-summary text and controlled quoted/indented structure. Five dynamic
-download responses use fixed UTC filenames, attachment headers, private
-`no-store` caching, bounded errors, and no static or persistent file output.
+missing-summary text and controlled quoted/indented structure. The endpoint
+assembles owned data once, serializes only the requested format, and returns one
+direct attachment response with a fixed UTC filename. Successful and bounded
+error responses use private `no-store` caching. Generated export files are never
+persisted by the application.
 
 Export uses detailed read-only browser-session resolution, distinguishes no
 browser session from an authenticated missing application user, rejects GPT
@@ -42,8 +46,8 @@ download remain deferred.
 
 ## Next actions
 
-1. Complete final Phase 18 review and optional manual browser/download smoke.
-2. Commit after approval with `feat(export): add user data export`.
+1. Complete the required authenticated manual Settings/download/privacy smoke.
+2. Review and commit only after the manual release blocker passes.
 3. Do not start Phase 19 without separate planning and approval.
 
 ## Required completion checks
@@ -52,36 +56,33 @@ download remain deferred.
 - Formatting, lint, typecheck, full tests, payload/schema drift, production
   build, Prisma validation, shell syntax, and whitespace through one final
   `make check`.
-- Optional manual authenticated download/privacy/desktop/~390px smoke when an
-  existing checked-in browser harness is available.
+- Required manual authenticated download/privacy/desktop/~390px smoke before
+  merge because no checked-in browser harness is available.
 
 ## Automated verification evidence
 
 - Diagnostic typecheck passed after removing one malformed ignored `.next/dev`
   cache from the active type include path; no source workaround was added.
-- Final focused command passed: `pnpm exec vitest run
+- Initial implementation focused tests passed with 3 files and 69 tests; its
+  host-side `make check` passed with 23 files and 380 tests before this
+  correction.
+- Final correction-focused command passed: `pnpm exec vitest run
   tests/user-data-export.test.tsx tests/auth.test.ts
-  tests/gpt-context-packet.test.ts`; 3 files, 69 tests.
-- Focused coverage proves all-cycle ownership, archived/no-active/no-cycle
-  behavior, linked-owned raw-import deduplication, allowlists, relationships,
-  deterministic ordering, 90-day volume, Unicode/null/status fidelity, CSV
-  safety, Markdown privacy/structure, read-only auth outcomes, GPT-token
-  rejection, private headers/filenames/errors, responsive controls, concurrency
-  guard, and deferred Blob cleanup.
-- First and only host-side `make check` passed: formatting, lint, typecheck, 23
-  test files with 380 tests, payload/schema drift, production build with dynamic
-  `/api/export/[format]` and `/settings`, Prisma validation, shell syntax, and
-  whitespace.
+  tests/gpt-context-packet.test.ts`; 3 files, 86 tests.
+- Focused coverage now includes all-cycle ownership, linked-owned raw-import
+  scope, deterministic and empty serializers, leading-whitespace/control CSV
+  formula protection, one selected serializer per request, private `no-store`
+  success/400/401/404/500 responses, detailed Settings auth states, filenames,
+  MIME and attachment headers, responsive controls, concurrency protection, and
+  deferred Blob cleanup.
 
 ## Manual Phase 18 browser verification
 
 No checked-in browser-smoke command exists, and Phase 18 does not authorize a
-temporary Playwright/Cypress setup. Manual authenticated desktop and
-approximately 390 px verification remains skipped: open Settings, trigger each
-download once, confirm duplicate controls stay disabled while running, confirm
-page state remains, inspect five filenames/content types/private cache headers,
-open JSON/CSV/Markdown outputs, verify bounded errors, inspect DOM/network for
-foreign/auth/raw-unlinked sentinels, and confirm no horizontal overflow.
+temporary Playwright/Cypress setup. Authenticated browser/download smoke was not
+performed. Manual desktop and approximately 390 px verification remains a
+release blocker before merge; use the exact checklist in the correction
+handoff.
 
 ## Migration, deployment, and rollback
 
@@ -96,15 +97,14 @@ foreign/auth/raw-unlinked sentinels, and confirm no horizontal overflow.
 
 ## Latest handoff
 
-- 2026-07-20T13:53:47Z — feature/data-export-import — Phase 18 user-data export
-  MVP implemented with canonical all-cycle JSON, three safe CSVs, stored-summary
-  Markdown, private dynamic downloads, read-only existing-user auth, responsive
-  Settings controls, narrow ignore rules, and focused coverage; 3 focused files
-  and 69 tests passed; first/final host-side `make check` passed with 23 test
-  files/380 tests plus production build; no import, migration, dependency,
-  persisted export, GPT call, generated analysis, or Phase 19 work; manual
-  authenticated desktop/~390 px download/privacy smoke skipped because no
-  checked-in browser harness exists
+- 2026-07-20T14:25:45Z — feature/data-export-import — bounded Phase 18
+  correction now serializes only the requested format, applies private
+  `no-store` to every success/error response, root-anchors export ignores,
+  hardens CSV formula protection, and distinguishes Settings unauthenticated
+  from missing-user states; 3 focused files/86 tests passed; no migration,
+  dependency, persisted export, import, or Phase 19 work; no checked-in browser
+  harness exists, so exact authenticated download/privacy/~390 px manual smoke
+  remains required before merge and Phase 18 is not release-ready
 
 ## Historical detail
 
