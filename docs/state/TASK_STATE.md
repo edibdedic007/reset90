@@ -4,115 +4,103 @@ Last updated: 2026-07-20
 
 ## Current phase
 
-Phase 18 browser-authenticated user-data export implementation and prior
-correction commits already exist on `feature/data-export-import`. They provide
-one canonical full JSON archive, day-log/task/check-in CSVs, stored
-weekly/cycle-report Markdown summaries, and five private Settings downloads.
-The global check-in timestamp/ID ordering correction is the only remaining code
-change and is present in the working tree with focused coverage. Authenticated
-browser/download smoke has not been performed and remains required before merge,
-so Phase 18 is not yet release-ready. Data import remains deferred. Phase 19 has
-not started.
+Phase 19 testing foundation and CI completion is implemented locally on
+`chore/ci-and-testing-foundation`. Phase 18 prerequisites are satisfied: PR
+`#21` records the authenticated desktop, approximately 390 px, download, and
+privacy smoke; the PR is merged; and this branch starts from the synchronized
+`local`/`origin/local` merge commit with a clean pre-edit tree.
+
+Phase 19 has no product behavior, Prisma schema, migration, dependency, browser
+framework, deployment automation, branch-protection automation, or Phase 20
+security change. Final phase completion remains gated on a real pull request
+starting the stable `quality` job and that job passing.
 
 ## Active task
 
-One repeatable-read snapshot starts from the existing authenticated application
-user and reads every owned active, archived, incomplete, or otherwise stored
-cycle. Explicit allowlists produce deterministic flat collections with stable
-IDs, parent IDs, UTC timestamps, date-only values, stored statuses, nullable
-values, normalized records, relational context tags, and linked-owned raw
-imports only. All owned check-ins are flattened before global timestamp/ID
-ordering, and both canonical JSON and check-ins CSV use that same collection. No
-active cycle and no cycles are successful export states.
+One canonical GitHub Actions workflow runs the `quality` job for pull requests
+targeting `local` or `main`, pushes to either branch, and manual dispatch. It
+uses read-only contents permission, per-branch/PR cancellation, locked pnpm,
+synthetic CI credentials, and an ephemeral PostgreSQL service. CI delegates all
+repository validation to `make check`.
 
-CSV serializers use fixed headers/order, correct UTF-8 quoting, preserved empty
-values, parent identifiers, and spreadsheet-formula neutralization. Markdown
-renders only stored weekly reviews and `CYCLE_REPORT` context items with neutral
-missing-summary text and controlled quoted/indented structure. The endpoint
-assembles owned data once, serializes only the requested format, and returns one
-direct attachment response with a fixed UTC filename. Successful and bounded
-error responses use private `no-store` caching. Generated export files are never
-persisted by the application.
+`make check` now fails when required scripts, lockfile, schema, or test
+infrastructure is missing. It runs frozen installation, formatting, lint,
+typecheck, unit/component tests, payload/example and runtime/generated-schema
+drift validation, Prisma validation, all migrations against an empty database,
+serial PostgreSQL integration tests, production build, shell syntax, and staged
+and unstaged whitespace checks.
 
-Export uses detailed read-only browser-session resolution, distinguishes no
-browser session from an authenticated missing application user, rejects GPT
-bearer-only requests and caller-supplied selection parameters, and performs no
-user/domain/import writes. Settings exposes exactly five responsive actions,
-blocks concurrent duplicates, preserves page state, bounds errors, and defers
-Blob URL cleanup until after download consumption.
+Local integration tests either use an explicitly supplied safe test URL or
+create and remove a disposable PostgreSQL Compose service on port 55432. The
+URL guard requires loopback, a clearly test-specific database name, and
+`DATABASE_URL` equality; integration tests never load `.env.local` and cannot
+silently skip.
+
+The database suite uses daily-plan import as the primary slice and one
+daily-reflection ownership case for its materially different trusted-owner
+behavior. Coverage proves raw-first persistence, idempotency, deterministic
+replacement, immutable raw history, transactional rollback on a real database
+constraint, bounded safe errors, trusted-owner cycle mismatch rejection,
+cross-user isolation, fixed UTC status behavior, empty optional normalized
+records, and no raw-only browser fallback.
 
 ## Next phase
 
-Phase 19 remains separate and unstarted. Import/restore semantics, generated
-reports, broader test infrastructure, CI completion, coverage policy, export
-history/jobs, filters, public links, ZIP/PDF/encryption, and database dump
-download remain deferred.
+Phase 20 security hardening has not started. Security headers, CSRF changes,
+state-changing GET review, body-limit changes, log-redaction infrastructure,
+rate limiting, secret scanning, cookie changes, and security middleware remain
+outside this branch.
 
 ## Next actions
 
-1. Complete the user's separate authenticated manual
-   Settings/download/privacy smoke.
-2. After that verification passes, commit this bounded correction, push the
-   branch, open the pull request, and merge only after the verification remains
-   passing.
-3. Do not start Phase 19 without separate planning and approval.
+1. Review this Phase 19 diff and commit it with the suggested Conventional
+   Commit message.
+2. Push the branch and open a pull request through the user's normal GitHub
+   workflow; this Codex session must not push or open it.
+3. Confirm the pull request starts the stable `quality` job and that it passes.
+4. Configure the documented `main` and `local` branch-protection settings
+   manually after `quality` exists as a status check.
+5. Merge to `local` only after the real pull-request gate passes. Do not start
+   Phase 20 without separate approval.
 
-## Required completion checks
+## Verification evidence
 
-- Focused Phase 18 export, read-only auth, and existing context-export tests.
-- Formatting, lint, typecheck, full tests, payload/schema drift, production
-  build, Prisma validation, shell syntax, and whitespace through one final
-  `make check`.
-- Required manual authenticated download/privacy/desktop/~390px smoke before
-  merge because no checked-in browser harness is available.
-
-## Automated verification evidence
-
-- Diagnostic typecheck passed after removing one malformed ignored `.next/dev`
-  cache from the active type include path; no source workaround was added.
-- Initial implementation focused tests passed with 3 files and 69 tests; its
-  host-side `make check` passed with 23 files and 380 tests before this
-  correction.
-- Final global-ordering correction-focused command passed: `pnpm exec vitest run
-  tests/user-data-export.test.tsx tests/auth.test.ts
-  tests/gpt-context-packet.test.ts`; 3 files, 87 tests.
-- Focused coverage now includes all-cycle ownership, linked-owned raw-import
-  scope, deterministic and empty serializers, leading-whitespace/control CSV
-  formula protection, one selected serializer per request, private `no-store`
-  success/400/401/404/500 responses, detailed Settings auth states, filenames,
-  MIME and attachment headers, responsive controls, concurrency protection, and
-  deferred Blob cleanup. One cross-day regression proves check-ins use global
-  timestamp-first and ID-second ordering in both canonical JSON and CSV.
-
-## Manual Phase 18 browser verification
-
-No checked-in browser-smoke command exists, and Phase 18 does not authorize a
-temporary Playwright/Cypress setup. Authenticated browser/download smoke was not
-performed. Manual desktop and approximately 390 px verification remains a
-release blocker before merge; use the exact checklist in the correction
-handoff.
+- Final focused unit command passed with 2 files and 10 tests.
+- Final focused PostgreSQL target applied all 9 checked-in migrations to an
+  empty disposable database and passed 2 files with 7 serial tests; cleanup
+  removed the container and network.
+- First and only final `make check` passed: formatting, lint, typecheck, 23
+  unit/component files with 400 tests, all payload examples, all generated
+  schema drift checks, Prisma validation, all 9 migrations, 2 PostgreSQL files
+  with 7 tests, production build, shell syntax, and whitespace.
+- No browser smoke was run because Phase 19 adds no product UI behavior and no
+  checked-in browser harness exists.
+- Real pull-request `quality` execution remains pending because this session is
+  explicitly forbidden from committing, pushing, or opening a pull request.
 
 ## Migration, deployment, and rollback
 
-- No Prisma schema change, migration, backfill, data correction, index,
-  dependency, worker, cache, export table, job, or persisted archive was added.
-- Deployment requires application-code deployment plus authenticated Settings
-  download/privacy smoke only.
-- Rollback is application-code-and-documentation-only: revert export
-  assembler/serializers/route, Settings controls, auth result extension, tests,
-  ignore rules, and directly relevant docs. No data restoration, migration
-  reversal, import replay, or export cleanup is required.
+- No change to `prisma/schema.prisma`; no application migration, backfill,
+  constraint, index, seed, data repair, or production transformation.
+- Existing migrations are validation inputs only and applied to disposable
+  test databases with `prisma migrate deploy`.
+- Deployment has no data step. GitHub branch protection is documented only.
+- Rollback is code, workflow, test harness, Compose test service, tests, PR
+  template, README, and state documentation. No database restoration,
+  migration reversal, import replay, export cleanup, or user-data correction is
+  required. If `quality` becomes required, update branch protection before
+  renaming or removing it.
 
 ## Latest handoff
 
-- 2026-07-20T16:35:53Z — feature/data-export-import — Phase 18 implementation
-  and prior correction commits already exist; this bounded working-tree
-  correction globally orders the final flattened check-in collection by
-  timestamp then ID for canonical JSON and CSV; 3 focused files/87 tests passed;
-  no migration, ownership, append-only, transaction, schema, CSV-column, import,
-  or Phase 19 change; next repository action is the user's separate authenticated
-  download/privacy/~390 px manual verification, then commit, push, pull request,
-  and merge only after it passes
+- 2026-07-20T21:26:28Z — chore/ci-and-testing-foundation — Phase 19 local
+  implementation complete with canonical `quality` CI, fail-closed equivalent
+  `make check`, guarded disposable PostgreSQL migrations/integration coverage,
+  canonical PR template, and branch-protection docs; final focused tests and
+  first/final `make check` passed; no schema, migration, product behavior,
+  dependency, browser framework, branch-protection automation, or Phase 20
+  change; next step is review/commit/push/open PR and verify real `quality`
+  success without starting Phase 20
 
 ## Historical detail
 

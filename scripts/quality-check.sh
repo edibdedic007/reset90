@@ -1,56 +1,55 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-run_if_script_exists() {
-  local script="$1"
-  if [[ ! -f package.json ]]; then
-    return 0
+required_files=(
+  package.json
+  pnpm-lock.yaml
+  prisma/schema.prisma
+  scripts/run-integration-tests.sh
+)
+for required_file in "${required_files[@]}"; do
+  if [[ ! -f "$required_file" ]]; then
+    echo "Required quality infrastructure missing: $required_file" >&2
+    exit 1
   fi
-  node -e "const p=require('./package.json'); process.exit(p.scripts && p.scripts['$script'] ? 0 : 1)" >/dev/null 2>&1 || return 0
-  echo "== package script: $script =="
-  $PKG_RUN "$script"
-}
+done
 
-if [[ -f pnpm-lock.yaml ]]; then
-  PKG_INSTALL="pnpm install --frozen-lockfile"
-  PKG_RUN="pnpm run"
-elif [[ -f yarn.lock ]]; then
-  PKG_INSTALL="yarn install --frozen-lockfile"
-  PKG_RUN="yarn"
-elif [[ -f bun.lockb || -f bun.lock ]]; then
-  PKG_INSTALL="bun install --frozen-lockfile"
-  PKG_RUN="bun run"
-else
-  PKG_INSTALL="npm ci"
-  PKG_RUN="npm run"
-fi
+node -e '
+  const scripts = require("./package.json").scripts ?? {};
+  const required = ["format:check", "lint", "typecheck", "test", "test:integration", "validate:payloads", "db:validate", "db:migrate", "build"];
+  const missing = required.filter((name) => !scripts[name]);
+  if (missing.length) {
+    console.error(`Required package scripts missing: ${missing.join(", ")}`);
+    process.exit(1);
+  }
+'
 
-if [[ -f package.json ]]; then
-  echo "== install/check dependencies =="
-  if [[ -f package-lock.json || -f pnpm-lock.yaml || -f yarn.lock || -f bun.lockb || -f bun.lock ]]; then
-    $PKG_INSTALL
-  else
-    echo "No lockfile yet; skipping frozen install. Codex should create a lockfile during scaffold."
-  fi
+echo "== frozen dependency install =="
+make install
 
-  run_if_script_exists format:check
-  run_if_script_exists lint
-  run_if_script_exists typecheck
-  run_if_script_exists test
-  run_if_script_exists validate:payloads
-  run_if_script_exists build
-else
-  echo "No package.json yet. Skipping app checks."
-fi
+echo "== formatting =="
+make format-check
 
-if [[ -f prisma/schema.prisma ]]; then
-  echo "== prisma validate =="
-  if command -v npx >/dev/null 2>&1; then
-    npx prisma validate
-  else
-    echo "npx not found; skipping prisma validate"
-  fi
-fi
+echo "== lint =="
+make lint
+
+echo "== typecheck =="
+make typecheck
+
+echo "== unit and component tests =="
+make test
+
+echo "== payload examples and schema drift =="
+make validate-payloads
+
+echo "== prisma schema =="
+make db-validate
+
+echo "== migrations and PostgreSQL integration tests =="
+make test-integration
+
+echo "== production build =="
+make build
 
 echo "== shell syntax checks =="
 find scripts -type f -name '*.sh' -print0 2>/dev/null | while IFS= read -r -d '' f; do
@@ -59,9 +58,11 @@ done
 
 echo "== git diff whitespace check =="
 if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-  git diff --check || true
+  git diff --check
+  git diff --cached --check
 else
-  echo "Not inside a git repository yet; skipping git diff check."
+  echo "Git worktree is required for whitespace checks" >&2
+  exit 1
 fi
 
 echo "Quality check complete."

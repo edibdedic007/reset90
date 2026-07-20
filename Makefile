@@ -1,6 +1,6 @@
 SHELL := /usr/bin/env bash
 
-.PHONY: help session context phase phase-bundle review-bundle new-work update-task-state setup-local bootstrap install dev dev-up dev-down logs check quality-check lint format format-check typecheck test build db-migrate db-seed db-reset db-backup db-restore validate-payloads env-check prod-check prod-build prod-up prod-down prod-logs prod-health deploy-production export-full docs-bundle healthcheck
+.PHONY: help session context phase phase-bundle review-bundle new-work update-task-state setup-local bootstrap install dev dev-up dev-down logs check quality-check lint format format-check typecheck test test-integration build db-validate db-migrate db-seed db-reset db-backup db-restore validate-payloads env-check prod-check prod-build prod-up prod-down prod-logs prod-health deploy-production export-full docs-bundle healthcheck
 
 LOCAL_COMPOSE := docker compose --env-file .env.local -f docker-compose.local.yml
 
@@ -17,7 +17,8 @@ help:
 	@echo "  make dev-up                  Start local PostgreSQL"
 	@echo "  make dev-down                Stop local PostgreSQL"
 	@echo "  make logs                    Follow local PostgreSQL logs"
-	@echo "  make check                   Run available quality gates"
+	@echo "  make check                   Run complete local quality gate"
+	@echo "  make test-integration        Run migrations and serial PostgreSQL tests"
 	@echo "  make validate-payloads       Validate canonical GPT payload examples"
 	@echo "  make env-check               Validate .env.local baseline keys"
 	@echo "  make prod-check              Validate .env.production baseline keys/placeholders"
@@ -56,7 +57,8 @@ setup-local bootstrap:
 	./scripts/setup-local.sh
 
 install:
-	@if [ -f pnpm-lock.yaml ]; then pnpm install --frozen-lockfile; elif [ -f yarn.lock ]; then yarn install --frozen-lockfile; elif [ -f bun.lockb ] || [ -f bun.lock ]; then bun install --frozen-lockfile; elif [ -f package-lock.json ]; then npm ci; elif [ -f package.json ]; then npm install; else echo "No package.json yet."; fi
+	@test -f pnpm-lock.yaml || { echo "pnpm-lock.yaml is required"; exit 1; }
+	pnpm install --frozen-lockfile
 
 dev:
 	@$(MAKE) dev-up
@@ -78,28 +80,34 @@ check quality-check:
 	./scripts/quality-check.sh
 
 lint:
-	@if [ -f package.json ]; then pnpm run lint --if-present; else echo "No package.json yet."; fi
+	pnpm run lint
 
 format:
-	@if [ -f package.json ]; then pnpm run format --if-present; else echo "No package.json yet."; fi
+	pnpm run format
 
 format-check:
-	@if [ -f package.json ]; then pnpm run format:check --if-present; else echo "No package.json yet."; fi
+	pnpm run format:check
 
 typecheck:
-	@if [ -f package.json ]; then pnpm run typecheck --if-present; else echo "No package.json yet."; fi
+	pnpm run typecheck
 
 test:
-	@if [ -f package.json ]; then pnpm run test --if-present; else echo "No package.json yet."; fi
+	pnpm run test
+
+test-integration:
+	./scripts/run-integration-tests.sh
 
 build:
-	@if [ -f package.json ]; then pnpm run build --if-present; else echo "No package.json yet."; fi
+	pnpm run build
 
 validate-payloads:
-	@if [ -f package.json ]; then pnpm run validate:payloads --if-present; else echo "No package.json yet."; fi
+	pnpm run validate:payloads
+
+db-validate:
+	pnpm run db:validate
 
 db-migrate:
-	@if [ -f package.json ]; then pnpm run db:migrate --if-present; else echo "No package.json yet."; fi
+	pnpm run db:migrate
 
 db-seed:
 	@if [ -f package.json ]; then pnpm run db:seed --if-present; else echo "No package.json yet."; fi

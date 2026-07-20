@@ -1,7 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 
-import { config as loadEnv } from "dotenv";
 import { Pool } from "pg";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterAll, describe, expect, it, vi } from "vitest";
@@ -13,6 +12,7 @@ vi.mock("next/navigation", () => ({
 import { ContextLibraryPage } from "../src/components/context-library";
 import type { PrismaClient } from "../src/generated/prisma/client";
 import { createPrismaClient } from "../src/server/db/client";
+import { assertSafeTestDatabaseUrl } from "../scripts/test-database-url";
 import {
   CONTEXT_PAGE_SIZE,
   createManualContextItem,
@@ -21,10 +21,8 @@ import {
   setContextPinned,
 } from "../src/server/context";
 
-loadEnv({ path: process.env.DOTENV_CONFIG_PATH ?? ".env.local", quiet: true });
-
-const databaseUrl = process.env.DATABASE_URL;
-const database = databaseUrl ? createPrismaClient(databaseUrl) : null;
+const databaseUrl = assertSafeTestDatabaseUrl();
+const database = createPrismaClient(databaseUrl);
 const RAW_SENTINEL = "POSTGRES_RAW_ONLY_CONTEXT_SENTINEL_15";
 
 type SeededContext = {
@@ -62,18 +60,16 @@ function contextId(index: number) {
   return `11111111-1111-4111-8111-${String(index).padStart(12, "0")}`;
 }
 
-const describeWithPostgres = database ? describe : describe.skip;
+const describeWithPostgres = describe;
 
 describeWithPostgres(
   "Context Library PostgreSQL query and privacy boundary",
   () => {
     afterAll(async () => {
-      await database?.$disconnect();
+      await database.$disconnect();
     });
 
     it("executes matching keyset ordering, pagination, filters, DTO, GET, and rendered privacy", async () => {
-      if (!database) throw new Error("DATABASE_URL is required");
-
       let evidence: Evidence | null = null;
       try {
         await database.$transaction(async (transaction) => {
@@ -347,8 +343,6 @@ describeWithPostgres(
     }, 20_000);
 
     it("fails the active-cycle migration clearly without changing duplicate data", async () => {
-      if (!databaseUrl) throw new Error("DATABASE_URL is required");
-
       const pool = new Pool({ connectionString: databaseUrl });
       const connection = await pool.connect();
       const schemaName = `active_cycle_migration_${randomUUID().replaceAll("-", "")}`;
@@ -408,10 +402,6 @@ describeWithPostgres(
     }, 20_000);
 
     it("enforces one active cycle per user across concurrent connections and preserves context safety", async () => {
-      if (!database || !databaseUrl) {
-        throw new Error("DATABASE_URL is required");
-      }
-
       const firstConnection = createPrismaClient(databaseUrl);
       const secondConnection = createPrismaClient(databaseUrl);
       const suffix = randomUUID();
