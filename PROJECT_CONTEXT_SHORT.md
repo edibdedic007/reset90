@@ -17,7 +17,7 @@ shame-based streaks.
 - Docker Compose locally and in production, with Traefik expected in production
 - GitHub Actions CI
 
-## Implemented through Phase 17
+## Implemented through Phase 18
 
 - Repository, local environment, Prisma schema/migrations, seed data, readiness,
   quality gates, CI, backups/export/deployment helpers.
@@ -47,13 +47,17 @@ shame-based streaks.
 - Authenticated, read-only Analytics for the singular owned active cycle, with
   canonical finalized-status counts, normalized recovery/task totals, six
   latest-daily check-in trends, and equal-window cycle-week comparison.
+- Authenticated, read-only user-data export from Settings: one versioned full
+  JSON archive across all owned cycles, day-log/task/check-in CSVs, and stored
+  weekly/cycle-report Markdown summaries with linked-owned raw-import scope.
 
 ## Current boundary
 
-Phase 17 provides bounded live Analytics from normalized active-cycle data.
-Self-trust scoring, loneliness/self-criticism trends, archived or cross-cycle
-analytics, date selection, persisted metrics, generated insights, advanced
-correlations, and all Phase 18 expansion remain deferred.
+Phase 18 provides browser-authenticated portability for existing application
+users without persistence, import, generated analysis, background jobs, or
+database changes. Restore/replacement/conflict semantics remain undefined, so
+all data import remains deferred. Phase 19 testing-foundation and CI work has
+not started.
 
 ## Durable implementation rules
 
@@ -82,6 +86,10 @@ correlations, and all Phase 18 expansion remain deferred.
 - Analytics resolves an existing browser user without upsert, requires exactly
   one owned active cycle, reuses canonical UTC/status behavior, and never reads
   raw imports, private narratives, or weekly-review metric snapshots.
+- Full user-data export resolves an existing browser user without persistence,
+  reads all owned cycles through explicit allowlists, and includes raw imports
+  only when linked from an exported owned normalized record. CSV and Markdown
+  serializers derive from that deterministic read-only snapshot.
 - Store summaries, decisions, and context snapshots; never hidden chain-of-thought.
 - Context belongs to exactly one active reset cycle, uses relational normalized
   tags, and exposes no raw-import or ownership metadata through browser DTOs.
