@@ -27,9 +27,14 @@ async function loadReadOnlyBrowserSession(
   vi.doMock("../src/auth", () => ({ auth }));
   vi.doMock("../src/server/db/client", () => ({ getPrismaClient }));
 
-  const { getReadOnlyBrowserSession } =
+  const { getReadOnlyBrowserSession, getReadOnlyBrowserSessionResult } =
     await import("../src/server/auth/session");
-  return { auth, getPrismaClient, getReadOnlyBrowserSession };
+  return {
+    auth,
+    getPrismaClient,
+    getReadOnlyBrowserSession,
+    getReadOnlyBrowserSessionResult,
+  };
 }
 
 afterEach(() => {
@@ -232,6 +237,21 @@ describe("read-only browser session resolution", () => {
     expect(upsert).not.toHaveBeenCalled();
   });
 
+  it("distinguishes an authenticated identity with no application user", async () => {
+    const findUnique = vi.fn().mockResolvedValue(null);
+    const upsert = vi.fn();
+    const { getReadOnlyBrowserSessionResult } =
+      await loadReadOnlyBrowserSession(authenticatedSession, {
+        user: { findUnique, upsert },
+      });
+
+    await expect(getReadOnlyBrowserSessionResult()).resolves.toEqual({
+      status: "user_not_found",
+    });
+    expect(findUnique).toHaveBeenCalledTimes(1);
+    expect(upsert).not.toHaveBeenCalled();
+  });
+
   it("keeps unauthenticated resolution null without database access", async () => {
     const findUnique = vi.fn();
     const upsert = vi.fn();
@@ -241,6 +261,23 @@ describe("read-only browser session resolution", () => {
       });
 
     await expect(getReadOnlyBrowserSession()).resolves.toBeNull();
+    expect(auth).toHaveBeenCalledTimes(1);
+    expect(getPrismaClient).not.toHaveBeenCalled();
+    expect(findUnique).not.toHaveBeenCalled();
+    expect(upsert).not.toHaveBeenCalled();
+  });
+
+  it("distinguishes an unauthenticated browser without database access", async () => {
+    const findUnique = vi.fn();
+    const upsert = vi.fn();
+    const { auth, getPrismaClient, getReadOnlyBrowserSessionResult } =
+      await loadReadOnlyBrowserSession(null, {
+        user: { findUnique, upsert },
+      });
+
+    await expect(getReadOnlyBrowserSessionResult()).resolves.toEqual({
+      status: "unauthenticated",
+    });
     expect(auth).toHaveBeenCalledTimes(1);
     expect(getPrismaClient).not.toHaveBeenCalled();
     expect(findUnique).not.toHaveBeenCalled();

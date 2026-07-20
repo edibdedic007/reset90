@@ -447,3 +447,19 @@ Phase 11 adds `recovery_events` and a centralized transactional reconciliation
 service. It owns recovery completion, derived credit use, status persistence,
 and bounded lazy reconciliation of elapsed unset days. The pure status
 calculator has no database access; routes and UI do not duplicate its rules.
+
+## Phase 18 user-data export baseline
+
+Phase 18 adds application-level portability without changing PostgreSQL. One
+browser-authenticated, read-only snapshot starts from the existing application
+user and includes every owned reset cycle, normalized child record, relational
+context tag, and current normalized source reference through explicit field
+allowlists. Flat JSON collections preserve application IDs and foreign-key IDs.
+
+Raw imported payloads are included only when an exported owned daily plan,
+daily reflection, weekly review, or imported context item references them.
+Unlinked, orphaned, and ownership-unprovable imports remain database-backup
+data; Phase 18 does not add imported-payload ownership columns. CSV exports are
+limited to day logs, tasks, and check-ins. Markdown contains stored normalized
+weekly reviews and `CYCLE_REPORT` context summaries only. Export generation
+does not persist files, mutate domain state, invoke GPT, or implement import.

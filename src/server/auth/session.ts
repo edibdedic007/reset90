@@ -13,6 +13,11 @@ import {
 
 export type { BrowserUserSession } from "./users";
 
+export type ReadOnlyBrowserSessionResult =
+  | { status: "unauthenticated" }
+  | { status: "user_not_found" }
+  | { status: "authenticated"; session: BrowserUserSession };
+
 async function getBrowserIdentity(): Promise<BrowserUserIdentity | null> {
   if (getAuthMode() === "dev") {
     return createDevBrowserIdentity();
@@ -39,10 +44,18 @@ export async function getBrowserSession(): Promise<BrowserUserSession | null> {
 }
 
 export async function getReadOnlyBrowserSession(): Promise<BrowserUserSession | null> {
+  const result = await getReadOnlyBrowserSessionResult();
+  return result.status === "authenticated" ? result.session : null;
+}
+
+export async function getReadOnlyBrowserSessionResult(): Promise<ReadOnlyBrowserSessionResult> {
   const identity = await getBrowserIdentity();
-  return identity
-    ? resolveExistingBrowserUser(getPrismaClient(), identity)
-    : null;
+  if (!identity) return { status: "unauthenticated" };
+
+  const session = await resolveExistingBrowserUser(getPrismaClient(), identity);
+  return session
+    ? { status: "authenticated", session }
+    : { status: "user_not_found" };
 }
 
 export async function requireBrowserSession(): Promise<BrowserUserSession> {

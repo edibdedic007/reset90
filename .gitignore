@@ -28,6 +28,11 @@ pnpm-debug.log*
 # Runtime data
 backups/
 exports/
+reset90-full-export-*.json
+reset90-day-logs-*.csv
+reset90-tasks-*.csv
+reset90-checkins-*.csv
+reset90-summaries-*.md
 uploads/
 *.sqlite
 *.sqlite3

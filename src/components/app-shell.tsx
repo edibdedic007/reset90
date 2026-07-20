@@ -5,7 +5,8 @@ import { signOut } from "@/auth";
 import type { BrowserUserSession } from "@/server/auth/session";
 
 type AppShellProps = {
-  activeItem: "Today" | "90 Days" | "Reviews" | "Context" | "Analytics";
+  activeItem:
+    "Today" | "90 Days" | "Reviews" | "Context" | "Analytics" | "Settings";
   children: ReactNode;
   session: BrowserUserSession;
 };
@@ -16,7 +17,7 @@ const navigationItems = [
   { label: "Reviews", href: "/reviews" },
   { label: "Context", href: "/context" },
   { label: "Analytics", href: "/analytics" },
-  { label: "Settings", href: null },
+  { label: "Settings", href: "/settings" },
 ] as const;
 
 export function AppShell({ activeItem, children, session }: AppShellProps) {
@@ -35,28 +36,16 @@ export function AppShell({ activeItem, children, session }: AppShellProps) {
               aria-label="Primary navigation"
               className="flex flex-wrap gap-1"
             >
-              {navigationItems.map((item) =>
-                item.href ? (
-                  <Link
-                    aria-current={
-                      activeItem === item.label ? "page" : undefined
-                    }
-                    className="rounded-lg px-3 py-2 text-sm text-[var(--foreground)] aria-[current=page]:bg-[var(--surface-alt)]"
-                    href={item.href}
-                    key={item.label}
-                  >
-                    {item.label}
-                  </Link>
-                ) : (
-                  <span
-                    aria-disabled="true"
-                    className="rounded-lg px-3 py-2 text-sm text-[var(--muted)]"
-                    key={item.label}
-                  >
-                    {item.label}
-                  </span>
-                ),
-              )}
+              {navigationItems.map((item) => (
+                <Link
+                  aria-current={activeItem === item.label ? "page" : undefined}
+                  className="rounded-lg px-3 py-2 text-sm text-[var(--foreground)] aria-[current=page]:bg-[var(--surface-alt)]"
+                  href={item.href}
+                  key={item.label}
+                >
+                  {item.label}
+                </Link>
+              ))}
             </nav>
           </div>
           <div className="flex flex-wrap items-center gap-3 text-sm text-[var(--muted)]">
