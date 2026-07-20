@@ -2,7 +2,10 @@ import { afterAll, beforeEach, describe, expect, it } from "vitest";
 
 import dailyPlanExample from "../examples/daily_plan_payload.json";
 import dailyReflectionExample from "../examples/daily_reflection_payload.json";
-import { assertSafeTestDatabaseUrl } from "../scripts/test-database-url";
+import {
+  assertEmptyTestDatabase,
+  assertSafeTestDatabaseUrl,
+} from "../scripts/test-database-url";
 import { getContextLibrary } from "../src/server/context";
 import { createPrismaClient } from "../src/server/db/client";
 import { getDayDetail } from "../src/server/progress";
@@ -149,6 +152,17 @@ afterAll(async () => {
 });
 
 describe("GPT import PostgreSQL integration", () => {
+  it("rejects a supplied database that already contains migration or application objects", async () => {
+    await expect(
+      assertEmptyTestDatabase({
+        DATABASE_URL: databaseUrl,
+        TEST_DATABASE_URL: databaseUrl,
+      }),
+    ).rejects.toThrow(
+      "Test database must be empty before migrations; existing database objects found",
+    );
+  });
+
   it("stores raw first, stays idempotent, and replaces only normalized plan data", async () => {
     const { dayLogId } = await seedCycle({
       user: owner,
@@ -325,6 +339,45 @@ describe("GPT import PostgreSQL integration", () => {
         select: { processingStatus: true },
       }),
     ).toEqual({ processingStatus: "FAILED" });
+  });
+
+  it("excludes another user's normalized plan from day-detail reads", async () => {
+    await seedCycle({
+      user: owner,
+      startDate: "2026-07-01",
+      endDate: "2026-09-28",
+      suffix: "6",
+    });
+    await seedCycle({
+      user: foreignOwner,
+      startDate: "2026-07-01",
+      endDate: "2026-09-28",
+      suffix: "7",
+    });
+    const payload = planPayload("phase19-private-owner-plan");
+    payload.payload.mission = "PHASE19_PRIVATE_OWNER_PLAN";
+    payload.payload.non_negotiables[0].title = "PHASE19_PRIVATE_OWNER_TASK";
+
+    const created = await handleGptImport(requestFor(payload), dependencies());
+    expect(created.status).toBe(201);
+
+    const foreignDetail = await getDayDetail(
+      database,
+      foreignOwner.id,
+      1,
+      FIXED_NOW,
+    );
+    expect(foreignDetail).toMatchObject({
+      status: "ready",
+      day: { status: "UNSET" },
+      plan: null,
+      checkins: [],
+      recoveryEvent: null,
+      reflection: null,
+    });
+    expect(JSON.stringify(foreignDetail)).not.toContain(
+      "PHASE19_PRIVATE_OWNER",
+    );
   });
 
   it("returns normalized empty states without parsing raw-only browser fallbacks", async () => {

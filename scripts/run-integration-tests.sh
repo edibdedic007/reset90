@@ -32,5 +32,6 @@ else
   pnpm exec tsx scripts/test-database-url.ts
 fi
 
+pnpm exec tsx scripts/test-database-url.ts --require-empty
 pnpm run db:migrate
 pnpm run test:integration

@@ -1,5 +1,7 @@
 import { pathToFileURL } from "node:url";
 
+import { Client } from "pg";
+
 type TestDatabaseEnvironment = {
   [key: string]: string | undefined;
   DATABASE_URL?: string;
@@ -53,15 +55,74 @@ export function assertSafeTestDatabaseUrl(
   return rawUrl;
 }
 
+export async function assertEmptyTestDatabase(
+  environment: TestDatabaseEnvironment = process.env,
+): Promise<string> {
+  const databaseUrl = assertSafeTestDatabaseUrl(environment);
+  const client = new Client({ connectionString: databaseUrl });
+
+  try {
+    await client.connect();
+    const evidence = await client.query<{ evidence: string }>(`
+      SELECT evidence
+      FROM (
+        SELECT format('%I.%I (%s)', namespace.nspname, relation.relname, relation.relkind) AS evidence
+        FROM pg_catalog.pg_class AS relation
+        INNER JOIN pg_catalog.pg_namespace AS namespace
+          ON namespace.oid = relation.relnamespace
+        WHERE namespace.nspname <> 'information_schema'
+          AND namespace.nspname !~ '^pg_'
+          AND relation.relkind IN ('r', 'p', 'v', 'm', 'S', 'f')
+
+        UNION ALL
+
+        SELECT format('%I.%I (type)', namespace.nspname, database_type.typname) AS evidence
+        FROM pg_catalog.pg_type AS database_type
+        INNER JOIN pg_catalog.pg_namespace AS namespace
+          ON namespace.oid = database_type.typnamespace
+        WHERE namespace.nspname <> 'information_schema'
+          AND namespace.nspname !~ '^pg_'
+          AND database_type.typtype IN ('d', 'e')
+
+        UNION ALL
+
+        SELECT format('%I (schema)', namespace.nspname) AS evidence
+        FROM pg_catalog.pg_namespace AS namespace
+        WHERE namespace.nspname <> 'public'
+          AND namespace.nspname <> 'information_schema'
+          AND namespace.nspname !~ '^pg_'
+      ) AS existing_objects
+      LIMIT 1
+    `);
+
+    if (evidence.rowCount !== 0) {
+      throw new Error(
+        "Test database must be empty before migrations; existing database objects found",
+      );
+    }
+  } finally {
+    await client.end();
+  }
+
+  return databaseUrl;
+}
+
 const invokedPath = process.argv[1];
 if (invokedPath && import.meta.url === pathToFileURL(invokedPath).href) {
-  try {
-    assertSafeTestDatabaseUrl();
-    console.log("Test database URL accepted");
-  } catch (error) {
-    console.error(
-      error instanceof Error ? error.message : "Unsafe test database URL",
-    );
-    process.exitCode = 1;
-  }
+  void (async () => {
+    try {
+      if (process.argv.includes("--require-empty")) {
+        await assertEmptyTestDatabase();
+        console.log("Empty test database accepted");
+      } else {
+        assertSafeTestDatabaseUrl();
+        console.log("Test database URL accepted");
+      }
+    } catch (error) {
+      console.error(
+        error instanceof Error ? error.message : "Unsafe test database URL",
+      );
+      process.exitCode = 1;
+    }
+  })();
 }

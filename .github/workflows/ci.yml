@@ -34,7 +34,6 @@ jobs:
           --health-retries 5
 
     env:
-      NODE_ENV: test
       DATABASE_URL: postgresql://reset90_test:reset90_test_password@localhost:5432/reset90_test
       TEST_DATABASE_URL: postgresql://reset90_test:reset90_test_password@localhost:5432/reset90_test
       GPT_INGEST_TOKEN: test-token
@@ -57,5 +56,13 @@ jobs:
           node-version: 22
           cache: pnpm
 
+      - name: Fetch pull request base
+        if: github.event_name == 'pull_request'
+        env:
+          PULL_REQUEST_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: git fetch --no-tags --depth=1 origin "$PULL_REQUEST_BASE_SHA"
+
       - name: Run quality gate
+        env:
+          PULL_REQUEST_BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: make check

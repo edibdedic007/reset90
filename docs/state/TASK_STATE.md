@@ -21,20 +21,26 @@ One canonical GitHub Actions workflow runs the `quality` job for pull requests
 targeting `local` or `main`, pushes to either branch, and manual dispatch. It
 uses read-only contents permission, per-branch/PR cancellation, locked pnpm,
 synthetic CI credentials, and an ephemeral PostgreSQL service. CI delegates all
-repository validation to `make check`.
+repository validation to `make check`. It does not set job-wide `NODE_ENV`;
+`make check` explicitly runs the build with production semantics. Pull-request
+runs fetch only the base commit needed for committed-diff whitespace validation.
 
 `make check` now fails when required scripts, lockfile, schema, or test
 infrastructure is missing. It runs frozen installation, formatting, lint,
 typecheck, unit/component tests, payload/example and runtime/generated-schema
 drift validation, Prisma validation, all migrations against an empty database,
 serial PostgreSQL integration tests, production build, shell syntax, and staged
-and unstaged whitespace checks.
+and unstaged whitespace checks. In GitHub Actions pull requests it also checks
+the committed base-to-checked-out diff.
 
 Local integration tests either use an explicitly supplied safe test URL or
 create and remove a disposable PostgreSQL Compose service on port 55432. The
 URL guard requires loopback, a clearly test-specific database name, and
-`DATABASE_URL` equality; integration tests never load `.env.local` and cannot
-silently skip.
+`DATABASE_URL` equality. A read-only catalog probe rejects supplied or reused
+databases containing application relations, Prisma migration history,
+user-defined types, or other non-system schema evidence before migrations;
+integration tests never load `.env.local`, clear inherited state, or silently
+skip.
 
 The database suite uses daily-plan import as the primary slice and one
 daily-reflection ownership case for its materially different trusted-owner
@@ -42,7 +48,9 @@ behavior. Coverage proves raw-first persistence, idempotency, deterministic
 replacement, immutable raw history, transactional rollback on a real database
 constraint, bounded safe errors, trusted-owner cycle mismatch rejection,
 cross-user isolation, fixed UTC status behavior, empty optional normalized
-records, and no raw-only browser fallback.
+records, and no raw-only browser fallback. A PostgreSQL-backed day-detail read
+also proves a second user's ready-but-empty result excludes the owner's
+normalized plan and task data.
 
 ## Next phase
 
@@ -53,7 +61,7 @@ outside this branch.
 
 ## Next actions
 
-1. Review this Phase 19 diff and commit it with the suggested Conventional
+1. Review this corrected Phase 19 diff and commit it with the suggested Conventional
    Commit message.
 2. Push the branch and open a pull request through the user's normal GitHub
    workflow; this Codex session must not push or open it.
@@ -65,14 +73,21 @@ outside this branch.
 
 ## Verification evidence
 
-- Final focused unit command passed with 2 files and 10 tests.
-- Final focused PostgreSQL target applied all 9 checked-in migrations to an
-  empty disposable database and passed 2 files with 7 serial tests; cleanup
-  removed the container and network.
-- First and only final `make check` passed: formatting, lint, typecheck, 23
-  unit/component files with 400 tests, all payload examples, all generated
-  schema drift checks, Prisma validation, all 9 migrations, 2 PostgreSQL files
-  with 7 tests, production build, shell syntax, and whitespace.
+- Focused URL-guard command passed 1 file with 5 tests; targeted formatting,
+  shell syntax, and typecheck passed.
+- Focused local and explicitly supplied PostgreSQL paths each accepted a fresh
+  empty disposable database, applied all 9 checked-in migrations, and passed 2
+  files with 9 serial tests. Coverage includes migrated/non-empty database
+  rejection and normalized cross-user day-detail read isolation; cleanup removed
+  each test container and network.
+- Focused workflow validation confirmed no job-wide `NODE_ENV`, explicit
+  production build semantics, stable triggers/job/service/delegation, and
+  minimum-depth base fetch. The exact committed-diff command passed a clean
+  synthetic commit and rejected committed trailing whitespace.
+- First and only final correction `make check` passed: formatting, lint,
+  typecheck, 23 unit/component files with 400 tests, all payload examples, all
+  generated schema drift checks, Prisma validation, all 9 migrations, 2
+  PostgreSQL files with 9 tests, production build, shell syntax, and whitespace.
 - No browser smoke was run because Phase 19 adds no product UI behavior and no
   checked-in browser harness exists.
 - Real pull-request `quality` execution remains pending because this session is
@@ -93,14 +108,14 @@ outside this branch.
 
 ## Latest handoff
 
-- 2026-07-20T21:26:28Z — chore/ci-and-testing-foundation — Phase 19 local
-  implementation complete with canonical `quality` CI, fail-closed equivalent
-  `make check`, guarded disposable PostgreSQL migrations/integration coverage,
-  canonical PR template, and branch-protection docs; final focused tests and
-  first/final `make check` passed; no schema, migration, product behavior,
-  dependency, browser framework, branch-protection automation, or Phase 20
-  change; next step is review/commit/push/open PR and verify real `quality`
-  success without starting Phase 20
+- 2026-07-20T22:02:14Z — chore/ci-and-testing-foundation — bounded Phase 19
+  correction removed job-wide test `NODE_ENV`, made production build semantics
+  explicit, added PR committed-diff whitespace validation, rejected non-empty
+  supplied test databases before migration, and added PostgreSQL-backed
+  cross-user day-detail read isolation; focused checks and first/final correction
+  `make check` passed; no schema, migration, product behavior, dependency, UI,
+  browser tooling, or Phase 20 change; next step is review/commit/push/open PR
+  and verify real `quality` success without starting Phase 20
 
 ## Historical detail
 

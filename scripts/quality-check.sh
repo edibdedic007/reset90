@@ -49,7 +49,7 @@ echo "== migrations and PostgreSQL integration tests =="
 make test-integration
 
 echo "== production build =="
-make build
+NODE_ENV=production make build
 
 echo "== shell syntax checks =="
 find scripts -type f -name '*.sh' -print0 2>/dev/null | while IFS= read -r -d '' f; do
@@ -60,6 +60,18 @@ echo "== git diff whitespace check =="
 if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
   git diff --check
   git diff --cached --check
+
+  if [[ "${GITHUB_ACTIONS:-}" == "true" && "${GITHUB_EVENT_NAME:-}" == "pull_request" ]]; then
+    if [[ -z "${PULL_REQUEST_BASE_SHA:-}" ]]; then
+      echo "PULL_REQUEST_BASE_SHA is required for pull-request whitespace checks" >&2
+      exit 1
+    fi
+    if ! git cat-file -e "${PULL_REQUEST_BASE_SHA}^{commit}" 2>/dev/null; then
+      echo "Pull-request base commit is unavailable: $PULL_REQUEST_BASE_SHA" >&2
+      exit 1
+    fi
+    git diff --check "$PULL_REQUEST_BASE_SHA" HEAD
+  fi
 else
   echo "Git worktree is required for whitespace checks" >&2
   exit 1
