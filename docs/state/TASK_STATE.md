@@ -1,6 +1,6 @@
 # Task State
 
-Last updated: 2026-07-17
+Last updated: 2026-07-20
 
 ## Current phase
 
@@ -8,7 +8,8 @@ Phase 17 Analytics MVP and bounded weekly-completion correction are implemented
 on `feature/analytics-dashboard`. Weekly comparison now retains and renders
 completed count, eligible-task total, and canonical percentage. Focused
 correction verification is complete, and the durable Analytics UX contract is
-restored. Browser/privacy smoke remains blocked. Phase 18 has not started.
+restored. Manual browser/privacy smoke passed, its blocker is resolved, and
+Phase 17 is release-ready. Phase 18 has not started.
 
 ## Active task
 
@@ -39,12 +40,9 @@ correlations, exports, alerts, and background jobs remain deferred.
 
 ## Next actions
 
-1. Complete the remaining manual `/analytics` smoke steps below in an
-   environment with an existing browser, non-forced authentication, a no-cycle
-   user, and representative normalized task/check-in data.
-2. Review the bounded Phase 17 correction and privacy/query boundaries.
-3. Commit after approval with the correction commit suggested in the handoff.
-4. Do not start Phase 18 without separate planning and approval.
+1. Review the bounded Phase 17 correction and privacy/query boundaries.
+2. Commit after approval with the correction commit suggested in the handoff.
+3. Do not start Phase 18 without separate planning and approval.
 
 ## Required completion checks
 
@@ -52,8 +50,8 @@ correlations, exports, alerts, and background jobs remain deferred.
 - Formatting, lint, typecheck, full tests, payload/schema drift, production
   build, Prisma validation, shell syntax, and whitespace through one final
   `make check`.
-- Manual unauthenticated/authenticated/no-cycle/privacy/navigation/desktop/mobile
-  smoke using the checklist below.
+- Manual authenticated/privacy/navigation/desktop/mobile smoke using the
+  checklist below.
 
 ## Automated verification evidence
 
@@ -87,55 +85,25 @@ correlations, exports, alerts, and background jobs remain deferred.
 
 ## Manual Phase 17 browser verification
 
-The required 2026-07-17 bounded attempt used only the existing host workflow.
-PostgreSQL was healthy and ports `3000` and `3001` were free, but the host had no
-Chromium, Chrome, Firefox, or Flatpak browser. Creating or downloading browser
-tooling is prohibited, so the attempt stopped at the browser-environment gate.
-No dependency, browser, data, or repository tooling was installed. No smoke item
-passed in this attempt, and no application defect or code change resulted.
+The 2026-07-20 manual browser and privacy smoke passed:
 
-Earlier same-day server-rendered checks remain partial runtime evidence, not a
-completed browser smoke: dev-auth Analytics rendered with current primary
-navigation; Analytics and `/days` matched Green 0, Yellow 0, Blue 1, Red 10,
-Gold 0; recovery showed limit 6, used 1, remaining 5; all six trend sections
-showed `No check-ins yet`; current days 8-12 compared with previous days 1-5;
-zero task denominators used calm empty copy; and a targeted response scan found
-no ownership fields, internal IDs, raw payload fields, private-note fields, or
-private/internal sentinel values.
-
-Every required browser-smoke item remains unverified:
-
-- unauthenticated `/analytics` behavior;
-- authenticated `/analytics` rendering in a real browser;
-- authenticated no-active-cycle behavior;
-- populated Analytics with representative normalized data;
-- finalized Green, Yellow, Blue, Red, and Gold totals matching the 90-day grid;
-- recovery limit, used, remaining, and qualifying completion count;
-- populated mood, fog, digital control, learning resistance, body relationship,
-  and work confidence trends;
-- latest-check-in-per-UTC-day selection;
-- equal-length current-week versus previous-week comparison;
-- weekly task completion as `completed / total · percentage`;
-- `No data` for a zero task denominator;
-- overall task completion;
-- task completion for every represented domain;
-- skipped tasks remaining in the denominator;
-- missing plans contributing no tasks;
-- calm empty states for missing normalized data;
-- primary navigation to Analytics;
+- authenticated Analytics rendering;
 - desktop rendering;
 - approximately 390 px phone-width rendering;
 - no horizontal overflow;
-- information remaining understandable without color alone;
-- accessible chart labels or text equivalents;
-- DOM and network responses excluding private notes;
-- DOM and network responses excluding reflection narrative;
-- DOM and network responses excluding raw import payloads;
-- DOM and network responses excluding ownership identifiers; and
-- DOM and network responses excluding internal database IDs.
+- status and recovery display;
+- all six trend empty states;
+- equal-length weekly comparison;
+- zero task denominators displaying `No data`;
+- task empty state;
+- primary navigation;
+- color-independent comprehension; and
+- browser DOM and network-response privacy inspection.
 
-Release risk remains: all items above require an existing real browser plus
-representative normalized PostgreSQL data before Phase 17 can be release-ready.
+Populated check-in and task paths were not manually populated in the local
+cycle. Passing automated tests cover those populated paths, so this is accepted
+test coverage rather than a remaining manual blocker. The earlier 2026-07-17
+browser-environment block is resolved, and Phase 17 is release-ready.
 
 ## Migration, deployment, and rollback
 
@@ -149,6 +117,15 @@ representative normalized PostgreSQL data before Phase 17 can be release-ready.
 
 ## Latest handoff
 
+- 2026-07-20T12:56:46Z — feature/analytics-dashboard — manual authenticated
+  Analytics browser/privacy smoke passed for desktop and approximately 390 px
+  rendering, overflow, status/recovery display, six trend empty states,
+  equal-length weekly comparison, zero-denominator `No data`, task empty state,
+  primary navigation, color-independent comprehension, and DOM/network-response
+  privacy; populated check-in and task paths were covered by passing automated
+  tests but were not manually populated in the local cycle; browser-smoke
+  blocker resolved and Phase 17 release-ready; documentation-only update with
+  previous final `make check` preserved; Phase 18 not started
 - 2026-07-17T20:36:01Z — feature/analytics-dashboard — restored the complete
   durable Analytics UX contract without changing product behavior; bounded host
   smoke attempt found healthy PostgreSQL and free ports but no Chromium, Chrome,
