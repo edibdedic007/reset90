@@ -16,6 +16,7 @@ type StoredImport = {
   rawJson: unknown;
   validationStatus: "VALID" | "INVALID";
   processingStatus: ProcessingStatus;
+  createdAt: Date;
   processedAt: Date | null;
   errorMetadata: unknown;
 };
@@ -51,9 +52,11 @@ function createTestDatabase(
     rawJson: structuredClone(options.rawInput ?? dailyPlanExample),
     validationStatus: "VALID",
     processingStatus: "PENDING",
+    createdAt: new Date("2026-07-01T10:00:00.000Z"),
     processedAt: null,
     errorMetadata: null,
   };
+  const importedPayloads = new Map([[importedPayload.id, importedPayload]]);
   let plan: (Omit<PlanWrite, "tasks"> & { id: string }) | null = null;
   let tasks: StoredTask[] = [];
   let dayLog = {
@@ -74,20 +77,26 @@ function createTestDatabase(
 
   const importedPayloadFindUnique = vi.fn(
     ({ where }: { where: { id: string } }) =>
-      where.id === importedPayload.id ? importedPayload : null,
+      importedPayloads.get(where.id) ?? null,
   );
   const importedPayloadUpdate = vi.fn(
     ({
+      where,
       data,
     }: {
+      where: { id: string };
       data: {
         processingStatus?: ProcessingStatus;
         processedAt?: Date;
         errorMetadata?: unknown;
       };
     }) => {
-      importedPayload = { ...importedPayload, ...data };
-      return importedPayload;
+      const stored = importedPayloads.get(where.id);
+      if (!stored) throw new Error("Import fixture not found");
+      const updated = { ...stored, ...data };
+      importedPayloads.set(where.id, updated);
+      if (importedPayload.id === where.id) importedPayload = updated;
+      return updated;
     },
   );
   const dayLogFindFirst = vi.fn(
@@ -124,10 +133,32 @@ function createTestDatabase(
     recoveryEvent: null,
   }));
   const dailyPlanFindUnique = vi.fn(
-    ({ where }: { where: { importedPayloadId: string } }) =>
-      plan?.importedPayloadId === where.importedPayloadId
-        ? { id: plan.id, _count: { tasks: tasks.length } }
-        : null,
+    ({
+      where,
+    }: {
+      where: { importedPayloadId?: string; dayLogId?: string };
+    }) => {
+      if (!plan) return null;
+      if (
+        where.importedPayloadId &&
+        plan.importedPayloadId !== where.importedPayloadId
+      ) {
+        return null;
+      }
+      if (where.dayLogId && where.dayLogId !== dayLog.id) return null;
+
+      const sourceImport = importedPayloads.get(plan.importedPayloadId);
+      if (!sourceImport)
+        throw new Error("Plan source import fixture not found");
+      return {
+        id: plan.id,
+        _count: { tasks: tasks.length },
+        importedPayload: {
+          id: sourceImport.id,
+          createdAt: sourceImport.createdAt,
+        },
+      };
+    },
   );
   const dailyPlanUpsert = vi.fn(
     ({ create, update }: { create: PlanWrite; update: PlanWrite }) => {
@@ -181,8 +212,10 @@ function createTestDatabase(
     dayLogFindFirst,
     dailyPlanUpsert,
     snapshot: () => ({ importedPayload, plan, tasks, dayLog }),
+    getImport: (id: string) => importedPayloads.get(id),
     replaceImport(next: StoredImport) {
       importedPayload = next;
+      importedPayloads.set(next.id, next);
     },
   };
 }
@@ -299,6 +332,7 @@ describe("daily plan normalization", () => {
       rawJson: replacement,
       validationStatus: "VALID",
       processingStatus: "PENDING",
+      createdAt: new Date("2026-07-01T11:00:00.000Z"),
       processedAt: null,
       errorMetadata: null,
     });
@@ -318,6 +352,90 @@ describe("daily plan normalization", () => {
       mission: "Use the revised minimum plan.",
     });
     expect(state.tasks).toHaveLength(7);
+    expect(testDatabase.dailyPlanUpsert).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps a newer current plan when an older pending import is processed later", async () => {
+    const testDatabase = createTestDatabase();
+    const newer = structuredClone(dailyPlanExample);
+    newer.idempotency_key = "2026-07-01-day-1-newer-first";
+    newer.payload.mission = "Keep the newest plan.";
+    newer.payload.standard_plan = [];
+    testDatabase.replaceImport({
+      id: "import-2",
+      kind: "DAILY_PLAN",
+      schemaVersion: "1.0",
+      source: "custom_gpt",
+      rawJson: newer,
+      validationStatus: "VALID",
+      processingStatus: "PENDING",
+      createdAt: new Date("2026-07-01T11:00:00.000Z"),
+      processedAt: null,
+      errorMetadata: null,
+    });
+
+    await normalizeDailyPlanImport(
+      testDatabase.database,
+      "import-2",
+      OWNER_SUBJECT,
+    );
+    await expect(
+      normalizeDailyPlanImport(
+        testDatabase.database,
+        "import-1",
+        OWNER_SUBJECT,
+      ),
+    ).resolves.toEqual({
+      status: "processed",
+      dailyPlanId: "plan-1",
+      taskCount: 7,
+    });
+
+    expect(testDatabase.snapshot().plan).toMatchObject({
+      importedPayloadId: "import-2",
+      mission: "Keep the newest plan.",
+    });
+    expect(testDatabase.snapshot().tasks).toHaveLength(7);
+    expect(testDatabase.getImport("import-1")).toMatchObject({
+      processingStatus: "PROCESSED",
+    });
+    expect(testDatabase.dailyPlanUpsert).toHaveBeenCalledTimes(1);
+  });
+
+  it("uses raw import ID as the deterministic equal-time tie-breaker", async () => {
+    const testDatabase = createTestDatabase();
+    await normalizeDailyPlanImport(
+      testDatabase.database,
+      "import-1",
+      OWNER_SUBJECT,
+    );
+
+    const higherId = structuredClone(dailyPlanExample);
+    higherId.idempotency_key = "2026-07-01-day-1-equal-time-higher-id";
+    higherId.payload.mission = "Higher ID wins the tie.";
+    testDatabase.replaceImport({
+      id: "import-2",
+      kind: "DAILY_PLAN",
+      schemaVersion: "1.0",
+      source: "custom_gpt",
+      rawJson: higherId,
+      validationStatus: "VALID",
+      processingStatus: "PENDING",
+      createdAt: new Date("2026-07-01T10:00:00.000Z"),
+      processedAt: null,
+      errorMetadata: null,
+    });
+
+    await normalizeDailyPlanImport(
+      testDatabase.database,
+      "import-2",
+      OWNER_SUBJECT,
+    );
+
+    expect(testDatabase.snapshot().plan).toMatchObject({
+      importedPayloadId: "import-2",
+      mission: "Higher ID wins the tie.",
+    });
     expect(testDatabase.dailyPlanUpsert).toHaveBeenCalledTimes(2);
   });
 

@@ -9,6 +9,11 @@ Phase 20 pre-production security hardening is implemented locally on
 GitHub Actions `quality` job passed, and this branch started from the updated
 `local`/`origin/local` merge commit with a clean pre-edit tree.
 
+The bounded Phase 20 correction restores Authentik lifecycle provisioning,
+makes daily-plan replacement deterministically newest-wins, prevents Gold across
+missing day logs, and aligns the raw-import contract. Phase 20 is not marked
+complete because required Authentik browser login/logout smoke remains pending.
+
 Phase 20 changes application security boundaries, request handling, logging,
 repository hygiene, tests, and security documentation only. It adds no product
 feature, dependency, Prisma schema change, migration, deployment topology, HSTS,
@@ -22,6 +27,9 @@ identity encoding, a streamed 16 KiB body limit, and route validation. Browser
 and cycle ownership are server-derived. Central method policy rejects unsafe
 GET/HEAD and unsupported methods with bounded `405` responses and `Allow`.
 Application reads no longer provision users or reconcile status through writes.
+Successful Authentik sign-in now provisions or updates the application user by
+subject through the existing subject-keyed upsert before the JWT/session is used;
+subsequent session-backed reads remain lookup-only.
 
 GPT imports accept only `Authorization: Bearer`, authenticate before body
 access, compare token digests in constant time, require canonical JSON within a
@@ -30,6 +38,13 @@ one owned active cycle. Every normalizer shares that owner boundary; daily-plan
 targeting is cycle-scoped. Rolling process-local limits enforce 120 endpoint
 requests and 30 per token fingerprint per 60 seconds without retaining raw
 tokens.
+Daily-plan normalization now compares immutable raw import `createdAt` then ID
+under the existing owned-cycle lock. Older pending imports become processed
+no-ops for normalized state; newer imports still replace approved plan fields
+and tasks transactionally without overwriting later browser/check-in energy.
+
+Read-only status derivation supplies comeback status only from the immediately
+preceding cycle day. Missing day-log rows remain gaps and break Gold eligibility.
 
 Production-safe logging exposes allowlisted metadata only. Central response
 headers provide CSP, frame denial, no-sniff, no-referrer, and a restrictive
@@ -47,8 +62,11 @@ explicitly deferred.
 
 ## Next actions
 
-1. Complete the documented authenticated manual browser smoke because no
-   checked-in browser harness exists.
+1. Complete the remaining Authentik browser smoke at the configured
+   `http://localhost:3000` origin: OIDC login, authenticated navigation,
+   same-origin mutation, foreign-origin rejection, Today no-plan state,
+   representative headers, visible-error privacy, and logout. Local dev/curl
+   evidence is useful but does not replace Authentik browser verification.
 2. Review and commit the Phase 20 diff with the suggested Conventional Commit
    message, then push and open a pull request through the user's normal workflow.
 3. Confirm the pull request `quality` job passes before merging into `local`.
@@ -56,21 +74,29 @@ explicitly deferred.
 
 ## Verification evidence
 
-- Final focused security/auth/import/read/privacy/repository suite passed 20
-  files with 417 tests; targeted typecheck, shell syntax, tracked-sensitive-file
-  check, and `git diff --check` passed.
+- Final focused auth/daily-plan/progress suite passed 3 files with 47 tests;
+  targeted typecheck passed.
 - PostgreSQL integration coverage applied all 9 migrations and passed 2 files
-  with 10 tests, including insertion-order-independent daily-plan owner scoping,
-  no foreign target fallback, unchanged foreign normalized data, idempotency,
-  replacement, and transactional rollback.
+  with 11 tests, including concurrent distinct daily plans converging on the
+  newest immutable raw import while existing idempotency, replacement,
+  transaction, and cross-user isolation coverage remained green.
 - First and only final `make check` passed: tracked-sensitive paths, frozen
-  install, formatting, lint, typecheck, 25 unit/component files with 441 tests,
+  install, formatting, lint, typecheck, 25 unit/component files with 449 tests,
   payload/schema drift, Prisma validation, all 9 migrations, 2 PostgreSQL files
-  with 10 tests, production build, shell syntax, and whitespace.
-- Manual login/logout, authenticated navigation, same/foreign-origin mutation,
-  Today no-plan, response-header, and visible-error privacy smoke remains pending
-  because no checked-in browser harness exists and Phase 20 forbids installing
-  one.
+  with 11 tests, production build, shell syntax, and whitespace.
+- One bounded local smoke attempt used the existing dev workflow on normal port
+  3000. Dev-auth root navigation and Today API returned `200`; Today had no
+  normalized plan; CSP, frame denial, no-sniff, no-referrer, and permissions
+  headers were present; an idempotent same-origin energy mutation returned `200`;
+  the same foreign-origin mutation returned bounded `403 invalid_origin` without
+  private fields. The task-started server was stopped; the pre-existing local DB
+  stayed running.
+- Authentik login/logout and full OIDC-authenticated browser verification remain
+  unverified: `.env.local` is dev-auth, no browser binary or repository smoke
+  command exists, and installing one is forbidden. Curl through `127.0.0.1`
+  also produced expected Auth.js `UntrustedHost` logs because configured
+  `APP_URL` is `http://localhost:3000`; the remaining manual smoke must use that
+  configured host.
 
 ## Migration, deployment, and rollback
 
@@ -83,15 +109,17 @@ explicitly deferred.
 
 ## Latest handoff
 
-- 2026-07-21T14:12:50Z — fix/security-hardening — Phase 20 centralized browser
-  auth/origin/body/method protections, made application reads non-persistent,
-  hardened trusted-owner GPT imports and rate limits, added safe logging,
-  compatible headers/cookies, tracked-sensitive-file checks, regression tests,
-  and security docs; focused 20 files/417 tests and first/final `make check`
-  passed with 25 unit/component files/441 tests, 2 PostgreSQL files/10 tests, and
-  production build; no schema, migration, dependency, deployment, HSTS, browser
-  tooling, or Phase 21 work; exact manual browser smoke remains before review and
-  commit
+- 2026-07-21T15:11:51Z — fix/security-hardening — bounded Phase 20 correction
+  restored Authentik lifecycle provisioning while keeping reads lookup-only,
+  made daily-plan normalization newest-wins by raw creation time then ID,
+  prevented Gold across missing day logs, and corrected HTTP raw-persistence
+  docs; focused 3 files/47 tests, targeted typecheck, 2 PostgreSQL files/11 tests,
+  and first/final `make check` passed with 25 unit/component files/449 tests plus
+  production build; dev-auth curl smoke passed navigation, Today no-plan,
+  headers, same/foreign-origin mutation, and bounded error checks, but Authentik
+  login/logout browser smoke remains blocked by dev-only local config and no
+  browser binary; no schema, migration, dependency, deployment, HSTS, browser
+  tooling, or Phase 21 work
 
 ## Historical detail
 

@@ -71,6 +71,19 @@ function normalizedTasks(payload: DailyPlanPayload) {
   }));
 }
 
+function isNewerImport(
+  incoming: { id: string; createdAt: Date },
+  current: { id: string; createdAt: Date },
+): boolean {
+  const timestampDifference =
+    incoming.createdAt.getTime() - current.createdAt.getTime();
+
+  return (
+    timestampDifference > 0 ||
+    (timestampDifference === 0 && incoming.id > current.id)
+  );
+}
+
 async function markFailed(
   transaction: Prisma.TransactionClient,
   importedPayloadId: string,
@@ -110,6 +123,7 @@ export function normalizeDailyPlanImport(
         rawJson: true,
         validationStatus: true,
         processingStatus: true,
+        createdAt: true,
       },
     });
 
@@ -190,6 +204,15 @@ export function normalizeDailyPlanImport(
       );
     }
 
+    const existingPlan = await transaction.dailyPlan.findUnique({
+      where: { dayLogId: dayLog.id },
+      select: {
+        id: true,
+        _count: { select: { tasks: true } },
+        importedPayload: { select: { id: true, createdAt: true } },
+      },
+    });
+
     const tasks = normalizedTasks(payload);
     const planData = {
       importedPayloadId,
@@ -201,31 +224,40 @@ export function normalizeDailyPlanImport(
       downshiftRule: payload.downshift_rule,
       contextSummary: payload.context_summary,
     };
-    const dailyPlan = await transaction.dailyPlan.upsert({
-      where: { dayLogId: dayLog.id },
-      create: {
-        ...planData,
-        dayLogId: dayLog.id,
-        tasks: { create: tasks },
-      },
-      update: {
-        ...planData,
-        tasks: {
-          deleteMany: {},
-          create: tasks,
-        },
-      },
-      select: { id: true },
-    });
+    const shouldReplace =
+      !existingPlan ||
+      isNewerImport(importedPayload, existingPlan.importedPayload);
+    const dailyPlanId = shouldReplace
+      ? (
+          await transaction.dailyPlan.upsert({
+            where: { dayLogId: dayLog.id },
+            create: {
+              ...planData,
+              dayLogId: dayLog.id,
+              tasks: { create: tasks },
+            },
+            update: {
+              ...planData,
+              tasks: {
+                deleteMany: {},
+                create: tasks,
+              },
+            },
+            select: { id: true },
+          })
+        ).id
+      : existingPlan.id;
 
-    await transaction.dayLog.update({
-      where: { id: dayLog.id },
-      data: {
-        mission: payload.mission,
-        supportiveMessage: payload.supportive_message,
-      },
-    });
-    await reconcileDayStatusInTransaction(transaction, dayLog.id, now);
+    if (shouldReplace) {
+      await transaction.dayLog.update({
+        where: { id: dayLog.id },
+        data: {
+          mission: payload.mission,
+          supportiveMessage: payload.supportive_message,
+        },
+      });
+      await reconcileDayStatusInTransaction(transaction, dayLog.id, now);
+    }
     await transaction.importedPayload.update({
       where: { id: importedPayloadId },
       data: {
@@ -237,8 +269,8 @@ export function normalizeDailyPlanImport(
 
     return {
       status: "processed",
-      dailyPlanId: dailyPlan.id,
-      taskCount: tasks.length,
+      dailyPlanId,
+      taskCount: shouldReplace ? tasks.length : existingPlan._count.tasks,
     };
   });
 }

@@ -38,18 +38,21 @@ export async function deriveCycleDayStatuses(
   const byId = new Map<string, DayStatus>();
   const byDayNumber = new Map<number, DayStatus>();
   let previousStatus: DayStatus | null = null;
+  let previousDayNumber: number | null = null;
 
   for (const day of days) {
     const status = calculateDayStatus({
       date: day.date,
       now,
-      previousStatus,
+      previousStatus:
+        previousDayNumber === day.dayNumber - 1 ? previousStatus : null,
       tasks: day.dailyPlan?.tasks ?? [],
       recovery: day.recoveryEvent,
     });
     byId.set(day.id, status);
     byDayNumber.set(day.dayNumber, status);
     previousStatus = status;
+    previousDayNumber = day.dayNumber;
   }
 
   return { byId, byDayNumber };

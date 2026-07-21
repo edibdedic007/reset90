@@ -253,6 +253,87 @@ describe("GPT import PostgreSQL integration", () => {
     ).toEqual({ status: "UNSET" });
   });
 
+  it("keeps the newest raw import when distinct daily plans normalize concurrently", async () => {
+    const { dayLogId } = await seedCycle({
+      user: owner,
+      startDate: "2026-07-01",
+      endDate: "2026-09-28",
+      suffix: "8",
+    });
+    const olderPayload = planPayload("phase19-plan-concurrent-older");
+    olderPayload.payload.mission = "PHASE20_OLDER_CONCURRENT_PLAN";
+    olderPayload.payload.non_negotiables[0].title =
+      "PHASE20_OLDER_CONCURRENT_TASK";
+    const newerPayload = planPayload("phase19-plan-concurrent-newer");
+    newerPayload.payload.mission = "PHASE20_NEWER_CONCURRENT_PLAN";
+    newerPayload.payload.non_negotiables[0].title =
+      "PHASE20_NEWER_CONCURRENT_TASK";
+    newerPayload.payload.standard_plan = [];
+
+    const [olderRaw, newerRaw] = await Promise.all([
+      database.importedPayload.create({
+        data: {
+          id: "19000000-0000-4000-8400-000000000001",
+          kind: "DAILY_PLAN",
+          schemaVersion: "1.0",
+          idempotencyKey: olderPayload.idempotency_key,
+          source: SOURCE,
+          rawJson: olderPayload,
+          validationStatus: "VALID",
+          processingStatus: "PENDING",
+          createdAt: new Date("2026-07-01T10:00:00.000Z"),
+        },
+      }),
+      database.importedPayload.create({
+        data: {
+          id: "19000000-0000-4000-8400-000000000002",
+          kind: "DAILY_PLAN",
+          schemaVersion: "1.0",
+          idempotencyKey: newerPayload.idempotency_key,
+          source: SOURCE,
+          rawJson: newerPayload,
+          validationStatus: "VALID",
+          processingStatus: "PENDING",
+          createdAt: new Date("2026-07-01T11:00:00.000Z"),
+        },
+      }),
+    ]);
+
+    const results = await Promise.all([
+      normalizeDailyPlanImport(database, olderRaw.id, owner.subject, FIXED_NOW),
+      normalizeDailyPlanImport(database, newerRaw.id, owner.subject, FIXED_NOW),
+    ]);
+
+    expect(results).toEqual([
+      expect.objectContaining({ status: "processed" }),
+      expect.objectContaining({ status: "processed" }),
+    ]);
+    const plan = await database.dailyPlan.findUniqueOrThrow({
+      where: { dayLogId },
+      include: { tasks: true },
+    });
+    expect(plan).toMatchObject({
+      importedPayloadId: newerRaw.id,
+      mission: "PHASE20_NEWER_CONCURRENT_PLAN",
+    });
+    expect(plan.tasks).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ title: "PHASE20_NEWER_CONCURRENT_TASK" }),
+      ]),
+    );
+    expect(JSON.stringify(plan)).not.toContain("PHASE20_OLDER_CONCURRENT");
+    expect(
+      await database.importedPayload.findMany({
+        where: { id: { in: [olderRaw.id, newerRaw.id] } },
+        orderBy: { id: "asc" },
+        select: { processingStatus: true },
+      }),
+    ).toEqual([
+      { processingStatus: "PROCESSED" },
+      { processingStatus: "PROCESSED" },
+    ]);
+  });
+
   it("rolls back partial normalization and bounds a database constraint failure", async () => {
     const { dayLogId } = await seedCycle({
       user: owner,

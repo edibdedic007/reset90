@@ -11,6 +11,8 @@ import {
   shouldTrustAuthHost,
   shouldUseSecureCookies,
 } from "./server/auth/config";
+import { storeBrowserUser } from "./server/auth/users";
+import { getPrismaClient } from "./server/db/client";
 
 const authentikConfig = getAuthentikProviderConfig();
 
@@ -27,6 +29,19 @@ export const authConfig = {
     sessionToken: getSessionCookieConfig(),
   },
   callbacks: {
+    async signIn({ user }) {
+      if (getAuthMode() !== "oidc" || !user.id) {
+        return true;
+      }
+
+      await storeBrowserUser(getPrismaClient(), {
+        authentikSubject: user.id,
+        email: user.email ?? null,
+        displayName: user.name ?? null,
+        isDev: false,
+      });
+      return true;
+    },
     authorized({ auth, request }) {
       if (isPublicAuthPath(request.nextUrl.pathname)) {
         return true;

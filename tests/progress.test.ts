@@ -293,6 +293,111 @@ describe("progress dashboard", () => {
       UNSET: 2,
     });
   });
+
+  it.each([
+    {
+      previousStatus: "RED",
+      recoveryEvent: null,
+      hasGap: false,
+      expectedStatus: "GOLD",
+    },
+    {
+      previousStatus: "BLUE",
+      recoveryEvent: { completedAt: NOW, creditConsumedAt: NOW },
+      hasGap: false,
+      expectedStatus: "GOLD",
+    },
+    {
+      previousStatus: "RED",
+      recoveryEvent: null,
+      hasGap: true,
+      expectedStatus: "GREEN",
+    },
+    {
+      previousStatus: "BLUE",
+      recoveryEvent: {
+        completedAt: NOW,
+        creditConsumedAt: NOW,
+      },
+      hasGap: true,
+      expectedStatus: "GREEN",
+    },
+  ] as const)(
+    "derives $previousStatus then a qualifying day with gap=$hasGap as $expectedStatus without creating rows",
+    async ({ recoveryEvent, hasGap, expectedStatus }) => {
+      const now = new Date("2026-07-04T12:00:00.000Z");
+      const targetDayNumber = hasGap ? 3 : 2;
+      const storedDays = [
+        {
+          id: "day-1",
+          cycleId: "cycle-1",
+          dayNumber: 1,
+          date: new Date("2026-07-01T00:00:00.000Z"),
+          status: "UNSET",
+          dailyPlan: { tasks: [] },
+          recoveryEvent,
+        },
+        {
+          id: `day-${targetDayNumber}`,
+          cycleId: "cycle-1",
+          dayNumber: targetDayNumber,
+          date: new Date(`2026-07-0${targetDayNumber}T00:00:00.000Z`),
+          status: "UNSET",
+          dailyPlan: {
+            tasks: [
+              {
+                tier: "NON_NEGOTIABLE",
+                completedAt: now,
+                skippedAt: null,
+              },
+              { tier: "STANDARD", completedAt: now, skippedAt: null },
+            ],
+          },
+          recoveryEvent: null,
+        },
+      ];
+      const dayLogCreate = vi.fn();
+      const dayLogUpdate = vi.fn();
+      const transaction = vi.fn();
+      const database = {
+        resetCycle: {
+          findFirst: vi.fn(() => ({
+            id: "cycle-1",
+            name: "My Reset",
+            startDate: START,
+            recoveryCreditLimit: 6,
+            recoveryEvents: [],
+            dayLogs: storedDays,
+          })),
+        },
+        dayLog: {
+          findMany: vi.fn().mockResolvedValue(storedDays),
+          findFirst: vi.fn(),
+          findUnique: vi.fn(),
+          create: dayLogCreate,
+          update: dayLogUpdate,
+        },
+        recoveryEvent: { findUnique: vi.fn() },
+        $transaction: transaction,
+      } as unknown as ProgressDatabase;
+
+      const result = await getProgressDashboard(database, "user-1", now);
+      if (result.status !== "ready")
+        throw new Error("Expected ready dashboard");
+
+      expect(result.days[targetDayNumber - 1].status).toBe(expectedStatus);
+      if (hasGap) {
+        expect(result.days[1]).toMatchObject({
+          dayNumber: 2,
+          status: null,
+          isAvailable: false,
+        });
+      }
+      expect(dayLogCreate).not.toHaveBeenCalled();
+      expect(dayLogUpdate).not.toHaveBeenCalled();
+      expect(transaction).not.toHaveBeenCalled();
+    },
+  );
 });
 
 describe("day detail", () => {

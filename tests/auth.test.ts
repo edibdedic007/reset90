@@ -37,10 +37,41 @@ async function loadReadOnlyBrowserSession(
   };
 }
 
+async function loadAuthConfig(database: unknown) {
+  vi.resetModules();
+  vi.stubEnv("AUTH_MODE", "oidc");
+  vi.stubEnv("AUTH_SECRET", "01234567890123456789012345678901");
+  vi.stubEnv("AUTH_AUTHENTIK_ID", "reset90");
+  vi.stubEnv("AUTH_AUTHENTIK_SECRET", "client-secret");
+  vi.stubEnv(
+    "AUTH_AUTHENTIK_ISSUER",
+    "https://auth.example.com/application/o/reset90/",
+  );
+
+  const getPrismaClient = vi.fn(() => database);
+  vi.doMock("next-auth", () => ({
+    default: vi.fn(() => ({
+      handlers: {},
+      auth: vi.fn(),
+      signIn: vi.fn(),
+      signOut: vi.fn(),
+    })),
+  }));
+  vi.doMock("next-auth/providers/authentik", () => ({
+    default: vi.fn((config) => ({ id: "authentik", ...config })),
+  }));
+  vi.doMock("../src/server/db/client", () => ({ getPrismaClient }));
+
+  const { authConfig } = await import("../src/auth");
+  return { authConfig, getPrismaClient };
+}
+
 afterEach(() => {
   vi.unstubAllEnvs();
   vi.doUnmock("../src/auth");
   vi.doUnmock("../src/server/db/client");
+  vi.doUnmock("next-auth");
+  vi.doUnmock("next-auth/providers/authentik");
   vi.resetModules();
 });
 
@@ -171,6 +202,103 @@ describe("browser user persistence", () => {
       resolveExistingBrowserUser(database, createDevBrowserIdentity()),
     ).resolves.toBeNull();
     expect(upsert).not.toHaveBeenCalled();
+  });
+});
+
+describe("Authentik authentication lifecycle provisioning", () => {
+  const authenticatedSession = {
+    user: {
+      authentikSubject: "authentik-user",
+      email: "browser@example.test",
+      name: "Browser User",
+    },
+  };
+
+  it("provisions a missing application user during sign-in, then reads without writing", async () => {
+    let storedUser: BrowserUserRecord | null = null;
+    const upsert = vi.fn().mockImplementation(({ create }) => {
+      storedUser = { id: "user-1", ...create };
+      return storedUser;
+    });
+    const findUnique = vi.fn(() => storedUser);
+    const database = { user: { upsert, findUnique } };
+    const { authConfig, getPrismaClient } = await loadAuthConfig(database);
+
+    await expect(
+      authConfig.callbacks.signIn({
+        user: {
+          id: "authentik-user",
+          email: "browser@example.test",
+          name: "Browser User",
+        },
+        account: null,
+        profile: undefined,
+        email: undefined,
+        credentials: undefined,
+      }),
+    ).resolves.toBe(true);
+    expect(getPrismaClient).toHaveBeenCalledTimes(1);
+    expect(upsert).toHaveBeenCalledWith({
+      where: { authentikSubject: "authentik-user" },
+      create: {
+        authentikSubject: "authentik-user",
+        email: "browser@example.test",
+        displayName: "Browser User",
+      },
+      update: {
+        email: "browser@example.test",
+        displayName: "Browser User",
+      },
+    });
+
+    const { getReadOnlyBrowserSession } = await loadReadOnlyBrowserSession(
+      authenticatedSession,
+      database,
+    );
+    await expect(getReadOnlyBrowserSession()).resolves.toEqual({
+      userId: "user-1",
+      authentikSubject: "authentik-user",
+      email: "browser@example.test",
+      displayName: "Browser User",
+      isDev: false,
+    });
+    expect(findUnique).toHaveBeenCalledTimes(1);
+    expect(upsert).toHaveBeenCalledTimes(1);
+  });
+
+  it("updates an existing subject during sign-in without duplicate creation", async () => {
+    const existing: BrowserUserRecord = {
+      id: "user-1",
+      authentikSubject: "authentik-user",
+      email: "old@example.test",
+      displayName: "Old Name",
+    };
+    const upsert = vi.fn().mockResolvedValue({
+      ...existing,
+      email: "browser@example.test",
+      displayName: "Browser User",
+    });
+    const { authConfig } = await loadAuthConfig({ user: { upsert } });
+
+    await expect(
+      authConfig.callbacks.signIn({
+        user: {
+          id: "authentik-user",
+          email: "browser@example.test",
+          name: "Browser User",
+        },
+        account: null,
+        profile: undefined,
+        email: undefined,
+        credentials: undefined,
+      }),
+    ).resolves.toBe(true);
+    expect(upsert).toHaveBeenCalledTimes(1);
+    expect(upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { authentikSubject: "authentik-user" },
+      }),
+    );
   });
 });
 

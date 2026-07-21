@@ -12,7 +12,10 @@
     - Custom GPT Actions can POST JSON to a public HTTPS endpoint.
 - GPT endpoint uses machine auth separate from user/browser auth.
 - Zod or equivalent validates payloads.
-- All raw payloads are stored before normalization.
+- Canonically valid HTTP envelopes are stored raw before normalization.
+- Malformed or canonically invalid HTTP envelopes are rejected before raw
+  persistence. Trusted non-HTTP callers may separately use the service layer's
+  safe-invalid storage behavior.
 
     ## Success Criteria
     - GPT can safely import data without duplicate records.
