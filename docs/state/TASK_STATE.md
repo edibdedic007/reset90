@@ -9,9 +9,10 @@ Phase 20 pre-production security hardening is implemented locally on
 GitHub Actions `quality` job passed, and this branch started from the updated
 `local`/`origin/local` merge commit with a clean pre-edit tree.
 
-The bounded Phase 20 correction restores Authentik lifecycle provisioning,
-makes daily-plan replacement deterministically newest-wins, prevents Gold across
-missing day logs, and aligns the raw-import contract. Phase 20 is not marked
+The bounded Phase 20 corrections restore Authentik lifecycle provisioning, make
+daily-plan replacement deterministically newest-wins, preserve intentionally
+stale processed daily-plan imports as idempotent no-ops, prevent Gold across
+missing day logs, and align the raw-import contract. Phase 20 is not marked
 complete because required Authentik browser login/logout smoke remains pending.
 
 Phase 20 changes application security boundaries, request handling, logging,
@@ -62,11 +63,12 @@ explicitly deferred.
 
 ## Next actions
 
-1. Complete the remaining Authentik browser smoke at the configured
-   `http://localhost:3000` origin: OIDC login, authenticated navigation,
-   same-origin mutation, foreign-origin rejection, Today no-plan state,
-   representative headers, visible-error privacy, and logout. Local dev/curl
-   evidence is useful but does not replace Authentik browser verification.
+1. After explicit approval for the external Authentik write, create the missing
+   Reset90 OAuth2/OIDC application/provider with the localhost Auth.js callback,
+   configure Reset90 with its real values, and complete OIDC login, authenticated
+   navigation, same-origin mutation, foreign-origin rejection, Today no-plan
+   state, representative headers, visible-error privacy, and logout in a real
+   browser. Local dev/curl evidence does not replace this verification.
 2. Review and commit the Phase 20 diff with the suggested Conventional Commit
    message, then push and open a pull request through the user's normal workflow.
 3. Confirm the pull request `quality` job passes before merging into `local`.
@@ -74,16 +76,22 @@ explicitly deferred.
 
 ## Verification evidence
 
+- Final stale-import correction coverage passed 1 unit/service file with 7 tests
+  and 2 PostgreSQL files with 12 tests after applying all 9 migrations to a
+  disposable database. The regression proves newer-plan preservation, stale
+  `PROCESSED` monotonicity, and a second stale retry with no raw or normalized
+  mutation while replacement, concurrency, rollback, and ownership coverage
+  remains green.
 - Final focused auth/daily-plan/progress suite passed 3 files with 47 tests;
   targeted typecheck passed.
 - PostgreSQL integration coverage applied all 9 migrations and passed 2 files
   with 11 tests, including concurrent distinct daily plans converging on the
   newest immutable raw import while existing idempotency, replacement,
   transaction, and cross-user isolation coverage remained green.
-- First and only final `make check` passed: tracked-sensitive paths, frozen
+- First and only final correction `make check` passed: tracked-sensitive paths, frozen
   install, formatting, lint, typecheck, 25 unit/component files with 449 tests,
   payload/schema drift, Prisma validation, all 9 migrations, 2 PostgreSQL files
-  with 11 tests, production build, shell syntax, and whitespace.
+  with 12 tests, production build, shell syntax, and whitespace.
 - One bounded local smoke attempt used the existing dev workflow on normal port
   3000. Dev-auth root navigation and Today API returned `200`; Today had no
   normalized plan; CSP, frame denial, no-sniff, no-referrer, and permissions
@@ -91,12 +99,15 @@ explicitly deferred.
   the same foreign-origin mutation returned bounded `403 invalid_origin` without
   private fields. The task-started server was stopped; the pre-existing local DB
   stayed running.
-- Authentik login/logout and full OIDC-authenticated browser verification remain
-  unverified: `.env.local` is dev-auth, no browser binary or repository smoke
-  command exists, and installing one is forbidden. Curl through `127.0.0.1`
-  also produced expected Auth.js `UntrustedHost` logs because configured
-  `APP_URL` is `http://localhost:3000`; the remaining manual smoke must use that
-  configured host.
+- The bounded real-OIDC smoke attempt confirmed healthy existing Authentik
+  server/worker containers, a `302` public root, and a `200` live-health
+  endpoint. Read-only Authentik inspection found no Reset90 application/provider
+  or localhost callback among the existing applications, while Reset90 remains
+  `AUTH_MODE=dev` with no local Authentik ID, secret, or issuer configured. No
+  browser executable is visible in this environment. Login, sign-in lifecycle
+  provisioning, authenticated navigation/mutations, browser error/privacy
+  inspection, logout, and post-logout route protection therefore remain
+  unverified; no external configuration was changed.
 
 ## Migration, deployment, and rollback
 
@@ -109,17 +120,18 @@ explicitly deferred.
 
 ## Latest handoff
 
-- 2026-07-21T15:11:51Z — fix/security-hardening — bounded Phase 20 correction
-  restored Authentik lifecycle provisioning while keeping reads lookup-only,
-  made daily-plan normalization newest-wins by raw creation time then ID,
-  prevented Gold across missing day logs, and corrected HTTP raw-persistence
-  docs; focused 3 files/47 tests, targeted typecheck, 2 PostgreSQL files/11 tests,
-  and first/final `make check` passed with 25 unit/component files/449 tests plus
-  production build; dev-auth curl smoke passed navigation, Today no-plan,
-  headers, same/foreign-origin mutation, and bounded error checks, but Authentik
-  login/logout browser smoke remains blocked by dev-only local config and no
-  browser binary; no schema, migration, dependency, deployment, HSTS, browser
-  tooling, or Phase 21 work
+- 2026-07-21T22:07:40Z — fix/security-hardening — bounded Phase 20 correction
+  preserved stale processed daily-plan imports as monotonic idempotent no-ops
+  without changing newest-wins ordering or normalized data; final focused unit
+  coverage passed 1 file/7 tests and PostgreSQL coverage passed 2 files/12 tests
+  after all 9 migrations; first/final correction `make check` passed with 25
+  unit/component files/449 tests, 2 PostgreSQL files/12 tests, and production
+  build; live Authentik health passed, but read-only inspection found no Reset90
+  OIDC application/provider or localhost callback, Reset90 has only dev-auth
+  local config, and no browser executable is visible, so real login/provisioning/
+  navigation/mutation/logout verification remains blocked and Phase 20 remains
+  incomplete; no schema, migration, dependency, external auth write, deployment,
+  HSTS, browser tooling, or Phase 21 work
 
 ## Historical detail
 

@@ -399,6 +399,28 @@ describe("daily plan normalization", () => {
     expect(testDatabase.getImport("import-1")).toMatchObject({
       processingStatus: "PROCESSED",
     });
+    const staleProcessedImport = testDatabase.getImport("import-1");
+    const currentPlan = structuredClone(testDatabase.snapshot().plan);
+    const currentTasks = structuredClone(testDatabase.snapshot().tasks);
+
+    await expect(
+      normalizeDailyPlanImport(
+        testDatabase.database,
+        "import-1",
+        OWNER_SUBJECT,
+      ),
+    ).resolves.toEqual({
+      status: "already_processed",
+      dailyPlanId: null,
+      taskCount: 0,
+    });
+
+    expect(testDatabase.getImport("import-1")).toBe(staleProcessedImport);
+    expect(staleProcessedImport).toMatchObject({
+      processingStatus: "PROCESSED",
+    });
+    expect(testDatabase.snapshot().plan).toEqual(currentPlan);
+    expect(testDatabase.snapshot().tasks).toEqual(currentTasks);
     expect(testDatabase.dailyPlanUpsert).toHaveBeenCalledTimes(1);
   });
 

@@ -253,6 +253,107 @@ describe("GPT import PostgreSQL integration", () => {
     ).toEqual({ status: "UNSET" });
   });
 
+  it("keeps a processed stale daily plan idempotent after a newer plan wins", async () => {
+    const { dayLogId } = await seedCycle({
+      user: owner,
+      startDate: "2026-07-01",
+      endDate: "2026-09-28",
+      suffix: "10",
+    });
+    const olderPayload = planPayload("phase19-plan-stale-retry-older");
+    olderPayload.payload.mission = "PHASE20_STALE_RETRY_OLDER_PLAN";
+    olderPayload.payload.non_negotiables[0].title =
+      "PHASE20_STALE_RETRY_OLDER_TASK";
+    const newerPayload = planPayload("phase19-plan-stale-retry-newer");
+    newerPayload.payload.mission = "PHASE20_STALE_RETRY_NEWER_PLAN";
+    newerPayload.payload.non_negotiables[0].title =
+      "PHASE20_STALE_RETRY_NEWER_TASK";
+    newerPayload.payload.standard_plan = [];
+    const olderRaw = await database.importedPayload.create({
+      data: {
+        id: "19000000-0000-4000-8500-000000000001",
+        kind: "DAILY_PLAN",
+        schemaVersion: "1.0",
+        idempotencyKey: olderPayload.idempotency_key,
+        source: SOURCE,
+        rawJson: olderPayload,
+        validationStatus: "VALID",
+        processingStatus: "PENDING",
+        createdAt: new Date("2026-07-01T10:00:00.000Z"),
+      },
+    });
+    const newerRaw = await database.importedPayload.create({
+      data: {
+        id: "19000000-0000-4000-8500-000000000002",
+        kind: "DAILY_PLAN",
+        schemaVersion: "1.0",
+        idempotencyKey: newerPayload.idempotency_key,
+        source: SOURCE,
+        rawJson: newerPayload,
+        validationStatus: "VALID",
+        processingStatus: "PENDING",
+        createdAt: new Date("2026-07-01T11:00:00.000Z"),
+      },
+    });
+
+    await expect(
+      normalizeDailyPlanImport(database, newerRaw.id, owner.subject, FIXED_NOW),
+    ).resolves.toMatchObject({ status: "processed", taskCount: 7 });
+    await expect(
+      normalizeDailyPlanImport(database, olderRaw.id, owner.subject, FIXED_NOW),
+    ).resolves.toMatchObject({ status: "processed", taskCount: 7 });
+
+    const staleImportBeforeRetry =
+      await database.importedPayload.findUniqueOrThrow({
+        where: { id: olderRaw.id },
+      });
+    const currentPlanBeforeRetry = await database.dailyPlan.findUniqueOrThrow({
+      where: { dayLogId },
+      include: { tasks: { orderBy: { sortOrder: "asc" } } },
+    });
+    expect(staleImportBeforeRetry.processingStatus).toBe("PROCESSED");
+    expect(currentPlanBeforeRetry).toMatchObject({
+      importedPayloadId: newerRaw.id,
+      mission: "PHASE20_STALE_RETRY_NEWER_PLAN",
+      tasks: expect.arrayContaining([
+        expect.objectContaining({ title: "PHASE20_STALE_RETRY_NEWER_TASK" }),
+      ]),
+    });
+    expect(JSON.stringify(currentPlanBeforeRetry)).not.toContain(
+      "PHASE20_STALE_RETRY_OLDER",
+    );
+
+    await expect(
+      normalizeDailyPlanImport(database, olderRaw.id, owner.subject, FIXED_NOW),
+    ).resolves.toEqual({
+      status: "already_processed",
+      dailyPlanId: null,
+      taskCount: 0,
+    });
+
+    expect(
+      await database.importedPayload.findUniqueOrThrow({
+        where: { id: olderRaw.id },
+      }),
+    ).toEqual(staleImportBeforeRetry);
+    expect(
+      await database.dailyPlan.findUniqueOrThrow({
+        where: { dayLogId },
+        include: { tasks: { orderBy: { sortOrder: "asc" } } },
+      }),
+    ).toEqual(currentPlanBeforeRetry);
+    expect(
+      await database.importedPayload.findMany({
+        where: { id: { in: [olderRaw.id, newerRaw.id] } },
+        orderBy: { id: "asc" },
+        select: { processingStatus: true },
+      }),
+    ).toEqual([
+      { processingStatus: "PROCESSED" },
+      { processingStatus: "PROCESSED" },
+    ]);
+  });
+
   it("keeps the newest raw import when distinct daily plans normalize concurrently", async () => {
     const { dayLogId } = await seedCycle({
       user: owner,

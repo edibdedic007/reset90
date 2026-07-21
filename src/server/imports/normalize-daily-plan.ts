@@ -35,8 +35,13 @@ export type DailyPlanNormalizationDatabase = Pick<PrismaClient, "$transaction">;
 export type DailyPlanNormalizationResult =
   | { status: "not_applicable" }
   | {
-      status: "processed" | "already_processed";
+      status: "processed";
       dailyPlanId: string;
+      taskCount: number;
+    }
+  | {
+      status: "already_processed";
+      dailyPlanId: string | null;
       taskCount: number;
     }
   | {
@@ -48,8 +53,7 @@ export type DailyPlanNormalizationResult =
         | "import_owner_not_found"
         | "active_cycle_not_found"
         | "active_cycle_ambiguous"
-        | "day_log_not_found"
-        | "processed_record_not_found";
+        | "day_log_not_found";
     };
 
 function normalizedTasks(payload: DailyPlanPayload) {
@@ -141,19 +145,10 @@ export function normalizeDailyPlanImport(
         select: { id: true, _count: { select: { tasks: true } } },
       });
 
-      if (!existing) {
-        return markFailed(
-          transaction,
-          importedPayloadId,
-          "processed_record_not_found",
-          now,
-        );
-      }
-
       return {
         status: "already_processed",
-        dailyPlanId: existing.id,
-        taskCount: existing._count.tasks,
+        dailyPlanId: existing?.id ?? null,
+        taskCount: existing?._count.tasks ?? 0,
       };
     }
 
