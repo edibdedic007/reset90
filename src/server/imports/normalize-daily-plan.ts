@@ -71,12 +71,13 @@ async function markFailed(
   transaction: Prisma.TransactionClient,
   importedPayloadId: string,
   code: Extract<DailyPlanNormalizationResult, { status: "failed" }>["code"],
+  now: Date,
 ): Promise<DailyPlanNormalizationResult> {
   await transaction.importedPayload.update({
     where: { id: importedPayloadId },
     data: {
       processingStatus: "FAILED",
-      processedAt: new Date(),
+      processedAt: now,
       errorMetadata: { code },
     },
   });
@@ -87,6 +88,7 @@ async function markFailed(
 export function normalizeDailyPlanImport(
   database: DailyPlanNormalizationDatabase,
   importedPayloadId: string,
+  now = new Date(),
 ): Promise<DailyPlanNormalizationResult> {
   return database.$transaction(async (transaction) => {
     const importedPayload = await transaction.importedPayload.findUnique({
@@ -121,6 +123,7 @@ export function normalizeDailyPlanImport(
           transaction,
           importedPayloadId,
           "processed_record_not_found",
+          now,
         );
       }
 
@@ -136,6 +139,7 @@ export function normalizeDailyPlanImport(
         transaction,
         importedPayloadId,
         "import_not_processable",
+        now,
       );
     }
 
@@ -145,6 +149,7 @@ export function normalizeDailyPlanImport(
         transaction,
         importedPayloadId,
         "invalid_stored_payload",
+        now,
       );
     }
 
@@ -160,7 +165,12 @@ export function normalizeDailyPlanImport(
     });
 
     if (!dayLog) {
-      return markFailed(transaction, importedPayloadId, "day_log_not_found");
+      return markFailed(
+        transaction,
+        importedPayloadId,
+        "day_log_not_found",
+        now,
+      );
     }
 
     const tasks = normalizedTasks(payload);
@@ -198,12 +208,12 @@ export function normalizeDailyPlanImport(
         supportiveMessage: payload.supportive_message,
       },
     });
-    await reconcileDayStatusInTransaction(transaction, dayLog.id, new Date());
+    await reconcileDayStatusInTransaction(transaction, dayLog.id, now);
     await transaction.importedPayload.update({
       where: { id: importedPayloadId },
       data: {
         processingStatus: "PROCESSED",
-        processedAt: new Date(),
+        processedAt: now,
         errorMetadata: Prisma.DbNull,
       },
     });

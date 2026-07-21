@@ -56,12 +56,27 @@ shame-based streaks.
 Phase 18 provides browser-authenticated portability for existing application
 users without persistence, import, generated analysis, background jobs, or
 database changes. Restore/replacement/conflict semantics remain undefined, so
-all data import remains deferred. Phase 19 testing-foundation and CI work has
-not started.
+all data import remains deferred.
+
+Phase 19 testing-foundation and CI changes are implemented on
+`chore/ci-and-testing-foundation`: one read-only `quality` workflow delegates to
+the fail-closed `make check` gate; a disposable, guarded PostgreSQL harness
+requires an empty database before applying all migrations and running serial
+import/persistence integration tests; committed pull-request whitespace and
+normalized cross-user day-detail read isolation are covered; and the canonical
+PR template plus branch-protection guidance are present. Local focused checks
+and `make check` pass. Phase 19 completion still requires the `quality` job to
+appear and pass on a real pull request. No product behavior, Prisma schema,
+application migration, or Phase 20 security work changed.
 
 ## Durable implementation rules
 
 - `main` is production; `local` is the persistent development integration branch.
+- `make check` is the complete local quality gate and is the only command run by
+  the canonical CI `quality` job after CI infrastructure setup.
+- Database integration tests require an empty, loopback, clearly test-named
+  disposable PostgreSQL database and never load the persistent local development
+  URL or clear an inherited database to make it acceptable.
 - Fixed 90-day cycle with minimum, standard, and ideal task tiers.
 - Store raw GPT payloads before normalized data.
 - Runtime import schemas live in `src/server/imports/schemas/`; generated schemas

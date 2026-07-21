@@ -63,8 +63,39 @@ make logs
 make dev-down
 ```
 
-Run quality gates with `make check`. Never commit `.env.local`; use only
-developer/test data in this environment.
+Run the complete quality gate with `make check`. It verifies formatting, lint,
+types, unit and component tests, payload examples and generated-schema drift,
+Prisma, migrations, PostgreSQL integration tests, the production build, shell
+syntax, and whitespace. When `TEST_DATABASE_URL` is unset locally, the gate
+creates and removes a disposable PostgreSQL container on `127.0.0.1:55432`.
+An explicit test URL must use a loopback host, have a clearly test-specific
+database name, and match `DATABASE_URL`; the integration harness never loads
+`.env.local`.
+
+Never commit `.env.local`; use only developer/test data in this environment.
+
+## GitHub branch protection
+
+Configure these settings in GitHub after the `quality` job has passed on a real
+pull request. Phase 19 documents the intended settings; it does not automate
+repository administration. External approval is not required for the current
+solo-development workflow.
+
+For `main`:
+
+- require a pull request before merging;
+- require the `quality` status check;
+- require the branch to be up to date before merging;
+- require conversation resolution;
+- block force pushes;
+- block branch deletion.
+
+For `local`:
+
+- require pull requests from short-lived phase branches;
+- require the `quality` status check;
+- block force pushes;
+- block branch deletion.
 
     ## Directory tree
 

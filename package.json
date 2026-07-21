@@ -13,7 +13,8 @@
     "postinstall": "prisma generate",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run",
+    "test": "vitest run --exclude tests/context-postgres.test.tsx --exclude tests/imports-postgres.test.ts",
+    "test:integration": "vitest run tests/context-postgres.test.tsx tests/imports-postgres.test.ts --no-file-parallelism --maxWorkers=1",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate deploy",
     "db:migrate:dev": "prisma migrate dev",
@@ -22,8 +23,8 @@
     "db:validate": "prisma validate",
     "generate:schemas": "node --import tsx scripts/validate-payloads.ts --write",
     "validate:payloads": "node --import tsx scripts/validate-payloads.ts",
-    "format": "prettier --write package.json pnpm-workspace.yaml eslint.config.mjs next.config.ts postcss.config.mjs prisma.config.ts tsconfig.json \"prisma/**/*.ts\" \"schemas/**/*.json\" \"scripts/**/*.ts\" \"src/**/*.{ts,tsx,css}\" \"tests/**/*.ts\"",
-    "format:check": "prettier --check package.json pnpm-workspace.yaml eslint.config.mjs next.config.ts postcss.config.mjs prisma.config.ts tsconfig.json \"prisma/**/*.ts\" \"schemas/**/*.json\" \"scripts/**/*.ts\" \"src/**/*.{ts,tsx,css}\" \"tests/**/*.ts\""
+    "format": "prettier --write package.json pnpm-workspace.yaml eslint.config.mjs next.config.ts postcss.config.mjs prisma.config.ts tsconfig.json \"prisma/**/*.ts\" \"schemas/**/*.json\" \"scripts/**/*.ts\" \"src/**/*.{ts,tsx,css}\" \"tests/**/*.{ts,tsx}\"",
+    "format:check": "prettier --check package.json pnpm-workspace.yaml eslint.config.mjs next.config.ts postcss.config.mjs prisma.config.ts tsconfig.json \"prisma/**/*.ts\" \"schemas/**/*.json\" \"scripts/**/*.ts\" \"src/**/*.{ts,tsx,css}\" \"tests/**/*.{ts,tsx}\""
   },
   "dependencies": {
     "@prisma/adapter-pg": "7.8.0",
