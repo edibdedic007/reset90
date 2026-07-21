@@ -7,6 +7,7 @@ import {
   normalizeUtcDate,
 } from "@/server/db/cycle";
 import { weeklyPatternSchema } from "@/server/imports/schemas";
+import { writeSafeLogEvent, type SafeLogSink } from "@/server/http/security";
 import { calculateDayStatus } from "@/server/recovery/day-status";
 
 import {
@@ -475,6 +476,7 @@ export type GptContextPacketHttpDependencies = {
   getSession: () => Promise<{ userId: string } | null>;
   getDatabase: () => PacketDatabase;
   now?: () => Date;
+  logSink?: SafeLogSink;
 };
 
 function safeError(error: string, message: string, status: number) {
@@ -540,6 +542,16 @@ export async function handleGptContextPacketRequest(
       },
     });
   } catch {
+    writeSafeLogEvent(
+      {
+        event: "request_failed",
+        operation: "context.export",
+        code: "context_export_failed",
+        httpStatus: 500,
+        correlationId: crypto.randomUUID(),
+      },
+      dependencies.logSink,
+    );
     return safeError(
       "context_export_failed",
       "GPT context packet could not be generated. Try again.",

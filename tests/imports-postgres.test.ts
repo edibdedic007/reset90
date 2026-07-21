@@ -136,8 +136,8 @@ function dependencies(now = FIXED_NOW): GptImportHandlerDependencies {
     },
     getDatabase: () => database,
     rateLimiter: createGptImportRateLimiter(() => now.getTime()),
-    normalizeDailyPlan: (client, importedPayloadId) =>
-      normalizeDailyPlanImport(client, importedPayloadId, now),
+    normalizeDailyPlan: (client, importedPayloadId, subject) =>
+      normalizeDailyPlanImport(client, importedPayloadId, subject, now),
     normalizeDailyReflection: (client, importedPayloadId, subject) =>
       normalizeDailyReflectionImport(client, importedPayloadId, subject, now),
   };
@@ -342,19 +342,110 @@ describe("GPT import PostgreSQL integration", () => {
     ).toEqual({ processingStatus: "FAILED" });
   });
 
-  it("excludes another user's normalized plan from day-detail reads", async () => {
+  it("fails a missing owned plan target without searching another active cycle", async () => {
+    await seedCycle({
+      user: owner,
+      startDate: "2026-08-01",
+      endDate: "2026-10-29",
+      suffix: "8",
+    });
+    const foreign = await seedCycle({
+      user: foreignOwner,
+      startDate: "2026-07-01",
+      endDate: "2026-09-28",
+      suffix: "9",
+    });
+    const payload = planPayload("phase19-plan-owner-target-missing");
+
+    const response = await handleGptImport(requestFor(payload), dependencies());
+
+    expect(response.status).toBe(422);
+    expect(await response.json()).toMatchObject({
+      ok: false,
+      error: "normalization_error",
+      code: "day_log_not_found",
+    });
+    expect(
+      await database.dailyPlan.count({ where: { dayLogId: foreign.dayLogId } }),
+    ).toBe(0);
+    expect(
+      await database.task.count({
+        where: { dailyPlan: { dayLogId: foreign.dayLogId } },
+      }),
+    ).toBe(0);
+  });
+
+  it("scopes daily-plan normalization to the trusted owner with matching targets", async () => {
     const foreign = await seedCycle({
       user: foreignOwner,
       startDate: "2026-07-01",
       endDate: "2026-09-28",
       suffix: "7",
-      phaseName: "Foreign Test Phase",
     });
     const ownerCycle = await seedCycle({
       user: owner,
       startDate: "2026-07-01",
       endDate: "2026-09-28",
       suffix: "6",
+    });
+    const foreignPlanImport = await database.importedPayload.create({
+      data: {
+        kind: "DAILY_PLAN",
+        schemaVersion: "1.0",
+        idempotencyKey: "phase19-foreign-existing-plan",
+        source: SOURCE,
+        rawJson: planPayload("phase19-foreign-existing-plan"),
+        validationStatus: "VALID",
+        processingStatus: "PROCESSED",
+        processedAt: FIXED_NOW,
+      },
+    });
+    const foreignReflectionImport = await database.importedPayload.create({
+      data: {
+        kind: "DAILY_REFLECTION",
+        schemaVersion: "1.0",
+        idempotencyKey: "phase19-foreign-existing-reflection",
+        source: SOURCE,
+        rawJson: reflectionPayload("phase19-foreign-existing-reflection"),
+        validationStatus: "VALID",
+        processingStatus: "PROCESSED",
+        processedAt: FIXED_NOW,
+      },
+    });
+    await database.dailyPlan.create({
+      data: {
+        dayLogId: foreign.dayLogId,
+        importedPayloadId: foreignPlanImport.id,
+        source: SOURCE,
+        schemaVersion: "1.0",
+        mission: "PHASE20_FOREIGN_MISSION",
+        supportiveMessage: "PHASE20_FOREIGN_SUPPORT",
+        warnings: [],
+        downshiftRule: "PHASE20_FOREIGN_DOWNSHIFT",
+        contextSummary: "PHASE20_FOREIGN_CONTEXT",
+        tasks: {
+          create: {
+            title: "PHASE20_FOREIGN_TASK",
+            domain: "WORK",
+            tier: "MINIMUM",
+            sortOrder: 0,
+          },
+        },
+      },
+    });
+    await database.dailyReflection.create({
+      data: {
+        dayLogId: foreign.dayLogId,
+        importedPayloadId: foreignReflectionImport.id,
+        summary: "PHASE20_FOREIGN_REFLECTION",
+      },
+    });
+    await database.dayLog.update({
+      where: { id: foreign.dayLogId },
+      data: {
+        mission: "PHASE20_FOREIGN_MISSION",
+        supportiveMessage: "PHASE20_FOREIGN_SUPPORT",
+      },
     });
     const payload = planPayload("phase19-private-owner-plan");
     payload.payload.mission = "PHASE19_PRIVATE_OWNER_PLAN";
@@ -378,11 +469,26 @@ describe("GPT import PostgreSQL integration", () => {
         expect.objectContaining({ title: "PHASE19_PRIVATE_OWNER_TASK" }),
       ]),
     );
+    const unchangedForeignPlan = await database.dailyPlan.findUniqueOrThrow({
+      where: { dayLogId: foreign.dayLogId },
+      include: { tasks: true },
+    });
+    expect(unchangedForeignPlan).toMatchObject({
+      importedPayloadId: foreignPlanImport.id,
+      mission: "PHASE20_FOREIGN_MISSION",
+    });
+    expect(unchangedForeignPlan.tasks).toEqual([
+      expect.objectContaining({ title: "PHASE20_FOREIGN_TASK" }),
+    ]);
     expect(
-      await database.dailyPlan.count({
+      await database.dailyReflection.findUniqueOrThrow({
         where: { dayLogId: foreign.dayLogId },
+        select: { importedPayloadId: true, summary: true },
       }),
-    ).toBe(0);
+    ).toEqual({
+      importedPayloadId: foreignReflectionImport.id,
+      summary: "PHASE20_FOREIGN_REFLECTION",
+    });
 
     const foreignDetail = await getDayDetail(
       database,
@@ -392,11 +498,13 @@ describe("GPT import PostgreSQL integration", () => {
     );
     expect(foreignDetail).toMatchObject({
       status: "ready",
-      day: { status: "UNSET" },
-      plan: null,
+      plan: {
+        mission: "PHASE20_FOREIGN_MISSION",
+        tasks: [expect.objectContaining({ title: "PHASE20_FOREIGN_TASK" })],
+      },
       checkins: [],
       recoveryEvent: null,
-      reflection: null,
+      reflection: { summary: "PHASE20_FOREIGN_REFLECTION" },
     });
     expect(JSON.stringify(foreignDetail)).not.toContain(
       "PHASE19_PRIVATE_OWNER",

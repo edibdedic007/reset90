@@ -17,7 +17,7 @@ shame-based streaks.
 - Docker Compose locally and in production, with Traefik expected in production
 - GitHub Actions CI
 
-## Implemented through Phase 18
+## Implemented through Phase 20
 
 - Repository, local environment, Prisma schema/migrations, seed data, readiness,
   quality gates, CI, backups/export/deployment helpers.
@@ -50,24 +50,26 @@ shame-based streaks.
 - Authenticated, read-only user-data export from Settings: one versioned full
   JSON archive across all owned cycles, day-log/task/check-in CSVs, and stored
   weekly/cycle-report Markdown summaries with linked-owned raw-import scope.
+- Stable CI quality workflow plus guarded disposable-PostgreSQL integration
+  coverage for migrations, import persistence, and cross-user isolation.
+- Central browser mutation guards, read-only application GET/HEAD behavior,
+  trusted-owner machine imports, bounded request bodies, process-local import
+  rate limits, safe logging, security headers, and tracked-file hygiene checks.
 
 ## Current boundary
 
-Phase 18 provides browser-authenticated portability for existing application
-users without persistence, import, generated analysis, background jobs, or
-database changes. Restore/replacement/conflict semantics remain undefined, so
-all data import remains deferred.
+Phase 20 hardens the pre-production application boundary without changing
+product semantics or the database schema. Browser mutations require an existing
+authenticated user, exact configured origin, JSON, and a streamed 16 KiB body
+limit. GPT imports require header-only machine authentication before body access,
+a trusted existing owner with one active cycle, a streamed 128 KiB body limit,
+and process-local endpoint/principal rate limits. Application GET/HEAD handlers
+remain read-only, logs are allowlist-only, compatible security headers are
+centralized, and Git-backed repository hygiene checks fail closed.
 
-Phase 19 testing-foundation and CI changes are implemented on
-`chore/ci-and-testing-foundation`: one read-only `quality` workflow delegates to
-the fail-closed `make check` gate; a disposable, guarded PostgreSQL harness
-requires an empty database before applying all migrations and running serial
-import/persistence integration tests; committed pull-request whitespace and
-normalized cross-user day-detail read isolation are covered; and the canonical
-PR template plus branch-protection guidance are present. Local focused checks
-and `make check` pass. Phase 19 completion still requires the `quality` job to
-appear and pass on a real pull request. No product behavior, Prisma schema,
-application migration, or Phase 20 security work changed.
+Phase 21 remains separate production deployment work. Production containers,
+Traefik/TLS configuration, trusted proxy behavior, HSTS, distributed or
+IP-based rate limiting, and cutover are not implemented here.
 
 ## Durable implementation rules
 
@@ -84,7 +86,19 @@ application migration, or Phase 20 security work changed.
 - The outbound GPT context packet runtime schema and assembler live in
   `src/server/context-export/`; packet generation is allowlist-only and
   read-only.
-- Browser auth and GPT machine ingest auth remain separate boundaries.
+- Browser auth and GPT machine ingest auth remain separate boundaries. Browser
+  reads resolve existing users without application provisioning; mutations also
+  require the exact canonical application origin and a 16 KiB streamed JSON
+  body limit.
+- GPT imports authenticate before body access, use a fixed 128 KiB streamed JSON
+  body limit, resolve exactly one trusted-owner active cycle, and use rolling
+  process-local limits of 120 endpoint requests and 30 principal requests per
+  60 seconds.
+- Security headers include CSP, framing denial, no-sniff, no-referrer, and a
+  restrictive permissions policy. HSTS remains deferred until Phase 21 verifies
+  HTTPS and proxy behavior.
+- The quality gate checks Git-tracked paths for forbidden sensitive files;
+  approved placeholder environment examples remain trackable.
 - One normalized plan exists per day; a new same-day import replaces it
   transactionally, while reprocessing the same raw import is a no-op.
 - One normalized reflection exists per day; a newer valid import replaces its
@@ -97,7 +111,8 @@ application migration, or Phase 20 security work changed.
 - Imported plan energy does not overwrite later user-selected/check-in energy.
 - Current-day browser APIs derive ownership and active UTC day server-side.
 - Progress reads derive ownership from the authenticated user's active cycle,
-  reuse Phase 11 status reconciliation, and never infer status for missing logs.
+  calculate response statuses without persistence, and never infer status for
+  missing logs.
 - Analytics resolves an existing browser user without upsert, requires exactly
   one owned active cycle, reuses canonical UTC/status behavior, and never reads
   raw imports, private narratives, or weekly-review metric snapshots.

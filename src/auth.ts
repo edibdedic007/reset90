@@ -5,6 +5,7 @@ import {
   getAuthentikProviderConfig,
   getAuthMode,
   getAuthSecret,
+  getSessionCookieConfig,
   isPublicAuthPath,
   SESSION_MAX_AGE_SECONDS,
   shouldTrustAuthHost,
@@ -22,6 +23,9 @@ export const authConfig = {
   },
   trustHost: shouldTrustAuthHost(),
   useSecureCookies: shouldUseSecureCookies(),
+  cookies: {
+    sessionToken: getSessionCookieConfig(),
+  },
   callbacks: {
     authorized({ auth, request }) {
       if (isPublicAuthPath(request.nextUrl.pathname)) {

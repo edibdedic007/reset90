@@ -79,6 +79,9 @@ Production deployment should:
 
 ## Security
 
+Implemented controls and Phase 21 deferrals are recorded in
+`docs/19_SECURITY_CHECKLIST.md`.
+
 - No secrets in Git.
 - Use HTTPS in production.
 - Use Authentik OIDC for UI.

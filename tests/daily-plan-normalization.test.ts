@@ -4,6 +4,8 @@ import dailyPlanExample from "../examples/daily_plan_payload.json";
 import type { DailyPlanNormalizationDatabase } from "../src/server/imports/normalize-daily-plan";
 import { normalizeDailyPlanImport } from "../src/server/imports/normalize-daily-plan";
 
+const OWNER_SUBJECT = "daily-plan-owner";
+
 type ProcessingStatus = "PENDING" | "PROCESSED" | "REJECTED" | "FAILED";
 
 type StoredImport = {
@@ -88,12 +90,13 @@ function createTestDatabase(
       return importedPayload;
     },
   );
-  const dayLogFindFirst = vi.fn(({ where }: { where: { cycleId?: string } }) =>
-    where.cycleId
-      ? null
-      : options.dayLogFound === false
+  const dayLogFindFirst = vi.fn(
+    ({ where }: { where: { cycleId?: string; dayNumber?: number } }) =>
+      where.dayNumber === undefined
         ? null
-        : { id: dayLog.id },
+        : options.dayLogFound === false
+          ? null
+          : { id: dayLog.id },
   );
   const dayLogUpdate = vi.fn(
     ({
@@ -143,6 +146,19 @@ function createTestDatabase(
     },
   );
   const transaction = {
+    $queryRaw: vi.fn().mockResolvedValue([{ id: "locked" }]),
+    user: {
+      findUnique: vi.fn().mockResolvedValue({ id: "user-1" }),
+    },
+    resetCycle: {
+      findMany: vi.fn().mockResolvedValue([
+        {
+          id: "cycle-1",
+          startDate: new Date("2026-07-01T00:00:00.000Z"),
+          endDate: new Date("2026-09-28T00:00:00.000Z"),
+        },
+      ]),
+    },
     importedPayload: {
       findUnique: importedPayloadFindUnique,
       update: importedPayloadUpdate,
@@ -176,7 +192,11 @@ describe("daily plan normalization", () => {
     const testDatabase = createTestDatabase();
 
     await expect(
-      normalizeDailyPlanImport(testDatabase.database, "import-1"),
+      normalizeDailyPlanImport(
+        testDatabase.database,
+        "import-1",
+        OWNER_SUBJECT,
+      ),
     ).resolves.toEqual({
       status: "processed",
       dailyPlanId: "plan-1",
@@ -212,10 +232,10 @@ describe("daily plan normalization", () => {
     });
     expect(testDatabase.dayLogFindFirst).toHaveBeenCalledWith({
       where: {
+        cycleId: "cycle-1",
         date: new Date("2026-07-01T00:00:00.000Z"),
         dayNumber: 1,
         phase: { name: "Clear the Fog" },
-        cycle: { status: "ACTIVE" },
       },
       select: { id: true },
     });
@@ -224,11 +244,16 @@ describe("daily plan normalization", () => {
   it("does not recreate tasks when the same raw import is processed again", async () => {
     const testDatabase = createTestDatabase();
 
-    await normalizeDailyPlanImport(testDatabase.database, "import-1");
+    await normalizeDailyPlanImport(
+      testDatabase.database,
+      "import-1",
+      OWNER_SUBJECT,
+    );
     const firstTaskSnapshot = structuredClone(testDatabase.snapshot().tasks);
     const repeated = await normalizeDailyPlanImport(
       testDatabase.database,
       "import-1",
+      OWNER_SUBJECT,
     );
 
     expect(repeated).toEqual({
@@ -245,14 +270,22 @@ describe("daily plan normalization", () => {
     Reflect.deleteProperty(withoutWarnings.payload, "warnings");
     const testDatabase = createTestDatabase({ rawInput: withoutWarnings });
 
-    await normalizeDailyPlanImport(testDatabase.database, "import-1");
+    await normalizeDailyPlanImport(
+      testDatabase.database,
+      "import-1",
+      OWNER_SUBJECT,
+    );
 
     expect(testDatabase.snapshot().plan).toMatchObject({ warnings: [] });
   });
 
   it("replaces the same day's plan and tasks for a new import deterministically", async () => {
     const testDatabase = createTestDatabase();
-    await normalizeDailyPlanImport(testDatabase.database, "import-1");
+    await normalizeDailyPlanImport(
+      testDatabase.database,
+      "import-1",
+      OWNER_SUBJECT,
+    );
 
     const replacement = structuredClone(dailyPlanExample);
     replacement.idempotency_key = "2026-07-01-day-1-revised-plan-v2";
@@ -271,7 +304,11 @@ describe("daily plan normalization", () => {
     });
 
     await expect(
-      normalizeDailyPlanImport(testDatabase.database, "import-2"),
+      normalizeDailyPlanImport(
+        testDatabase.database,
+        "import-2",
+        OWNER_SUBJECT,
+      ),
     ).resolves.toMatchObject({ status: "processed", taskCount: 7 });
 
     const state = testDatabase.snapshot();
@@ -288,7 +325,11 @@ describe("daily plan normalization", () => {
     const testDatabase = createTestDatabase({ dayLogFound: false });
 
     await expect(
-      normalizeDailyPlanImport(testDatabase.database, "import-1"),
+      normalizeDailyPlanImport(
+        testDatabase.database,
+        "import-1",
+        OWNER_SUBJECT,
+      ),
     ).resolves.toEqual({
       status: "failed",
       code: "day_log_not_found",

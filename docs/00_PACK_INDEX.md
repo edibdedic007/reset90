@@ -28,7 +28,7 @@ generated context, not the full documentation pack.
 | Context/memory | `05_CONTEXT_MEMORY_DESIGN.md`, ADR 0006 |
 | UX/dashboard | `06_UX_FLOWS.md` |
 | Local/production deployment | `07_ENVIRONMENTS_DEPLOYMENT.md`, `08_AUTOMATION_AND_SCRIPTS.md` |
-| Testing/security/observability | `09_ENGINEERING_BEST_PRACTICES.md` |
+| Testing/security/observability | `09_ENGINEERING_BEST_PRACTICES.md`, `19_SECURITY_CHECKLIST.md` |
 | Git workflow | `10_GIT_WORKFLOW.md`, ADR 0008 |
 | ADR process | `15_ADR_PROCESS_AND_REASONING.md`, `adr/README.md` |
 | Codex work loop | `17_CODEX_EXECUTION_RUNBOOK.md` |

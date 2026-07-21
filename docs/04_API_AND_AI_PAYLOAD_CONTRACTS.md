@@ -16,7 +16,8 @@
 
     ## Success Criteria
     - GPT can safely import data without duplicate records.
-- Malformed payloads are rejected and saved as failed imports if useful.
+- Malformed or canonically invalid HTTP payloads are rejected before raw import
+  persistence.
 - Browser API cannot be accessed with GPT ingest token.
 - Payload examples validate in CI.
 
@@ -32,7 +33,8 @@
 Browser UI:
 
 - production: Auth.js session backed by Authentik OIDC;
-- local: `AUTH_MODE=dev` creates or updates a local development user;
+- local: `AUTH_MODE=dev` resolves an existing seeded local development user;
+  application reads do not create or upsert users;
 - OIDC mode requires `AUTH_SECRET`, `AUTH_AUTHENTIK_ID`,
   `AUTH_AUTHENTIK_SECRET`, `AUTH_AUTHENTIK_ISSUER`, and
   `AUTH_TRUST_HOST=true` in production.
@@ -41,7 +43,7 @@ GPT ingest:
 
 - `Authorization: Bearer <GPT_INGEST_TOKEN>` for MVP;
 - `GPT_INGEST_OWNER_SUBJECT` associates that machine principal with one trusted
-  application owner for daily-reflection and weekly-review normalization;
+  existing application owner for every import kind;
 - `Idempotency-Key` header matching the envelope `idempotency_key`;
 - optional HMAC signature later;
 - no export/delete/admin permissions.
@@ -94,7 +96,7 @@ Rules:
 - Unknown envelope and payload fields are rejected.
 - Store full raw JSON in `imported_payloads.raw_json`.
 - If the same source and idempotency key arrive again, return `200` with the existing import reference, not a hard error.
-- Reject bodies over `GPT_INGEST_MAX_BODY_BYTES`.
+- Reject compressed bodies and bodies over the fixed 128 KiB import limit.
 - Require `Content-Type: application/json`.
 - Reject missing or mismatched `Idempotency-Key` headers before storage.
 
@@ -111,24 +113,23 @@ payload schema as `schemas/context-item-v2.schema.json` with a distinct,
 versioned `$id`. `schemas/import-envelope.schema.json` performs
 deterministic context-item dispatch from the declared `schema_version`.
 
-Phase 5 provides the service-layer `storeRawImport` boundary. It stores valid
-raw envelopes before normalization, stores identifiable invalid envelopes with
-safe validation metadata, and returns an existing import for duplicate
-`(source, idempotency_key)` values. Invalid inputs without trustworthy envelope
-metadata are rejected without a database write. No API endpoint or normalized
-domain mutation is part of this phase.
+Phase 5 provides the service-layer `storeRawImport` boundary. It returns an
+existing import for duplicate `(source, idempotency_key)` values and retains its
+internal safe-invalid handling for non-HTTP callers. The Phase 20 HTTP boundary
+performs canonical validation before calling it, so invalid request envelopes
+are not persisted. No normalized domain mutation occurs before valid raw storage.
 
-Phase 6 exposes `POST /api/gpt/import` with dedicated bearer-token auth; it does
-not use or require a browser Authentik session. The route streams and caps the
-body before JSON parsing, validates the canonical envelope, then delegates raw
-storage to `storeRawImport`. It applies a basic process-local cap of 60
-authenticated requests per minute and returns `429` with `Retry-After` when the
-cap is exceeded. This limiter is a single-instance safety guard; production
-hardening may replace it with a shared limiter if deployment becomes
-multi-instance.
+`POST /api/gpt/import` uses only dedicated bearer-token auth and never a browser
+session. Authentication completes before body access. The route rejects
+compressed or non-JSON bodies, streams a fixed 128 KiB cap, parses and validates
+the canonical envelope, then stores valid raw input before normalization. Phase
+20 applies process-local rolling limits of 120 endpoint requests and 30 requests
+per authenticated token fingerprint per 60 seconds; `429` includes
+`Retry-After`. Counters reset on process restart and are not shared by replicas.
 
-Phase 7 normalizes valid `daily_plan` imports after raw storage. The plan must
-match one active `day_log` by date, day number, and phase. Successful daily plan
+Phase 7 normalizes valid `daily_plan` imports after raw storage. The configured
+trusted owner must exist with exactly one active cycle, and the plan must match
+one `day_log` inside that cycle by date, day number, and phase. Successful daily plan
 responses include `normalized_records`; a safe normalization mismatch returns
 `422 normalization_error` with the retained raw import reference. Repeating an
 already processed import does not recreate tasks. A pending duplicate is safe
@@ -190,9 +191,16 @@ GPT ingest token.
 
 Phase 8 protects browser UI routes with Auth.js and Authentik OIDC in
 `AUTH_MODE=oidc`. `AUTH_MODE=dev` keeps local browser access available by
-persisting a single `local-dev-user`. `/api/gpt/import` remains outside browser
+resolving the seeded `local-dev-user`. Application reads never create or upsert
+that user. `/api/gpt/import` remains outside browser
 session auth and still requires only the dedicated GPT bearer token plus the
 idempotency header.
+
+Phase 20 protects every custom browser mutation with an existing-user session,
+exact `APP_URL` same-origin enforcement, JSON-only identity encoding, a streamed
+16 KiB body cap, and runtime validation. `Host` and forwarded headers cannot
+redefine accepted origin. Application-domain reads derive canonical status
+without persistence, and unsupported methods return `405` with `Allow`.
 
 ## Daily plan payload
 
@@ -495,7 +503,7 @@ HTTP status behavior:
 | `200` | Duplicate key; existing import returned. |
 | `400` | Invalid JSON or missing/mismatched idempotency header. |
 | `401` | Missing or invalid GPT bearer token. |
-| `413` | Body exceeds `GPT_INGEST_MAX_BODY_BYTES`. |
+| `413` | Body exceeds the fixed 128 KiB import limit. |
 | `415` | Content type is not JSON. |
 | `422` | Canonical validation failed, or normalization could not resolve its trusted active-cycle target. |
 | `429` | Process-local authenticated request cap exceeded. |

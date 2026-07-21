@@ -428,7 +428,11 @@ export function TodayCommandCenter({
     setNotice(null);
 
     try {
-      const response = await fetch("/api/recovery/start", { method: "POST" });
+      const response = await fetch("/api/recovery/start", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: "{}",
+      });
       if (!response.ok) {
         setNotice(await recoveryErrorNotice(response));
         return;

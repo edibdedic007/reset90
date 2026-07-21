@@ -54,6 +54,15 @@ function toSafeIssues(
   }));
 }
 
+export function validateRawImport(
+  rawInput: unknown,
+): { success: true } | { success: false; errors: SafeValidationIssue[] } {
+  const result = importEnvelopeSchema.safeParse(rawInput);
+  return result.success
+    ? { success: true }
+    : { success: false, errors: toSafeIssues(result.error.issues) };
+}
+
 function toInputJsonValue(value: unknown): Prisma.InputJsonValue {
   const serialized = JSON.stringify(value);
 
@@ -126,10 +135,8 @@ export async function storeRawImport(
     };
   }
 
-  const validationResult = importEnvelopeSchema.safeParse(rawInput);
-  const errors = validationResult.success
-    ? []
-    : toSafeIssues(validationResult.error.issues);
+  const validationResult = validateRawImport(rawInput);
+  const errors = validationResult.success ? [] : validationResult.errors;
 
   try {
     const stored = await database.importedPayload.create({

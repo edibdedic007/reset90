@@ -89,6 +89,19 @@ export function shouldUseSecureCookies(env: AuthEnv = process.env) {
   return env.NODE_ENV === "production";
 }
 
+export function getSessionCookieConfig(env: AuthEnv = process.env) {
+  const secure = shouldUseSecureCookies(env);
+  return {
+    name: secure ? "__Secure-authjs.session-token" : "authjs.session-token",
+    options: {
+      httpOnly: true,
+      sameSite: "lax" as const,
+      path: "/",
+      secure,
+    },
+  };
+}
+
 export function isPublicAuthPath(pathname: string) {
   if (PUBLIC_EXACT_PATHS.has(pathname)) {
     return true;

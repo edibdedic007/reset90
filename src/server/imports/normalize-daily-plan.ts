@@ -3,6 +3,7 @@ import { Prisma, type PrismaClient } from "../../generated/prisma/client";
 import { importEnvelopeSchema } from "./schemas";
 import type { DailyPlanPayload } from "./schemas/daily-plan";
 import { reconcileDayStatusInTransaction } from "../recovery/service";
+import { resolveTrustedMachineOwner } from "./machine-owner";
 
 type DailyPlanTask =
   | DailyPlanPayload["non_negotiables"][number]
@@ -44,6 +45,9 @@ export type DailyPlanNormalizationResult =
         | "import_not_found"
         | "import_not_processable"
         | "invalid_stored_payload"
+        | "import_owner_not_found"
+        | "active_cycle_not_found"
+        | "active_cycle_ambiguous"
         | "day_log_not_found"
         | "processed_record_not_found";
     };
@@ -88,9 +92,14 @@ async function markFailed(
 export function normalizeDailyPlanImport(
   database: DailyPlanNormalizationDatabase,
   importedPayloadId: string,
+  ownerAuthentikSubject: string,
   now = new Date(),
 ): Promise<DailyPlanNormalizationResult> {
   return database.$transaction(async (transaction) => {
+    await transaction.$queryRaw(
+      Prisma.sql`SELECT id FROM imported_payloads WHERE id = ${importedPayloadId}::uuid FOR UPDATE`,
+    );
+
     const importedPayload = await transaction.importedPayload.findUnique({
       where: { id: importedPayloadId },
       select: {
@@ -154,12 +163,20 @@ export function normalizeDailyPlanImport(
     }
 
     const payload = envelope.data.payload;
+    const owner = await resolveTrustedMachineOwner(
+      transaction,
+      ownerAuthentikSubject,
+    );
+    if (owner.status !== "resolved") {
+      return markFailed(transaction, importedPayloadId, owner.status, now);
+    }
+
     const dayLog = await transaction.dayLog.findFirst({
       where: {
+        cycleId: owner.cycle.id,
         date: new Date(`${payload.date}T00:00:00.000Z`),
         dayNumber: payload.day_number,
         phase: { name: payload.phase },
-        cycle: { status: "ACTIVE" },
       },
       select: { id: true },
     });

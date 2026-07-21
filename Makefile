@@ -1,6 +1,6 @@
 SHELL := /usr/bin/env bash
 
-.PHONY: help session context phase phase-bundle review-bundle new-work update-task-state setup-local bootstrap install dev dev-up dev-down logs check quality-check lint format format-check typecheck test test-integration build db-validate db-migrate db-seed db-reset db-backup db-restore validate-payloads env-check prod-check prod-build prod-up prod-down prod-logs prod-health deploy-production export-full docs-bundle healthcheck
+.PHONY: help session context phase phase-bundle review-bundle new-work update-task-state setup-local bootstrap install dev dev-up dev-down logs check quality-check check-sensitive lint format format-check typecheck test test-integration build db-validate db-migrate db-seed db-reset db-backup db-restore validate-payloads env-check prod-check prod-build prod-up prod-down prod-logs prod-health deploy-production export-full docs-bundle healthcheck
 
 LOCAL_COMPOSE := docker compose --env-file .env.local -f docker-compose.local.yml
 
@@ -18,6 +18,7 @@ help:
 	@echo "  make dev-down                Stop local PostgreSQL"
 	@echo "  make logs                    Follow local PostgreSQL logs"
 	@echo "  make check                   Run complete local quality gate"
+	@echo "  make check-sensitive         Reject tracked sensitive paths"
 	@echo "  make test-integration        Run migrations and serial PostgreSQL tests"
 	@echo "  make validate-payloads       Validate canonical GPT payload examples"
 	@echo "  make env-check               Validate .env.local baseline keys"
@@ -78,6 +79,9 @@ logs:
 
 check quality-check:
 	./scripts/quality-check.sh
+
+check-sensitive:
+	./scripts/check-tracked-sensitive-files.sh
 
 lint:
 	pnpm run lint

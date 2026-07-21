@@ -1,4 +1,5 @@
 import type { PrismaClient } from "@/generated/prisma/client";
+import { writeSafeLogEvent, type SafeLogSink } from "@/server/http/security";
 
 export const FULL_EXPORT_TYPE = "reset90_full_export" as const;
 export const FULL_EXPORT_SCHEMA_VERSION = "1.0" as const;
@@ -770,6 +771,7 @@ export type UserDataExportHttpDependencies = {
   getDatabase: () => UserDataExportDatabase;
   now?: () => Date;
   serializers?: UserDataExportSerializers;
+  logSink?: SafeLogSink;
 };
 
 const PRIVATE_NO_STORE_HEADERS = { "Cache-Control": "private, no-store" };
@@ -906,6 +908,16 @@ export async function handleUserDataExportRequest(
       },
     });
   } catch {
+    writeSafeLogEvent(
+      {
+        event: "request_failed",
+        operation: "user_data.export",
+        code: "export_failed",
+        httpStatus: 500,
+        correlationId: crypto.randomUUID(),
+      },
+      dependencies.logSink,
+    );
     return safeError(
       "export_failed",
       "Reset90 data could not be exported. Try again.",

@@ -1,10 +1,7 @@
 import { Prisma, type PrismaClient } from "../../generated/prisma/client";
 import { normalizeContextTag } from "../../lib/context";
-import {
-  findSingularActiveCycle,
-  lockAndRevalidateSingularActiveCycle,
-} from "../context-cycle";
 
+import { resolveTrustedMachineOwner } from "./machine-owner";
 import {
   contextItemImportSchema,
   LEGACY_CONTEXT_ITEM_SCHEMA_VERSION,
@@ -109,6 +106,14 @@ export function normalizeContextItemImport(
       );
     }
 
+    const owner = await resolveTrustedMachineOwner(
+      transaction,
+      ownerAuthentikSubject,
+    );
+    if (owner.status !== "resolved") {
+      return markFailed(transaction, importedPayloadId, owner.status);
+    }
+
     if (envelope.data.schema_version === LEGACY_CONTEXT_ITEM_SCHEMA_VERSION) {
       await transaction.importedPayload.update({
         where: { id: importedPayloadId },
@@ -121,54 +126,10 @@ export function normalizeContextItemImport(
       return { status: "accepted_raw_only" };
     }
 
-    const owner = await transaction.user.findUnique({
-      where: { authentikSubject: ownerAuthentikSubject },
-      select: { id: true },
-    });
-    if (!owner) {
-      return markFailed(
-        transaction,
-        importedPayloadId,
-        "import_owner_not_found",
-      );
-    }
-
-    const expectedCycle = await findSingularActiveCycle(transaction, owner.id);
-    if (!expectedCycle) {
-      const activeCycleCount = await transaction.resetCycle.count({
-        where: { userId: owner.id, status: "ACTIVE" },
-      });
-      return markFailed(
-        transaction,
-        importedPayloadId,
-        activeCycleCount === 0
-          ? "active_cycle_not_found"
-          : "active_cycle_ambiguous",
-      );
-    }
-
-    const cycle = await lockAndRevalidateSingularActiveCycle(
-      transaction,
-      owner.id,
-      expectedCycle.id,
-    );
-    if (!cycle) {
-      const activeCycleCount = await transaction.resetCycle.count({
-        where: { userId: owner.id, status: "ACTIVE" },
-      });
-      return markFailed(
-        transaction,
-        importedPayloadId,
-        activeCycleCount === 0
-          ? "active_cycle_not_found"
-          : "active_cycle_ambiguous",
-      );
-    }
-
     const payload = envelope.data.payload;
     const contextItem = await transaction.contextItem.create({
       data: {
-        cycleId: cycle.id,
+        cycleId: owner.cycle.id,
         kind: payload.kind,
         domain: payload.domain,
         title: payload.title,

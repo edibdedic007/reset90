@@ -1,6 +1,14 @@
 import { createHash, timingSafeEqual } from "node:crypto";
 
 import {
+  hasSupportedContentEncoding,
+  isJsonContentType,
+  readBoundedBody,
+  writeSafeLogEvent,
+  type SafeLogSink,
+} from "@/server/http/security";
+
+import {
   type ContextItemNormalizationDatabase,
   type ContextItemNormalizationResult,
   normalizeContextItemImport,
@@ -20,25 +28,26 @@ import {
   type WeeklyReviewNormalizationDatabase,
   type WeeklyReviewNormalizationResult,
 } from "./normalize-weekly-review";
-import { LEGACY_CONTEXT_ITEM_SCHEMA_VERSION } from "./schemas";
 import type { RawImportDatabase } from "./store";
-import { storeRawImport } from "./store";
+import { storeRawImport, validateRawImport } from "./store";
 
-const DEFAULT_MAX_BODY_BYTES = 1_048_576;
+const GPT_IMPORT_MAX_BODY_BYTES = 128 * 1024;
 const RATE_LIMIT_WINDOW_MS = 60_000;
-const RATE_LIMIT_REQUESTS_PER_WINDOW = 60;
+const ENDPOINT_RATE_LIMIT = 120;
+const PRINCIPAL_RATE_LIMIT = 30;
 
 type GptImportEnvironment = {
   GPT_INGEST_TOKEN?: string;
   GPT_INGEST_OWNER_SUBJECT?: string;
-  GPT_INGEST_MAX_BODY_BYTES?: string;
 };
 
 type RateLimitResult =
   { allowed: true } | { allowed: false; retryAfterSeconds: number };
 
 export type GptImportRateLimiter = {
-  check: () => RateLimitResult;
+  checkEndpoint: () => RateLimitResult;
+  checkPrincipal: (fingerprint: string) => RateLimitResult;
+  snapshot: () => { endpointCount: number; principalKeys: string[] };
 };
 
 export type GptImportDatabase = RawImportDatabase &
@@ -54,6 +63,7 @@ export type GptImportHandlerDependencies = {
   normalizeDailyPlan?: (
     database: DailyPlanNormalizationDatabase,
     importedPayloadId: string,
+    ownerAuthentikSubject: string,
   ) => Promise<DailyPlanNormalizationResult>;
   normalizeContextItem?: (
     database: ContextItemNormalizationDatabase,
@@ -70,6 +80,8 @@ export type GptImportHandlerDependencies = {
     importedPayloadId: string,
     ownerAuthentikSubject: string,
   ) => Promise<WeeklyReviewNormalizationResult>;
+  logSink?: SafeLogSink;
+  now?: () => number;
 };
 
 type ImportNormalizationResult =
@@ -77,11 +89,6 @@ type ImportNormalizationResult =
   | DailyPlanNormalizationResult
   | DailyReflectionNormalizationResult
   | WeeklyReviewNormalizationResult;
-
-type BodyReadResult =
-  | { status: "ok"; text: string }
-  | { status: "too_large" }
-  | { status: "invalid_encoding" };
 
 function jsonResponse(
   body: unknown,
@@ -97,17 +104,6 @@ function jsonResponse(
   });
 }
 
-function parseMaxBodyBytes(value: string | undefined): number {
-  if (!value) {
-    return DEFAULT_MAX_BODY_BYTES;
-  }
-
-  const parsed = Number(value);
-  return Number.isSafeInteger(parsed) && parsed > 0
-    ? parsed
-    : DEFAULT_MAX_BODY_BYTES;
-}
-
 function bearerToken(authorization: string | null): string | null {
   const match = authorization?.match(/^Bearer ([^\s]+)$/);
   return match?.[1] ?? null;
@@ -117,64 +113,6 @@ function tokenMatches(provided: string, expected: string): boolean {
   const providedDigest = createHash("sha256").update(provided).digest();
   const expectedDigest = createHash("sha256").update(expected).digest();
   return timingSafeEqual(providedDigest, expectedDigest);
-}
-
-function isJsonContentType(contentType: string | null): boolean {
-  return (
-    contentType?.split(";", 1)[0]?.trim().toLowerCase() === "application/json"
-  );
-}
-
-async function readBody(
-  request: Request,
-  maxBodyBytes: number,
-): Promise<BodyReadResult> {
-  const contentLength = request.headers.get("content-length");
-  if (contentLength) {
-    const declaredBytes = Number(contentLength);
-    if (Number.isFinite(declaredBytes) && declaredBytes > maxBodyBytes) {
-      return { status: "too_large" };
-    }
-  }
-
-  if (!request.body) {
-    return { status: "ok", text: "" };
-  }
-
-  const reader = request.body.getReader();
-  const chunks: Uint8Array[] = [];
-  let totalBytes = 0;
-
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) {
-      break;
-    }
-
-    totalBytes += value.byteLength;
-    if (totalBytes > maxBodyBytes) {
-      await reader.cancel();
-      return { status: "too_large" };
-    }
-
-    chunks.push(value);
-  }
-
-  const body = new Uint8Array(totalBytes);
-  let offset = 0;
-  for (const chunk of chunks) {
-    body.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-
-  try {
-    return {
-      status: "ok",
-      text: new TextDecoder("utf-8", { fatal: true }).decode(body),
-    };
-  } catch {
-    return { status: "invalid_encoding" };
-  }
 }
 
 function envelopeIdempotencyKey(input: unknown): string | null {
@@ -208,7 +146,15 @@ async function normalizeStoredImport(
 ): Promise<ImportNormalizationResult | { status: "service_unavailable" }> {
   const normalizeDailyPlan =
     dependencies.normalizeDailyPlan ?? normalizeDailyPlanImport;
-  const dailyPlan = await normalizeDailyPlan(database, importedPayloadId);
+  const ownerAuthentikSubject =
+    dependencies.env.GPT_INGEST_OWNER_SUBJECT?.trim();
+  if (!ownerAuthentikSubject) return { status: "service_unavailable" };
+
+  const dailyPlan = await normalizeDailyPlan(
+    database,
+    importedPayloadId,
+    ownerAuthentikSubject,
+  );
   if (dailyPlan.status !== "not_applicable") {
     return dailyPlan;
   }
@@ -226,27 +172,13 @@ async function normalizeStoredImport(
   }
 
   if (storedImport.kind === "CONTEXT_ITEM") {
-    const ownerAuthentikSubject =
-      dependencies.env.GPT_INGEST_OWNER_SUBJECT?.trim();
-    if (
-      !ownerAuthentikSubject &&
-      storedImport.schemaVersion !== LEGACY_CONTEXT_ITEM_SCHEMA_VERSION
-    ) {
-      return { status: "service_unavailable" };
-    }
     const normalizeContextItem =
       dependencies.normalizeContextItem ?? normalizeContextItemImport;
     return normalizeContextItem(
       database,
       importedPayloadId,
-      ownerAuthentikSubject ?? "",
+      ownerAuthentikSubject,
     );
-  }
-
-  const ownerAuthentikSubject =
-    dependencies.env.GPT_INGEST_OWNER_SUBJECT?.trim();
-  if (!ownerAuthentikSubject) {
-    return { status: "service_unavailable" };
   }
 
   if (storedImport.kind === "DAILY_REFLECTION") {
@@ -271,39 +203,74 @@ async function normalizeStoredImport(
 export function createGptImportRateLimiter(
   now: () => number = Date.now,
 ): GptImportRateLimiter {
-  let windowStartedAt = now();
-  let requests = 0;
+  const endpointRequests: number[] = [];
+  const principalRequests = new Map<string, number[]>();
+
+  function checkWindow(timestamps: number[], limit: number): RateLimitResult {
+    const currentTime = now();
+    const windowStart = currentTime - RATE_LIMIT_WINDOW_MS;
+    while (timestamps[0] !== undefined && timestamps[0] <= windowStart) {
+      timestamps.shift();
+    }
+
+    if (timestamps.length >= limit) {
+      return {
+        allowed: false,
+        retryAfterSeconds: Math.max(
+          1,
+          Math.ceil(
+            (timestamps[0] + RATE_LIMIT_WINDOW_MS - currentTime) / 1000,
+          ),
+        ),
+      };
+    }
+    timestamps.push(currentTime);
+    return { allowed: true };
+  }
 
   return {
-    check() {
-      const currentTime = now();
-      if (currentTime - windowStartedAt >= RATE_LIMIT_WINDOW_MS) {
-        windowStartedAt = currentTime;
-        requests = 0;
-      }
-
-      if (requests >= RATE_LIMIT_REQUESTS_PER_WINDOW) {
-        return {
-          allowed: false,
-          retryAfterSeconds: Math.max(
-            1,
-            Math.ceil(
-              (RATE_LIMIT_WINDOW_MS - (currentTime - windowStartedAt)) / 1000,
-            ),
-          ),
-        };
-      }
-
-      requests += 1;
-      return { allowed: true };
+    checkEndpoint() {
+      return checkWindow(endpointRequests, ENDPOINT_RATE_LIMIT);
+    },
+    checkPrincipal(fingerprint) {
+      const timestamps = principalRequests.get(fingerprint) ?? [];
+      principalRequests.set(fingerprint, timestamps);
+      return checkWindow(timestamps, PRINCIPAL_RATE_LIMIT);
+    },
+    snapshot() {
+      return {
+        endpointCount: endpointRequests.length,
+        principalKeys: [...principalRequests.keys()],
+      };
     },
   };
+}
+
+export function fingerprintMachineToken(token: string) {
+  return createHash("sha256")
+    .update(`reset90-machine-token:${token}`)
+    .digest("hex");
 }
 
 export async function handleGptImport(
   request: Request,
   dependencies: GptImportHandlerDependencies,
 ): Promise<Response> {
+  const correlationId = crypto.randomUUID();
+  const startedAt = dependencies.now?.() ?? Date.now();
+  if (request.method !== "POST") {
+    return jsonResponse({ ok: false, error: "method_not_allowed" }, 405, {
+      Allow: "POST",
+    });
+  }
+
+  const endpointRateLimit = dependencies.rateLimiter.checkEndpoint();
+  if (!endpointRateLimit.allowed) {
+    return jsonResponse({ ok: false, error: "rate_limited" }, 429, {
+      "Retry-After": String(endpointRateLimit.retryAfterSeconds),
+    });
+  }
+
   const expectedToken = dependencies.env.GPT_INGEST_TOKEN;
   if (!expectedToken) {
     return jsonResponse({ ok: false, error: "service_unavailable" }, 503);
@@ -316,13 +283,21 @@ export async function handleGptImport(
     });
   }
 
-  const rateLimit = dependencies.rateLimiter.check();
-  if (!rateLimit.allowed) {
+  const principalRateLimit = dependencies.rateLimiter.checkPrincipal(
+    fingerprintMachineToken(providedToken),
+  );
+  if (!principalRateLimit.allowed) {
     return jsonResponse({ ok: false, error: "rate_limited" }, 429, {
-      "Retry-After": String(rateLimit.retryAfterSeconds),
+      "Retry-After": String(principalRateLimit.retryAfterSeconds),
     });
   }
 
+  if (!hasSupportedContentEncoding(request.headers.get("content-encoding"))) {
+    return jsonResponse(
+      { ok: false, error: "unsupported_content_encoding" },
+      415,
+    );
+  }
   if (!isJsonContentType(request.headers.get("content-type"))) {
     return jsonResponse({ ok: false, error: "unsupported_media_type" }, 415);
   }
@@ -332,10 +307,7 @@ export async function handleGptImport(
     return jsonResponse({ ok: false, error: "missing_idempotency_key" }, 400);
   }
 
-  const body = await readBody(
-    request,
-    parseMaxBodyBytes(dependencies.env.GPT_INGEST_MAX_BODY_BYTES),
-  );
+  const body = await readBoundedBody(request, GPT_IMPORT_MAX_BODY_BYTES);
   if (body.status === "too_large") {
     return jsonResponse({ ok: false, error: "payload_too_large" }, 413);
   }
@@ -348,6 +320,18 @@ export async function handleGptImport(
     rawInput = JSON.parse(body.text) as unknown;
   } catch {
     return jsonResponse({ ok: false, error: "invalid_json" }, 400);
+  }
+
+  const validation = validateRawImport(rawInput);
+  if (!validation.success) {
+    return jsonResponse(
+      {
+        ok: false,
+        error: "validation_error",
+        details: validation.errors,
+      },
+      422,
+    );
   }
 
   const envelopeKey = envelopeIdempotencyKey(rawInput);
@@ -437,6 +421,18 @@ export async function handleGptImport(
       422,
     );
   } catch {
+    const finishedAt = dependencies.now?.() ?? Date.now();
+    writeSafeLogEvent(
+      {
+        event: "request_failed",
+        operation: "gpt.import",
+        code: "internal_error",
+        httpStatus: 503,
+        correlationId,
+        durationMs: finishedAt - startedAt,
+      },
+      dependencies.logSink,
+    );
     return jsonResponse({ ok: false, error: "service_unavailable" }, 503);
   }
 }

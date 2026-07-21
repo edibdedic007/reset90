@@ -4,128 +4,94 @@ Last updated: 2026-07-21
 
 ## Current phase
 
-Phase 19 testing foundation and CI completion is implemented locally on
-`chore/ci-and-testing-foundation`. Phase 18 prerequisites are satisfied: PR
-`#21` records the authenticated desktop, approximately 390 px, download, and
-privacy smoke; the PR is merged; and this branch starts from the synchronized
+Phase 20 pre-production security hardening is implemented locally on
+`fix/security-hardening`. Phase 19 was merged through PR `#22` after the stable
+GitHub Actions `quality` job passed, and this branch started from the updated
 `local`/`origin/local` merge commit with a clean pre-edit tree.
 
-Phase 19 has no product behavior, Prisma schema, migration, dependency, browser
-framework, deployment automation, branch-protection automation, or Phase 20
-security change. Final phase completion remains gated on a real pull request
-starting the stable `quality` job and that job passing.
+Phase 20 changes application security boundaries, request handling, logging,
+repository hygiene, tests, and security documentation only. It adds no product
+feature, dependency, Prisma schema change, migration, deployment topology, HSTS,
+or Phase 21 implementation.
 
 ## Active task
 
-One canonical GitHub Actions workflow runs the `quality` job for pull requests
-targeting `local` or `main`, pushes to either branch, and manual dispatch. It
-uses read-only contents permission, per-branch/PR cancellation, locked pnpm,
-synthetic CI credentials, and an ephemeral PostgreSQL service. CI delegates all
-repository validation to `make check`. It does not set job-wide `NODE_ENV`;
-`make check` explicitly runs the build with production semantics. Pull-request
-runs fetch only the base commit needed for committed-diff whitespace validation.
+Custom browser mutations now require an Auth.js session mapped to an existing
+application user, exact `APP_URL` origin, non-cross-site fetch context, JSON,
+identity encoding, a streamed 16 KiB body limit, and route validation. Browser
+and cycle ownership are server-derived. Central method policy rejects unsafe
+GET/HEAD and unsupported methods with bounded `405` responses and `Allow`.
+Application reads no longer provision users or reconcile status through writes.
 
-`make check` now fails when required scripts, lockfile, schema, or test
-infrastructure is missing. It runs frozen installation, formatting, lint,
-typecheck, unit/component tests, payload/example and runtime/generated-schema
-drift validation, Prisma validation, all migrations against an empty database,
-serial PostgreSQL integration tests, production build, shell syntax, and staged
-and unstaged whitespace checks. In GitHub Actions pull requests it also checks
-the committed base-to-checked-out diff.
+GPT imports accept only `Authorization: Bearer`, authenticate before body
+access, compare token digests in constant time, require canonical JSON within a
+streamed 128 KiB limit, and resolve one configured existing owner with exactly
+one owned active cycle. Every normalizer shares that owner boundary; daily-plan
+targeting is cycle-scoped. Rolling process-local limits enforce 120 endpoint
+requests and 30 per token fingerprint per 60 seconds without retaining raw
+tokens.
 
-Local integration tests either use an explicitly supplied safe test URL or
-create and remove a disposable PostgreSQL Compose service on port 55432. The
-URL guard requires loopback, a clearly test-specific database name, and
-`DATABASE_URL` equality. A read-only catalog probe rejects supplied or reused
-databases containing application relations, Prisma migration history,
-user-defined types, or other non-system schema evidence before migrations;
-integration tests never load `.env.local`, clear inherited state, or silently
-skip.
-
-The database suite uses daily-plan import as the primary slice and one
-daily-reflection ownership case for its materially different trusted-owner
-behavior. Coverage proves raw-first persistence, idempotency, deterministic
-replacement, immutable raw history, transactional rollback on a real database
-constraint, bounded safe errors, trusted-owner cycle mismatch rejection,
-fixed UTC status behavior, empty optional normalized records, and no raw-only
-browser fallback. A PostgreSQL-backed day-detail read proves normalized
-cross-user day-detail read isolation: a second user's ready-but-empty result
-excludes the owner's normalized plan, mission, tasks, reflection, and other
-private normalized data. It does not prove daily-plan machine imports are
-owner-scoped.
+Production-safe logging exposes allowlisted metadata only. Central response
+headers provide CSP, frame denial, no-sniff, no-referrer, and a restrictive
+permissions policy without HSTS. Production Auth.js cookies remain secure,
+HTTP-only, and SameSite Lax; local HTTP development retains non-Secure cookies.
+Git and Docker ignore sensitive artifacts, and the quality gate now fails when
+Git tracks forbidden sensitive paths while permitting placeholder examples.
 
 ## Next phase
 
-Phase 20 security hardening has not started. Security headers, CSRF changes,
-state-changing GET review, body-limit changes, log-redaction infrastructure,
-rate limiting, secret scanning, cookie changes, and security middleware remain
-outside this branch. Owner scoping of daily-plan machine imports remains a Phase
-20 security review item.
+Phase 21 production Docker Compose and reverse-proxy deployment has not started.
+Production containers, Traefik/TLS routing, trusted proxy handling, HSTS,
+distributed/IP-based rate limiting, deployment automation, and cutover remain
+explicitly deferred.
 
 ## Next actions
 
-1. Review this corrected Phase 19 diff and commit it with the suggested Conventional
-   Commit message.
-2. Push the branch and open a pull request through the user's normal GitHub
-   workflow; this Codex session must not push or open it.
-3. Confirm the pull request starts the stable `quality` job and that it passes.
-4. Configure the documented `main` and `local` branch-protection settings
-   manually after `quality` exists as a status check.
-5. Merge to `local` only after the real pull-request gate passes. Do not start
-   Phase 20 without separate approval.
+1. Complete the documented authenticated manual browser smoke because no
+   checked-in browser harness exists.
+2. Review and commit the Phase 20 diff with the suggested Conventional Commit
+   message, then push and open a pull request through the user's normal workflow.
+3. Confirm the pull request `quality` job passes before merging into `local`.
+4. Start Phase 21 only after explicit approval.
 
 ## Verification evidence
 
-- The corrected PostgreSQL integration file applied all 9 checked-in migrations
-  and passed 1 file with 6 tests. Its foreign cycle is inserted first with the
-  distinct `Foreign Test Phase`; the owner import still normalizes its plan and
-  tasks into `Clear the Fog`, while the foreign day remains ready-but-empty and
-  exposes no owner-private normalized content.
-- Focused URL-guard command passed 1 file with 5 tests; targeted formatting,
-  shell syntax, and typecheck passed.
-- Focused local and explicitly supplied PostgreSQL paths each accepted a fresh
-  empty disposable database, applied all 9 checked-in migrations, and passed 2
-  files with 9 serial tests. Coverage includes migrated/non-empty database
-  rejection and normalized cross-user day-detail read isolation; cleanup removed
-  each test container and network.
-- Focused workflow validation confirmed no job-wide `NODE_ENV`, explicit
-  production build semantics, stable triggers/job/service/delegation, and
-  minimum-depth base fetch. The exact committed-diff command passed a clean
-  synthetic commit and rejected committed trailing whitespace.
-- Single final bounded-correction `make check` passed: formatting, lint,
-  typecheck, 23 unit/component files with 400 tests, all payload examples, all
-  generated schema drift checks, Prisma validation, all 9 migrations, 2
-  PostgreSQL files with 9 tests, production build, shell syntax, and whitespace.
-- No browser smoke was run because Phase 19 adds no product UI behavior and no
-  checked-in browser harness exists.
-- Real pull-request `quality` execution remains pending because this session is
-  explicitly forbidden from committing, pushing, or opening a pull request.
+- Final focused security/auth/import/read/privacy/repository suite passed 20
+  files with 417 tests; targeted typecheck, shell syntax, tracked-sensitive-file
+  check, and `git diff --check` passed.
+- PostgreSQL integration coverage applied all 9 migrations and passed 2 files
+  with 10 tests, including insertion-order-independent daily-plan owner scoping,
+  no foreign target fallback, unchanged foreign normalized data, idempotency,
+  replacement, and transactional rollback.
+- First and only final `make check` passed: tracked-sensitive paths, frozen
+  install, formatting, lint, typecheck, 25 unit/component files with 441 tests,
+  payload/schema drift, Prisma validation, all 9 migrations, 2 PostgreSQL files
+  with 10 tests, production build, shell syntax, and whitespace.
+- Manual login/logout, authenticated navigation, same/foreign-origin mutation,
+  Today no-plan, response-header, and visible-error privacy smoke remains pending
+  because no checked-in browser harness exists and Phase 20 forbids installing
+  one.
 
 ## Migration, deployment, and rollback
 
-- No change to `prisma/schema.prisma`; no application migration, backfill,
-  constraint, index, seed, data repair, or production transformation.
-- Existing migrations are validation inputs only and applied to disposable
-  test databases with `prisma migrate deploy`.
-- Deployment has no data step. GitHub branch protection is documented only.
-- Rollback is code, workflow, test harness, Compose test service, tests, PR
-  template, README, and state documentation. No database restoration,
-  migration reversal, import replay, export cleanup, or user-data correction is
-  required. If `quality` becomes required, update branch protection before
-  renaming or removing it.
+- No change to `prisma/schema.prisma`; no migration, backfill, data repair,
+  dependency, or production transformation. Existing migrations are validation
+  inputs only.
+- Rollback is application code, configuration, tests, repository checks, and
+  documentation. It needs no database restore, migration reversal, import
+  replay, data cleanup, export cleanup, or user-data correction.
 
 ## Latest handoff
 
-- 2026-07-21T12:46:35Z — chore/ci-and-testing-foundation — bounded Phase 19
-  correction made the PostgreSQL cross-user day-detail fixture deterministic by
-  inserting a distinct-phase foreign cycle before the uniquely matching owner
-  cycle, proved owner plan/task normalization plus a foreign ready-but-empty
-  read, narrowed the documented claim to normalized cross-user day-detail read
-  isolation, and recorded daily-plan machine-import owner scoping as a Phase 20
-  security review item only; the focused PostgreSQL file and single final `make
-  check` passed; no schema, migration, production authorization/import behavior,
-  dependency, UI, browser tooling, or Phase 20 implementation; next step is
-  review/commit/push/open PR and verify real `quality` success
+- 2026-07-21T14:12:50Z — fix/security-hardening — Phase 20 centralized browser
+  auth/origin/body/method protections, made application reads non-persistent,
+  hardened trusted-owner GPT imports and rate limits, added safe logging,
+  compatible headers/cookies, tracked-sensitive-file checks, regression tests,
+  and security docs; focused 20 files/417 tests and first/final `make check`
+  passed with 25 unit/component files/441 tests, 2 PostgreSQL files/10 tests, and
+  production build; no schema, migration, dependency, deployment, HSTS, browser
+  tooling, or Phase 21 work; exact manual browser smoke remains before review and
+  commit
 
 ## Historical detail
 

@@ -104,7 +104,7 @@ function createDashboardDatabase() {
 }
 
 describe("today dashboard", () => {
-  it("reconciles a current stored UNSET day before returning dashboard data", async () => {
+  it("derives current status without persisting from the read path", async () => {
     let storedStatus = "UNSET";
     const currentDay = {
       id: "day-3",
@@ -125,7 +125,7 @@ describe("today dashboard", () => {
     });
     const database = {
       dayLog: {
-        findMany: vi.fn().mockResolvedValue([]),
+        findMany: vi.fn().mockResolvedValue([currentDay]),
         findFirst: vi.fn().mockResolvedValue({
           id: "day-3",
           cycleId: "cycle-1",
@@ -173,11 +173,7 @@ describe("today dashboard", () => {
       status: "ready",
       day: { status: "YELLOW" },
     });
-    expect(statusUpdate).toHaveBeenCalledWith({
-      where: { id: "day-3" },
-      data: { status: "YELLOW" },
-      select: { id: true },
-    });
+    expect(statusUpdate).not.toHaveBeenCalled();
   });
 
   it("loads the signed-in user's active day and groups imported plan tasks", async () => {

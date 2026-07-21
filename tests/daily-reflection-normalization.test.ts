@@ -90,14 +90,16 @@ function createTestDatabase(
   const userFindUnique = vi.fn(() =>
     options.ownerFound === false ? null : { id: "owner-1" },
   );
-  const resetCycleFindFirst = vi.fn(() =>
+  const resetCycleFindMany = vi.fn(() =>
     options.cycleFound === false
-      ? null
-      : {
-          id: "cycle-1",
-          startDate: new Date("2026-07-01T00:00:00.000Z"),
-          endDate: new Date("2026-09-28T00:00:00.000Z"),
-        },
+      ? []
+      : [
+          {
+            id: "cycle-1",
+            startDate: new Date("2026-07-01T00:00:00.000Z"),
+            endDate: new Date("2026-09-28T00:00:00.000Z"),
+          },
+        ],
   );
   const dayLogFindFirst = vi.fn(() =>
     options.dayLogFound === false ? null : { id: "day-1" },
@@ -156,7 +158,7 @@ function createTestDatabase(
           },
         },
         user: { findUnique: userFindUnique },
-        resetCycle: { findFirst: resetCycleFindFirst },
+        resetCycle: { findMany: resetCycleFindMany },
         dayLog: { findFirst: dayLogFindFirst, update: forbiddenMutation },
         dailyReflection: {
           findUnique: (args: {
@@ -237,7 +239,7 @@ function createTestDatabase(
   return {
     database,
     userFindUnique,
-    resetCycleFindFirst,
+    resetCycleFindMany,
     dayLogFindFirst,
     dailyReflectionUpsert,
     importedPayloadUpdate,
@@ -299,9 +301,10 @@ describe("daily reflection normalization", () => {
       where: { authentikSubject: OWNER_SUBJECT },
       select: { id: true },
     });
-    expect(testDatabase.resetCycleFindFirst).toHaveBeenCalledWith({
+    expect(testDatabase.resetCycleFindMany).toHaveBeenCalledWith({
       where: { userId: "owner-1", status: "ACTIVE" },
       orderBy: { startDate: "desc" },
+      take: 2,
       select: { id: true, startDate: true, endDate: true },
     });
     expect(testDatabase.dayLogFindFirst).toHaveBeenCalledWith({

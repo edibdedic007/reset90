@@ -8,11 +8,10 @@ import type {
 import { checkinSelect, toDayCheckin, type DayCheckin } from "./checkins";
 import { addUtcDays, calculateDayNumber, normalizeUtcDate } from "./db/cycle";
 import {
-  reconcileCurrentDayStatus,
-  reconcileElapsedDayStatuses,
   toRecoveryEventSummary,
   type RecoveryEventSummary,
 } from "./recovery/service";
+import { deriveCycleDayStatuses } from "./recovery/read-status";
 
 export type ProgressDatabase = Pick<
   PrismaClient,
@@ -157,15 +156,6 @@ function activeDayNumber(startDate: Date, today: Date) {
   return dayNumber >= 1 && dayNumber <= 90 ? dayNumber : null;
 }
 
-async function reconcileProgressStatuses(
-  database: ProgressDatabase,
-  userId: string,
-  now: Date,
-) {
-  await reconcileElapsedDayStatuses(database, userId, now, 90);
-  await reconcileCurrentDayStatus(database, userId, now);
-}
-
 export function parseDayNumber(value: string) {
   if (!/^(?:[1-9]|[1-8][0-9]|90)$/.test(value)) {
     return null;
@@ -182,12 +172,11 @@ export async function getProgressDashboard(
   const today = normalizeUtcDate(now);
   const todayIso = toIsoDate(today);
 
-  await reconcileProgressStatuses(database, userId, now);
-
   const cycle = await database.resetCycle.findFirst({
     where: { userId, status: "ACTIVE" },
     orderBy: { startDate: "desc" },
     select: {
+      id: true,
       name: true,
       startDate: true,
       recoveryCreditLimit: true,
@@ -208,6 +197,7 @@ export async function getProgressDashboard(
   if (!cycle) {
     return { status: "no_cycle", today: todayIso };
   }
+  const derivedStatuses = await deriveCycleDayStatuses(database, cycle.id, now);
 
   const logsByDay = new Map(cycle.dayLogs.map((day) => [day.dayNumber, day]));
   const currentDayNumber = activeDayNumber(cycle.startDate, today);
@@ -229,11 +219,12 @@ export async function getProgressDashboard(
       };
     }
 
-    statusCounts[dayLog.status] += 1;
+    const status = derivedStatuses.byDayNumber.get(dayNumber) ?? dayLog.status;
+    statusCounts[status] += 1;
     return {
       dayNumber,
       date: toIsoDate(dayLog.date),
-      status: dayLog.status,
+      status,
       isCurrent: currentDayNumber === dayNumber,
       isAvailable: true,
     };
@@ -272,12 +263,11 @@ export async function getDayDetail(
   const today = normalizeUtcDate(now);
   const todayIso = toIsoDate(today);
 
-  await reconcileProgressStatuses(database, userId, now);
-
   const cycle = await database.resetCycle.findFirst({
     where: { userId, status: "ACTIVE" },
     orderBy: { startDate: "desc" },
     select: {
+      id: true,
       name: true,
       startDate: true,
       dayLogs: {
@@ -334,6 +324,7 @@ export async function getDayDetail(
   if (!cycle) {
     return { status: "no_cycle", today: todayIso, dayNumber };
   }
+  const derivedStatuses = await deriveCycleDayStatuses(database, cycle.id, now);
 
   const isCurrent = activeDayNumber(cycle.startDate, today) === dayNumber;
   const dayLog = cycle.dayLogs[0];
@@ -356,7 +347,8 @@ export async function getDayDetail(
     day: {
       dayNumber: dayLog.dayNumber,
       date: toIsoDate(dayLog.date),
-      status: dayLog.status,
+      status:
+        derivedStatuses.byDayNumber.get(dayLog.dayNumber) ?? dayLog.status,
       isCurrent,
       energyLevel: dayLog.energyLevel,
       phase: dayLog.phase,

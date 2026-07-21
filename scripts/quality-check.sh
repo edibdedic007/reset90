@@ -5,6 +5,7 @@ required_files=(
   package.json
   pnpm-lock.yaml
   prisma/schema.prisma
+  scripts/check-tracked-sensitive-files.sh
   scripts/run-integration-tests.sh
 )
 for required_file in "${required_files[@]}"; do
@@ -13,6 +14,9 @@ for required_file in "${required_files[@]}"; do
     exit 1
   fi
 done
+
+echo "== tracked sensitive paths =="
+./scripts/check-tracked-sensitive-files.sh
 
 node -e '
   const scripts = require("./package.json").scripts ?? {};
