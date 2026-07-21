@@ -63,11 +63,11 @@ Phase 19 testing-foundation and CI changes are implemented on
 the fail-closed `make check` gate; a disposable, guarded PostgreSQL harness
 requires an empty database before applying all migrations and running serial
 import/persistence integration tests; committed pull-request whitespace and
-normalized cross-user read isolation are covered; and the canonical PR template
-plus branch-protection guidance are present. Local focused checks and `make
-check` pass. Phase 19 completion still requires the `quality` job to appear and
-pass on a real pull request. No product behavior, Prisma schema, application
-migration, or Phase 20 security work changed.
+normalized cross-user day-detail read isolation are covered; and the canonical
+PR template plus branch-protection guidance are present. Local focused checks
+and `make check` pass. Phase 19 completion still requires the `quality` job to
+appear and pass on a real pull request. No product behavior, Prisma schema,
+application migration, or Phase 20 security work changed.
 
 ## Durable implementation rules
 

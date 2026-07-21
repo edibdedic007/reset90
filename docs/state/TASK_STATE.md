@@ -1,6 +1,6 @@
 # Task State
 
-Last updated: 2026-07-20
+Last updated: 2026-07-21
 
 ## Current phase
 
@@ -47,17 +47,20 @@ daily-reflection ownership case for its materially different trusted-owner
 behavior. Coverage proves raw-first persistence, idempotency, deterministic
 replacement, immutable raw history, transactional rollback on a real database
 constraint, bounded safe errors, trusted-owner cycle mismatch rejection,
-cross-user isolation, fixed UTC status behavior, empty optional normalized
-records, and no raw-only browser fallback. A PostgreSQL-backed day-detail read
-also proves a second user's ready-but-empty result excludes the owner's
-normalized plan and task data.
+fixed UTC status behavior, empty optional normalized records, and no raw-only
+browser fallback. A PostgreSQL-backed day-detail read proves normalized
+cross-user day-detail read isolation: a second user's ready-but-empty result
+excludes the owner's normalized plan, mission, tasks, reflection, and other
+private normalized data. It does not prove daily-plan machine imports are
+owner-scoped.
 
 ## Next phase
 
 Phase 20 security hardening has not started. Security headers, CSRF changes,
 state-changing GET review, body-limit changes, log-redaction infrastructure,
 rate limiting, secret scanning, cookie changes, and security middleware remain
-outside this branch.
+outside this branch. Owner scoping of daily-plan machine imports remains a Phase
+20 security review item.
 
 ## Next actions
 
@@ -73,6 +76,11 @@ outside this branch.
 
 ## Verification evidence
 
+- The corrected PostgreSQL integration file applied all 9 checked-in migrations
+  and passed 1 file with 6 tests. Its foreign cycle is inserted first with the
+  distinct `Foreign Test Phase`; the owner import still normalizes its plan and
+  tasks into `Clear the Fog`, while the foreign day remains ready-but-empty and
+  exposes no owner-private normalized content.
 - Focused URL-guard command passed 1 file with 5 tests; targeted formatting,
   shell syntax, and typecheck passed.
 - Focused local and explicitly supplied PostgreSQL paths each accepted a fresh
@@ -84,7 +92,7 @@ outside this branch.
   production build semantics, stable triggers/job/service/delegation, and
   minimum-depth base fetch. The exact committed-diff command passed a clean
   synthetic commit and rejected committed trailing whitespace.
-- First and only final correction `make check` passed: formatting, lint,
+- Single final bounded-correction `make check` passed: formatting, lint,
   typecheck, 23 unit/component files with 400 tests, all payload examples, all
   generated schema drift checks, Prisma validation, all 9 migrations, 2
   PostgreSQL files with 9 tests, production build, shell syntax, and whitespace.
@@ -108,14 +116,16 @@ outside this branch.
 
 ## Latest handoff
 
-- 2026-07-20T22:02:14Z — chore/ci-and-testing-foundation — bounded Phase 19
-  correction removed job-wide test `NODE_ENV`, made production build semantics
-  explicit, added PR committed-diff whitespace validation, rejected non-empty
-  supplied test databases before migration, and added PostgreSQL-backed
-  cross-user day-detail read isolation; focused checks and first/final correction
-  `make check` passed; no schema, migration, product behavior, dependency, UI,
-  browser tooling, or Phase 20 change; next step is review/commit/push/open PR
-  and verify real `quality` success without starting Phase 20
+- 2026-07-21T12:46:35Z — chore/ci-and-testing-foundation — bounded Phase 19
+  correction made the PostgreSQL cross-user day-detail fixture deterministic by
+  inserting a distinct-phase foreign cycle before the uniquely matching owner
+  cycle, proved owner plan/task normalization plus a foreign ready-but-empty
+  read, narrowed the documented claim to normalized cross-user day-detail read
+  isolation, and recorded daily-plan machine-import owner scoping as a Phase 20
+  security review item only; the focused PostgreSQL file and single final `make
+  check` passed; no schema, migration, production authorization/import behavior,
+  dependency, UI, browser tooling, or Phase 20 implementation; next step is
+  review/commit/push/open PR and verify real `quality` success
 
 ## Historical detail
 

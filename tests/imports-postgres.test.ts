@@ -57,6 +57,7 @@ async function seedCycle(input: {
   startDate: string;
   endDate: string;
   suffix: string;
+  phaseName?: string;
 }) {
   const cycleId = `19000000-0000-4000-8100-${input.suffix.padStart(12, "0")}`;
   const phaseId = `19000000-0000-4000-8200-${input.suffix.padStart(12, "0")}`;
@@ -83,7 +84,7 @@ async function seedCycle(input: {
     data: {
       id: phaseId,
       cycleId,
-      name: "Clear the Fog",
+      name: input.phaseName ?? "Clear the Fog",
       dayStart: 1,
       dayEnd: 30,
     },
@@ -342,17 +343,18 @@ describe("GPT import PostgreSQL integration", () => {
   });
 
   it("excludes another user's normalized plan from day-detail reads", async () => {
-    await seedCycle({
-      user: owner,
-      startDate: "2026-07-01",
-      endDate: "2026-09-28",
-      suffix: "6",
-    });
-    await seedCycle({
+    const foreign = await seedCycle({
       user: foreignOwner,
       startDate: "2026-07-01",
       endDate: "2026-09-28",
       suffix: "7",
+      phaseName: "Foreign Test Phase",
+    });
+    const ownerCycle = await seedCycle({
+      user: owner,
+      startDate: "2026-07-01",
+      endDate: "2026-09-28",
+      suffix: "6",
     });
     const payload = planPayload("phase19-private-owner-plan");
     payload.payload.mission = "PHASE19_PRIVATE_OWNER_PLAN";
@@ -360,6 +362,27 @@ describe("GPT import PostgreSQL integration", () => {
 
     const created = await handleGptImport(requestFor(payload), dependencies());
     expect(created.status).toBe(201);
+    expect(await created.json()).toMatchObject({
+      ok: true,
+      status: "created",
+      normalized_records: ["daily_plan", "tasks"],
+    });
+
+    const ownerPlan = await database.dailyPlan.findUniqueOrThrow({
+      where: { dayLogId: ownerCycle.dayLogId },
+      include: { tasks: true },
+    });
+    expect(ownerPlan.mission).toBe("PHASE19_PRIVATE_OWNER_PLAN");
+    expect(ownerPlan.tasks).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ title: "PHASE19_PRIVATE_OWNER_TASK" }),
+      ]),
+    );
+    expect(
+      await database.dailyPlan.count({
+        where: { dayLogId: foreign.dayLogId },
+      }),
+    ).toBe(0);
 
     const foreignDetail = await getDayDetail(
       database,
