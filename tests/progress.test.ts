@@ -42,6 +42,7 @@ function gridCycle(
   } = {},
 ) {
   return {
+    id: "cycle-1",
     name: "My Reset",
     startDate: options.startDate ?? START,
     recoveryCreditLimit: options.recoveryCreditLimit ?? 6,
@@ -163,23 +164,32 @@ describe("progress dashboard", () => {
     ).toEqual(expectedDay === null ? [] : [expectedDay]);
   });
 
-  it("requests all elapsed reconciliation candidates through Phase 11 boundary", async () => {
+  it("loads status inputs through a read-only cycle-scoped query", async () => {
     const { database, dayLogFindMany } = databaseWithCycle(gridCycle());
     await getProgressDashboard(database, "user-7", NOW);
 
     expect(dayLogFindMany).toHaveBeenCalledWith({
-      where: {
-        date: { lt: START },
-        status: "UNSET",
-        cycle: { userId: "user-7", status: "ACTIVE" },
+      where: { cycleId: "cycle-1" },
+      orderBy: [{ date: "asc" }, { id: "asc" }],
+      select: {
+        id: true,
+        date: true,
+        dayNumber: true,
+        dailyPlan: {
+          select: {
+            tasks: {
+              select: { tier: true, completedAt: true, skippedAt: true },
+            },
+          },
+        },
+        recoveryEvent: {
+          select: { completedAt: true, creditConsumedAt: true },
+        },
       },
-      orderBy: { date: "asc" },
-      take: 90,
-      select: { id: true },
     });
   });
 
-  it("returns and counts statuses persisted by Phase 11 reconciliation", async () => {
+  it("derives canonical statuses without persisting from the read path", async () => {
     const now = new Date("2026-07-03T12:00:00.000Z");
     const storedDays = [
       {
@@ -228,49 +238,13 @@ describe("progress dashboard", () => {
         recoveryEvent: null,
       },
     ];
-    const dayLogFindMany = vi.fn().mockImplementation(() =>
-      storedDays
-        .filter((day) => day.date < new Date("2026-07-03T00:00:00.000Z"))
-        .filter((day) => day.status === "UNSET")
-        .map(({ id }) => ({ id })),
-    );
-    const dayLogUpdate = vi.fn(
-      ({
-        where,
-        data,
-      }: {
-        where: { id: string };
-        data: { status: string };
-      }) => {
-        const day = storedDays.find((candidate) => candidate.id === where.id);
-        if (!day) throw new Error(`Missing mocked day ${where.id}`);
-        day.status = data.status;
-        return { id: day.id };
-      },
-    );
-    const transaction = {
-      dayLog: {
-        findUnique: vi.fn(({ where }: { where: { id: string } }) =>
-          storedDays.find((day) => day.id === where.id),
-        ),
-        findFirst: vi.fn(
-          ({ where }: { where: { cycleId: string; date: { lt: Date } } }) =>
-            storedDays
-              .filter(
-                (day) =>
-                  day.cycleId === where.cycleId && day.date < where.date.lt,
-              )
-              .sort(
-                (left, right) => right.date.getTime() - left.date.getTime(),
-              )[0] ?? null,
-        ),
-        update: dayLogUpdate,
-      },
-      recoveryEvent: { count: vi.fn() },
-    };
+    const dayLogFindMany = vi.fn().mockResolvedValue(storedDays);
+    const dayLogUpdate = vi.fn();
+    const transaction = vi.fn();
     const database = {
       resetCycle: {
         findFirst: vi.fn(() => ({
+          id: "cycle-1",
           name: "My Reset",
           startDate: START,
           recoveryCreditLimit: 6,
@@ -280,40 +254,27 @@ describe("progress dashboard", () => {
       },
       dayLog: {
         findMany: dayLogFindMany,
-        findFirst: vi.fn(({ where }: { where: { date: Date } }) => {
-          const day = storedDays.find(
-            (candidate) => candidate.date.getTime() === where.date.getTime(),
-          );
-          return day
-            ? { id: day.id, cycleId: day.cycleId, status: day.status }
-            : null;
-        }),
+        findFirst: vi.fn(),
         findUnique: vi.fn(),
-        update: vi.fn(),
+        update: dayLogUpdate,
       },
       recoveryEvent: { findUnique: vi.fn() },
-      $transaction: vi.fn((callback: (client: typeof transaction) => unknown) =>
-        callback(transaction),
-      ),
+      $transaction: transaction,
     } as unknown as ProgressDatabase;
 
     const result = await getProgressDashboard(database, "user-1", now);
     if (result.status !== "ready") throw new Error("Expected ready dashboard");
 
     expect(dayLogFindMany).toHaveBeenCalledWith({
-      where: {
-        date: { lt: new Date("2026-07-03T00:00:00.000Z") },
-        status: "UNSET",
-        cycle: { userId: "user-1", status: "ACTIVE" },
-      },
-      orderBy: { date: "asc" },
-      take: 90,
-      select: { id: true },
+      where: { cycleId: "cycle-1" },
+      orderBy: [{ date: "asc" }, { id: "asc" }],
+      select: expect.any(Object),
     });
-    expect(dayLogUpdate).toHaveBeenCalledTimes(2);
+    expect(dayLogUpdate).not.toHaveBeenCalled();
+    expect(transaction).not.toHaveBeenCalled();
     expect(storedDays.map((day) => day.status)).toEqual([
-      "RED",
-      "GOLD",
+      "UNSET",
+      "UNSET",
       "UNSET",
       "UNSET",
     ]);
@@ -332,6 +293,111 @@ describe("progress dashboard", () => {
       UNSET: 2,
     });
   });
+
+  it.each([
+    {
+      previousStatus: "RED",
+      recoveryEvent: null,
+      hasGap: false,
+      expectedStatus: "GOLD",
+    },
+    {
+      previousStatus: "BLUE",
+      recoveryEvent: { completedAt: NOW, creditConsumedAt: NOW },
+      hasGap: false,
+      expectedStatus: "GOLD",
+    },
+    {
+      previousStatus: "RED",
+      recoveryEvent: null,
+      hasGap: true,
+      expectedStatus: "GREEN",
+    },
+    {
+      previousStatus: "BLUE",
+      recoveryEvent: {
+        completedAt: NOW,
+        creditConsumedAt: NOW,
+      },
+      hasGap: true,
+      expectedStatus: "GREEN",
+    },
+  ] as const)(
+    "derives $previousStatus then a qualifying day with gap=$hasGap as $expectedStatus without creating rows",
+    async ({ recoveryEvent, hasGap, expectedStatus }) => {
+      const now = new Date("2026-07-04T12:00:00.000Z");
+      const targetDayNumber = hasGap ? 3 : 2;
+      const storedDays = [
+        {
+          id: "day-1",
+          cycleId: "cycle-1",
+          dayNumber: 1,
+          date: new Date("2026-07-01T00:00:00.000Z"),
+          status: "UNSET",
+          dailyPlan: { tasks: [] },
+          recoveryEvent,
+        },
+        {
+          id: `day-${targetDayNumber}`,
+          cycleId: "cycle-1",
+          dayNumber: targetDayNumber,
+          date: new Date(`2026-07-0${targetDayNumber}T00:00:00.000Z`),
+          status: "UNSET",
+          dailyPlan: {
+            tasks: [
+              {
+                tier: "NON_NEGOTIABLE",
+                completedAt: now,
+                skippedAt: null,
+              },
+              { tier: "STANDARD", completedAt: now, skippedAt: null },
+            ],
+          },
+          recoveryEvent: null,
+        },
+      ];
+      const dayLogCreate = vi.fn();
+      const dayLogUpdate = vi.fn();
+      const transaction = vi.fn();
+      const database = {
+        resetCycle: {
+          findFirst: vi.fn(() => ({
+            id: "cycle-1",
+            name: "My Reset",
+            startDate: START,
+            recoveryCreditLimit: 6,
+            recoveryEvents: [],
+            dayLogs: storedDays,
+          })),
+        },
+        dayLog: {
+          findMany: vi.fn().mockResolvedValue(storedDays),
+          findFirst: vi.fn(),
+          findUnique: vi.fn(),
+          create: dayLogCreate,
+          update: dayLogUpdate,
+        },
+        recoveryEvent: { findUnique: vi.fn() },
+        $transaction: transaction,
+      } as unknown as ProgressDatabase;
+
+      const result = await getProgressDashboard(database, "user-1", now);
+      if (result.status !== "ready")
+        throw new Error("Expected ready dashboard");
+
+      expect(result.days[targetDayNumber - 1].status).toBe(expectedStatus);
+      if (hasGap) {
+        expect(result.days[1]).toMatchObject({
+          dayNumber: 2,
+          status: null,
+          isAvailable: false,
+        });
+      }
+      expect(dayLogCreate).not.toHaveBeenCalled();
+      expect(dayLogUpdate).not.toHaveBeenCalled();
+      expect(transaction).not.toHaveBeenCalled();
+    },
+  );
 });
 
 describe("day detail", () => {

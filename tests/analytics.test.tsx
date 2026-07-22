@@ -308,7 +308,7 @@ describe("Analytics authentication and active-cycle boundary", () => {
 });
 
 describe("Analytics status and recovery aggregation", () => {
-  it("uses canonical bounded reconciliation and counts each finalized stored status once", async () => {
+  it("uses read-only status derivation and counts each finalized status once", async () => {
     const days = ["GREEN", "YELLOW", "BLUE", "RED", "GOLD", "UNSET"].map(
       (status, index) =>
         day(index + 1, {
@@ -332,14 +332,23 @@ describe("Analytics status and recovery aggregation", () => {
     });
     expect(result.finalizedDayCount).toBe(5);
     expect(dayLogFindMany).toHaveBeenCalledWith({
-      where: {
-        date: { lt: new Date("2026-07-06T00:00:00.000Z") },
-        status: "UNSET",
-        cycle: { userId: "user-1", status: "ACTIVE" },
+      where: { cycleId: "cycle-1" },
+      orderBy: [{ date: "asc" }, { id: "asc" }],
+      select: {
+        id: true,
+        date: true,
+        dayNumber: true,
+        dailyPlan: {
+          select: {
+            tasks: {
+              select: { tier: true, completedAt: true, skippedAt: true },
+            },
+          },
+        },
+        recoveryEvent: {
+          select: { completedAt: true, creditConsumedAt: true },
+        },
       },
-      orderBy: { date: "asc" },
-      take: 90,
-      select: { id: true },
     });
     expect(resetCycleFindFirst.mock.calls[1][0].select.dayLogs.where).toEqual({
       dayNumber: { gte: 1, lte: 6 },
@@ -663,6 +672,7 @@ describe("Analytics task completion", () => {
     expect(taskQuery).not.toHaveProperty("where");
     expect(taskQuery.select).toEqual({
       domain: true,
+      tier: true,
       completedAt: true,
       skippedAt: true,
     });

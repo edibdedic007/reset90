@@ -9,11 +9,10 @@ import { checkinSelect, toDayCheckin, type DayCheckin } from "../checkins";
 import { normalizeUtcDate } from "../db/cycle";
 import {
   reconcileDayStatusInTransaction,
-  reconcileCurrentDayStatus,
-  reconcileElapsedDayStatuses,
   toRecoveryEventSummary,
   type RecoveryEventSummary,
 } from "../recovery/service";
+import { deriveCycleDayStatuses } from "../recovery/read-status";
 
 export const ENERGY_LEVELS = [
   "BURNED_OUT",
@@ -203,9 +202,6 @@ export async function getTodayDashboard(
   const today = normalizeUtcDate(now);
   const todayIso = toIsoDate(today);
 
-  await reconcileElapsedDayStatuses(database, userId, now);
-  await reconcileCurrentDayStatus(database, userId, now);
-
   const cycle = await database.resetCycle.findFirst({
     where: { userId, status: "ACTIVE" },
     orderBy: { startDate: "desc" },
@@ -267,6 +263,7 @@ export async function getTodayDashboard(
   if (!cycle) {
     return { status: "no_cycle", today: todayIso };
   }
+  const derivedStatuses = await deriveCycleDayStatuses(database, cycle.id, now);
 
   const cycleSummary = summarizeCycle(cycle);
   const dayLog = cycle.dayLogs[0];
@@ -283,7 +280,7 @@ export async function getTodayDashboard(
       id: dayLog.id,
       date: toIsoDate(dayLog.date),
       dayNumber: dayLog.dayNumber,
-      status: dayLog.status,
+      status: derivedStatuses.byId.get(dayLog.id) ?? dayLog.status,
       energyLevel: dayLog.energyLevel,
       phase: dayLog.phase,
       recoveryEvent: dayLog.recoveryEvent

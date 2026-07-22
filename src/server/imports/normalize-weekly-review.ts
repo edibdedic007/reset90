@@ -2,6 +2,7 @@ import { Prisma, type PrismaClient } from "../../generated/prisma/client";
 
 import { normalizeUtcDate } from "../db/cycle";
 import { deriveCanonicalWeekRange } from "../reviews";
+import { resolveTrustedMachineOwner } from "./machine-owner";
 import { importEnvelopeSchema } from "./schemas";
 import type { WeeklyReviewPayload } from "./schemas/weekly-review";
 
@@ -123,43 +124,14 @@ export function normalizeWeeklyReviewImport(
       );
     }
 
-    const owner = await transaction.user.findUnique({
-      where: { authentikSubject: ownerAuthentikSubject },
-      select: { id: true },
-    });
-    if (!owner) {
-      return markFailed(
-        transaction,
-        importedPayloadId,
-        "import_owner_not_found",
-      );
-    }
-
-    const cycles = await transaction.resetCycle.findMany({
-      where: { userId: owner.id, status: "ACTIVE" },
-      orderBy: { startDate: "desc" },
-      take: 2,
-      select: { id: true, startDate: true, endDate: true },
-    });
-    if (cycles.length === 0) {
-      return markFailed(
-        transaction,
-        importedPayloadId,
-        "active_cycle_not_found",
-      );
-    }
-    if (cycles.length !== 1) {
-      return markFailed(
-        transaction,
-        importedPayloadId,
-        "active_cycle_ambiguous",
-      );
-    }
-
-    const cycle = cycles[0];
-    await transaction.$queryRaw(
-      Prisma.sql`SELECT id FROM reset_cycles WHERE id = ${cycle.id}::uuid FOR UPDATE`,
+    const owner = await resolveTrustedMachineOwner(
+      transaction,
+      ownerAuthentikSubject,
     );
+    if (owner.status !== "resolved") {
+      return markFailed(transaction, importedPayloadId, owner.status);
+    }
+    const cycle = owner.cycle;
 
     const payload = envelope.data.payload;
     const canonicalRange = deriveCanonicalWeekRange(

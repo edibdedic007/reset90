@@ -94,8 +94,8 @@ Database migrations and seed data begin in Phase 3.
 
 Local auth:
 
-- Use `AUTH_MODE=dev` for local browser development. This creates or updates a
-  single local development user.
+- Use `AUTH_MODE=dev` for local browser development. It resolves the seeded
+  local development user without write-on-read provisioning.
 - To test OIDC locally, set `AUTH_MODE=oidc` and fill the Auth.js/AuthentiK
   variables from `.env.local.example`.
 
@@ -113,6 +113,7 @@ Expected files:
 Production requirements:
 
 - HTTPS only;
+- `APP_URL` set to the exact canonical application origin;
 - Authentik OIDC for UI;
 - Auth.js session secret in `AUTH_SECRET`;
 - `AUTH_AUTHENTIK_ID`, `AUTH_AUTHENTIK_SECRET`, and
@@ -123,6 +124,10 @@ Production requirements:
 - logs retained but scrubbed;
 - daily DB backup;
 - tested restore path.
+
+Phase 20 intentionally omits HSTS. Phase 21 must verify final HTTPS termination
+and trusted reverse-proxy behavior before selecting HSTS, subdomain, or preload
+policy.
 
 ## Deployment flow
 

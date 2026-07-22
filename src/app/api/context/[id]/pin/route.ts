@@ -1,6 +1,7 @@
-import { requireBrowserSession } from "@/server/auth/session";
+import { getReadOnlyBrowserSession } from "@/server/auth/session";
 import { handleSetContextPinnedRequest } from "@/server/context";
 import { getPrismaClient } from "@/server/db/client";
+import { handleBrowserMutation } from "@/server/http/security";
 
 type ContextPinRoute = {
   params: Promise<{ id: string }>;
@@ -9,9 +10,20 @@ type ContextPinRoute = {
 export const dynamic = "force-dynamic";
 
 export async function PATCH(request: Request, context: ContextPinRoute) {
-  const { id } = await context.params;
-  return handleSetContextPinnedRequest(request, id, {
-    requireSession: requireBrowserSession,
-    getDatabase: getPrismaClient,
-  });
+  return handleBrowserMutation(
+    request,
+    "PATCH",
+    "context.pin.update",
+    {
+      appUrl: process.env.APP_URL,
+      getSession: getReadOnlyBrowserSession,
+    },
+    async (boundedRequest, session) => {
+      const { id } = await context.params;
+      return handleSetContextPinnedRequest(boundedRequest, id, {
+        requireSession: async () => session,
+        getDatabase: getPrismaClient,
+      });
+    },
+  );
 }

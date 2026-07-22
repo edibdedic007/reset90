@@ -1,6 +1,7 @@
 import { Prisma, type PrismaClient } from "../../generated/prisma/client";
 
 import { normalizeUtcDate } from "../db/cycle";
+import { resolveTrustedMachineOwner } from "./machine-owner";
 import { importEnvelopeSchema } from "./schemas";
 import type { DailyReflectionPayload } from "./schemas/daily-reflection";
 
@@ -36,6 +37,7 @@ export type DailyReflectionNormalizationResult =
         | "invalid_stored_payload"
         | "import_owner_not_found"
         | "active_cycle_not_found"
+        | "active_cycle_ambiguous"
         | "target_day_in_future"
         | "target_day_outside_active_cycle"
         | "day_log_not_found";
@@ -153,30 +155,14 @@ export function normalizeDailyReflectionImport(
       );
     }
 
-    const owner = await transaction.user.findUnique({
-      where: { authentikSubject: ownerAuthentikSubject },
-      select: { id: true },
-    });
-    if (!owner) {
-      return markFailed(
-        transaction,
-        importedPayloadId,
-        "import_owner_not_found",
-      );
+    const owner = await resolveTrustedMachineOwner(
+      transaction,
+      ownerAuthentikSubject,
+    );
+    if (owner.status !== "resolved") {
+      return markFailed(transaction, importedPayloadId, owner.status);
     }
-
-    const cycle = await transaction.resetCycle.findFirst({
-      where: { userId: owner.id, status: "ACTIVE" },
-      orderBy: { startDate: "desc" },
-      select: { id: true, startDate: true, endDate: true },
-    });
-    if (!cycle) {
-      return markFailed(
-        transaction,
-        importedPayloadId,
-        "active_cycle_not_found",
-      );
-    }
+    const cycle = owner.cycle;
 
     const payload = envelope.data.payload;
     const targetDate = new Date(`${payload.date}T00:00:00.000Z`);

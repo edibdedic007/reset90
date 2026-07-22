@@ -6,7 +6,6 @@ import { getAuthMode } from "./config";
 import {
   createDevBrowserIdentity,
   resolveExistingBrowserUser,
-  storeBrowserUser,
   type BrowserUserIdentity,
   type BrowserUserSession,
 } from "./users";
@@ -38,11 +37,6 @@ async function getBrowserIdentity(): Promise<BrowserUserIdentity | null> {
   };
 }
 
-export async function getBrowserSession(): Promise<BrowserUserSession | null> {
-  const identity = await getBrowserIdentity();
-  return identity ? storeBrowserUser(getPrismaClient(), identity) : null;
-}
-
 export async function getReadOnlyBrowserSession(): Promise<BrowserUserSession | null> {
   const result = await getReadOnlyBrowserSessionResult();
   return result.status === "authenticated" ? result.session : null;
@@ -59,7 +53,7 @@ export async function getReadOnlyBrowserSessionResult(): Promise<ReadOnlyBrowser
 }
 
 export async function requireBrowserSession(): Promise<BrowserUserSession> {
-  const session = await getBrowserSession();
+  const session = await getReadOnlyBrowserSession();
   if (!session) {
     redirect("/api/auth/signin?callbackUrl=/");
   }

@@ -6,6 +6,7 @@ import weeklyReview from "../examples/weekly_review_payload.json";
 import type { ImportedPayload, Prisma } from "../src/generated/prisma/client";
 import {
   createGptImportRateLimiter,
+  fingerprintMachineToken,
   type GptImportDatabase,
   type GptImportHandlerDependencies,
   handleGptImport,
@@ -108,10 +109,9 @@ function createDependencies(
     env: {
       GPT_INGEST_TOKEN: TOKEN,
       GPT_INGEST_OWNER_SUBJECT: "owner-subject",
-      GPT_INGEST_MAX_BODY_BYTES: "1048576",
     },
     getDatabase: () => database,
-    rateLimiter: { check: () => ({ allowed: true }) },
+    rateLimiter: createGptImportRateLimiter(() => 0),
     normalizeDailyPlan: async () => ({ status: "not_applicable" }),
     normalizeContextItem: async () => ({ status: "not_applicable" }),
     normalizeDailyReflection: async () => ({ status: "not_applicable" }),
@@ -124,8 +124,12 @@ function createRequest(
   body: unknown,
   options: {
     token?: string | null;
+    authorization?: string | null;
     idempotencyKey?: string | null;
     contentType?: string;
+    contentEncoding?: string;
+    cookie?: string;
+    url?: string;
   } = {},
 ): Request {
   const token = options.token === undefined ? TOKEN : options.token;
@@ -139,14 +143,26 @@ function createRequest(
     "Content-Type": options.contentType ?? "application/json",
   });
 
-  if (token !== null) {
-    headers.set("Authorization", `Bearer ${token}`);
+  const authorization =
+    options.authorization === undefined
+      ? token === null
+        ? null
+        : `Bearer ${token}`
+      : options.authorization;
+  if (authorization !== null) {
+    headers.set("Authorization", authorization);
   }
   if (typeof idempotencyKey === "string") {
     headers.set("Idempotency-Key", idempotencyKey);
   }
+  if (options.contentEncoding) {
+    headers.set("Content-Encoding", options.contentEncoding);
+  }
+  if (options.cookie) {
+    headers.set("Cookie", options.cookie);
+  }
 
-  return new Request("http://localhost/api/gpt/import", {
+  return new Request(options.url ?? "http://localhost/api/gpt/import", {
     method: "POST",
     headers,
     body: JSON.stringify(body),
@@ -186,6 +202,96 @@ describe("GPT import HTTP boundary", () => {
 
     expect(response.status).toBe(401);
     expect(rows).toHaveLength(0);
+  });
+
+  it.each([
+    ["empty bearer", "Bearer "],
+    ["missing token", "Bearer"],
+    ["wrong scheme", `Basic ${TOKEN}`],
+    ["extra whitespace", `Bearer  ${TOKEN}`],
+  ])("rejects malformed authorization: %s", async (_name, authorization) => {
+    const { database, rows } = createTestDatabase();
+    const response = await handleGptImport(
+      createRequest(dailyPlan, { authorization }),
+      createDependencies(database),
+    );
+    expect(response.status).toBe(401);
+    expect(rows).toHaveLength(0);
+  });
+
+  it("ignores credentials in query, cookie, and request body", async () => {
+    const { database, rows } = createTestDatabase();
+    const bodyCredential = {
+      ...dailyPlan,
+      authorization: `Bearer ${TOKEN}`,
+    };
+    const response = await handleGptImport(
+      createRequest(bodyCredential, {
+        token: null,
+        cookie: `authjs.session-token=${TOKEN}; gpt_token=${TOKEN}`,
+        url: `http://localhost/api/gpt/import?token=${TOKEN}`,
+      }),
+      createDependencies(database),
+    );
+    expect(response.status).toBe(401);
+    expect(JSON.stringify(await response.json())).not.toContain(TOKEN);
+    expect(rows).toHaveLength(0);
+  });
+
+  it("does not access an unauthorized request body", async () => {
+    const { database } = createTestDatabase();
+    const request = createRequest(dailyPlan, { token: null });
+    const bodyAccess = vi.fn();
+    Object.defineProperty(request, "body", {
+      configurable: true,
+      get: bodyAccess,
+    });
+
+    const response = await handleGptImport(
+      request,
+      createDependencies(database),
+    );
+    expect(response.status).toBe(401);
+    expect(bodyAccess).not.toHaveBeenCalled();
+  });
+
+  it("rejects unsupported media types and compressed bodies", async () => {
+    const { database, rows } = createTestDatabase();
+    const wrongType = await handleGptImport(
+      createRequest(dailyPlan, { contentType: "text/plain" }),
+      createDependencies(database),
+    );
+    const compressed = await handleGptImport(
+      createRequest(dailyPlan, { contentEncoding: "gzip" }),
+      createDependencies(database),
+    );
+    expect(wrongType.status).toBe(415);
+    expect(compressed.status).toBe(415);
+    expect(rows).toHaveLength(0);
+  });
+
+  it("returns bounded invalid JSON before database access", async () => {
+    const { database } = createTestDatabase();
+    const getDatabase = vi.fn(() => database);
+    const request = new Request("http://localhost/api/gpt/import", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${TOKEN}`,
+        "Content-Type": "application/json",
+        "Idempotency-Key": "malformed-json",
+      },
+      body: "{",
+    });
+    const response = await handleGptImport(
+      request,
+      createDependencies(database, { getDatabase }),
+    );
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      ok: false,
+      error: "invalid_json",
+    });
+    expect(getDatabase).not.toHaveBeenCalled();
   });
 
   it.each([
@@ -233,11 +339,7 @@ describe("GPT import HTTP boundary", () => {
       ok: false,
       error: "validation_error",
     });
-    expect(rows).toHaveLength(1);
-    expect(rows[0]).toMatchObject({
-      validationStatus: "INVALID",
-      processingStatus: "REJECTED",
-    });
+    expect(rows).toHaveLength(0);
     expect(domainMutation).not.toHaveBeenCalled();
   });
 
@@ -350,7 +452,7 @@ describe("GPT import HTTP boundary", () => {
     });
   });
 
-  it("terminals a legacy context import without requiring owner configuration", async () => {
+  it("terminals a legacy context import through the configured owner boundary", async () => {
     const { database } = createTestDatabase();
     const normalizeContextItem = vi.fn().mockResolvedValue({
       status: "accepted_raw_only",
@@ -359,7 +461,10 @@ describe("GPT import HTTP boundary", () => {
     const response = await handleGptImport(
       createRequest(legacyContextItem),
       createDependencies(database, {
-        env: { GPT_INGEST_TOKEN: TOKEN },
+        env: {
+          GPT_INGEST_TOKEN: TOKEN,
+          GPT_INGEST_OWNER_SUBJECT: "owner-subject",
+        },
         normalizeContextItem,
       }),
     );
@@ -370,7 +475,11 @@ describe("GPT import HTTP boundary", () => {
       status: "created",
       imported_payload_id: "import-1",
     });
-    expect(normalizeContextItem).toHaveBeenCalledWith(database, "import-1", "");
+    expect(normalizeContextItem).toHaveBeenCalledWith(
+      database,
+      "import-1",
+      "owner-subject",
+    );
   });
 
   it("normalizes a newly stored context item for the configured owner", async () => {
@@ -450,7 +559,7 @@ describe("GPT import HTTP boundary", () => {
     expect(normalizeContextItem).not.toHaveBeenCalled();
   });
 
-  it("normalizes a newly stored daily plan without reflection owner configuration", async () => {
+  it("rejects daily-plan normalization when trusted owner configuration is missing", async () => {
     const { database } = createTestDatabase();
     const normalizeDailyPlan = vi.fn().mockResolvedValue({
       status: "processed",
@@ -466,14 +575,12 @@ describe("GPT import HTTP boundary", () => {
       }),
     );
 
-    expect(response.status).toBe(201);
+    expect(response.status).toBe(503);
     await expect(responseJson(response)).resolves.toEqual({
-      ok: true,
-      status: "created",
-      imported_payload_id: "import-1",
-      normalized_records: ["daily_plan", "tasks"],
+      ok: false,
+      error: "service_unavailable",
     });
-    expect(normalizeDailyPlan).toHaveBeenCalledWith(database, "import-1");
+    expect(normalizeDailyPlan).not.toHaveBeenCalled();
   });
 
   it("returns a safe normalization error while preserving raw import reference", async () => {
@@ -544,6 +651,40 @@ describe("GPT import HTTP boundary", () => {
     }
   });
 
+  it("logs only allowlisted metadata for unknown machine failures", async () => {
+    const sentinels = [
+      TOKEN,
+      "COOKIE_SESSION_SENTINEL",
+      "postgresql://PRIVATE_DB_SENTINEL",
+      "RAW_REFLECTION_SENTINEL",
+      "DIGITAL_DETOX_PRIVATE_SENTINEL",
+      "PRISMA_PRIVATE_SENTINEL",
+    ];
+    const payload = structuredClone(dailyReflection);
+    payload.idempotency_key = "machine-safe-log-failure";
+    payload.payload.summary = `${sentinels[3]} ${sentinels[4]}`;
+    const { database } = createTestDatabase();
+    const logs: string[] = [];
+    const response = await handleGptImport(
+      createRequest(payload, {
+        cookie: `authjs.session-token=${sentinels[1]}`,
+      }),
+      createDependencies(database, {
+        getDatabase: () => {
+          throw new Error(`${sentinels[2]} ${sentinels[5]}`);
+        },
+        logSink: (message) => logs.push(message),
+      }),
+    );
+    const output = `${JSON.stringify(await response.json())}\n${logs.join("\n")}`;
+
+    expect(response.status).toBe(503);
+    for (const sentinel of sentinels) expect(output).not.toContain(sentinel);
+    expect(logs.join("\n")).toContain('"event":"request_failed"');
+    expect(logs.join("\n")).toContain('"operation":"gpt.import"');
+    expect(logs.join("\n")).toContain('"http_status":503');
+  });
+
   it("returns the existing import for a duplicate idempotency key", async () => {
     const { database, rows, create } = createTestDatabase();
     const dependencies = createDependencies(database);
@@ -596,22 +737,48 @@ describe("GPT import HTTP boundary", () => {
     expect(normalizeDailyReflection).toHaveBeenCalledTimes(1);
   });
 
-  it("rejects a body larger than the configured byte limit", async () => {
+  it("rejects a body one byte over the fixed 128 KiB limit", async () => {
     const { database, rows } = createTestDatabase();
+    const json = JSON.stringify(dailyPlan);
+    const body = `${json}${" ".repeat(128 * 1024 + 1 - Buffer.byteLength(json))}`;
+    const request = new Request("http://localhost/api/gpt/import", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${TOKEN}`,
+        "Content-Type": "application/json",
+        "Idempotency-Key": dailyPlan.idempotency_key,
+      },
+      body,
+    });
 
     const response = await handleGptImport(
-      createRequest(dailyPlan),
-      createDependencies(database, {
-        env: {
-          GPT_INGEST_TOKEN: TOKEN,
-          GPT_INGEST_OWNER_SUBJECT: "owner-subject",
-          GPT_INGEST_MAX_BODY_BYTES: "16",
-        },
-      }),
+      request,
+      createDependencies(database),
     );
 
     expect(response.status).toBe(413);
     expect(rows).toHaveLength(0);
+  });
+
+  it("accepts a valid body exactly at the fixed 128 KiB limit", async () => {
+    const { database, rows } = createTestDatabase();
+    const json = JSON.stringify(dailyPlan);
+    const body = `${json}${" ".repeat(128 * 1024 - Buffer.byteLength(json))}`;
+    const request = new Request("http://localhost/api/gpt/import", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${TOKEN}`,
+        "Content-Type": "application/json",
+        "Idempotency-Key": dailyPlan.idempotency_key,
+      },
+      body,
+    });
+    const response = await handleGptImport(
+      request,
+      createDependencies(database),
+    );
+    expect(response.status).toBe(201);
+    expect(rows).toHaveLength(1);
   });
 
   it("requires the header and envelope idempotency keys to match", async () => {
@@ -630,19 +797,61 @@ describe("GPT import HTTP boundary", () => {
     expect(rows).toHaveLength(0);
   });
 
-  it("limits authenticated requests within one process window", () => {
+  it("enforces endpoint and principal rolling windows with hashed keys", () => {
     let now = 0;
     const rateLimiter = createGptImportRateLimiter(() => now);
 
-    for (let request = 0; request < 60; request += 1) {
-      expect(rateLimiter.check()).toEqual({ allowed: true });
+    for (let request = 0; request < 30; request += 1) {
+      expect(rateLimiter.checkPrincipal("principal-a")).toEqual({
+        allowed: true,
+      });
     }
 
-    expect(rateLimiter.check()).toEqual({
+    expect(rateLimiter.checkPrincipal("principal-a")).toEqual({
       allowed: false,
       retryAfterSeconds: 60,
     });
+    expect(rateLimiter.checkPrincipal("principal-b")).toEqual({
+      allowed: true,
+    });
+    for (let request = 0; request < 120; request += 1) {
+      expect(rateLimiter.checkEndpoint()).toEqual({ allowed: true });
+    }
+    expect(rateLimiter.checkEndpoint()).toEqual({
+      allowed: false,
+      retryAfterSeconds: 60,
+    });
+
+    const fingerprint = fingerprintMachineToken(TOKEN);
+    rateLimiter.checkPrincipal(fingerprint);
+    expect(rateLimiter.snapshot().principalKeys).toContain(fingerprint);
+    expect(rateLimiter.snapshot().principalKeys.join(" ")).not.toContain(TOKEN);
+
     now = 60_000;
-    expect(rateLimiter.check()).toEqual({ allowed: true });
+    expect(rateLimiter.checkPrincipal("principal-a")).toEqual({
+      allowed: true,
+    });
+  });
+
+  it("returns 429 with Retry-After on the first principal over-limit request", async () => {
+    const { database } = createTestDatabase();
+    const rateLimiter = createGptImportRateLimiter(() => 0);
+    const fingerprint = fingerprintMachineToken(TOKEN);
+    for (let request = 0; request < 30; request += 1) {
+      expect(rateLimiter.checkPrincipal(fingerprint)).toEqual({
+        allowed: true,
+      });
+    }
+
+    const response = await handleGptImport(
+      createRequest(dailyPlan),
+      createDependencies(database, { rateLimiter }),
+    );
+    expect(response.status).toBe(429);
+    expect(response.headers.get("retry-after")).toBe("60");
+    await expect(response.json()).resolves.toEqual({
+      ok: false,
+      error: "rate_limited",
+    });
   });
 });

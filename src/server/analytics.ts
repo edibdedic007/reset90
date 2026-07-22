@@ -7,10 +7,7 @@ import {
 
 import { findSingularActiveCycle } from "./context-cycle";
 import { calculateDayNumber, normalizeUtcDate } from "./db/cycle";
-import {
-  reconcileCurrentDayStatus,
-  reconcileElapsedDayStatuses,
-} from "./recovery/service";
+import { deriveCycleDayStatuses } from "./recovery/read-status";
 
 export type AnalyticsDatabase = Pick<
   PrismaClient,
@@ -138,6 +135,7 @@ type StoredTask = {
 
 type StoredDay = {
   dayNumber: number;
+  date: Date;
   status: DayStatus;
   dailyPlan: { tasks: StoredTask[] } | null;
   checkins: StoredCheckin[];
@@ -284,9 +282,11 @@ export async function getAnalyticsDashboard(
 ): Promise<AnalyticsDashboard> {
   const activeCycle = await findSingularActiveCycle(database, userId);
   if (!activeCycle) return { status: "no_cycle" };
-
-  await reconcileElapsedDayStatuses(database, userId, now, 90);
-  await reconcileCurrentDayStatus(database, userId, now);
+  const derivedStatuses = await deriveCycleDayStatuses(
+    database,
+    activeCycle.id,
+    now,
+  );
 
   const today = normalizeUtcDate(now);
   const cycleSummary = await database.resetCycle.findFirst({
@@ -313,6 +313,7 @@ export async function getAnalyticsDashboard(
         orderBy: { dayNumber: "asc" },
         select: {
           dayNumber: true,
+          date: true,
           status: true,
           dailyPlan: {
             select: {
@@ -320,6 +321,7 @@ export async function getAnalyticsDashboard(
                 orderBy: { sortOrder: "asc" },
                 select: {
                   domain: true,
+                  tier: true,
                   completedAt: true,
                   skippedAt: true,
                 },
@@ -348,7 +350,10 @@ export async function getAnalyticsDashboard(
   });
   if (!cycle) return { status: "no_cycle" };
 
-  const days = cycle.dayLogs as StoredDay[];
+  const days = (cycle.dayLogs as StoredDay[]).map((day) => ({
+    ...day,
+    status: derivedStatuses.byDayNumber.get(day.dayNumber) ?? day.status,
+  }));
   const statusCounts: Record<FinalizedDayStatus, number> = {
     GREEN: 0,
     YELLOW: 0,

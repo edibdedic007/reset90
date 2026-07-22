@@ -1,12 +1,23 @@
-import { requireBrowserSession } from "@/server/auth/session";
+import { getReadOnlyBrowserSession } from "@/server/auth/session";
 import { handleCreateCheckinRequest } from "@/server/checkins";
 import { getPrismaClient } from "@/server/db/client";
+import { handleBrowserMutation } from "@/server/http/security";
 
 export const dynamic = "force-dynamic";
 
 export async function POST(request: Request) {
-  return handleCreateCheckinRequest(request, {
-    requireSession: requireBrowserSession,
-    getDatabase: getPrismaClient,
-  });
+  return handleBrowserMutation(
+    request,
+    "POST",
+    "checkin.create",
+    {
+      appUrl: process.env.APP_URL,
+      getSession: getReadOnlyBrowserSession,
+    },
+    (boundedRequest, session) =>
+      handleCreateCheckinRequest(boundedRequest, {
+        requireSession: async () => session,
+        getDatabase: getPrismaClient,
+      }),
+  );
 }

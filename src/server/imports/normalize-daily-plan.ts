@@ -3,6 +3,7 @@ import { Prisma, type PrismaClient } from "../../generated/prisma/client";
 import { importEnvelopeSchema } from "./schemas";
 import type { DailyPlanPayload } from "./schemas/daily-plan";
 import { reconcileDayStatusInTransaction } from "../recovery/service";
+import { resolveTrustedMachineOwner } from "./machine-owner";
 
 type DailyPlanTask =
   | DailyPlanPayload["non_negotiables"][number]
@@ -34,8 +35,13 @@ export type DailyPlanNormalizationDatabase = Pick<PrismaClient, "$transaction">;
 export type DailyPlanNormalizationResult =
   | { status: "not_applicable" }
   | {
-      status: "processed" | "already_processed";
+      status: "processed";
       dailyPlanId: string;
+      taskCount: number;
+    }
+  | {
+      status: "already_processed";
+      dailyPlanId: string | null;
       taskCount: number;
     }
   | {
@@ -44,8 +50,10 @@ export type DailyPlanNormalizationResult =
         | "import_not_found"
         | "import_not_processable"
         | "invalid_stored_payload"
-        | "day_log_not_found"
-        | "processed_record_not_found";
+        | "import_owner_not_found"
+        | "active_cycle_not_found"
+        | "active_cycle_ambiguous"
+        | "day_log_not_found";
     };
 
 function normalizedTasks(payload: DailyPlanPayload) {
@@ -65,6 +73,19 @@ function normalizedTasks(payload: DailyPlanPayload) {
     why: task.why,
     sortOrder,
   }));
+}
+
+function isNewerImport(
+  incoming: { id: string; createdAt: Date },
+  current: { id: string; createdAt: Date },
+): boolean {
+  const timestampDifference =
+    incoming.createdAt.getTime() - current.createdAt.getTime();
+
+  return (
+    timestampDifference > 0 ||
+    (timestampDifference === 0 && incoming.id > current.id)
+  );
 }
 
 async function markFailed(
@@ -88,9 +109,14 @@ async function markFailed(
 export function normalizeDailyPlanImport(
   database: DailyPlanNormalizationDatabase,
   importedPayloadId: string,
+  ownerAuthentikSubject: string,
   now = new Date(),
 ): Promise<DailyPlanNormalizationResult> {
   return database.$transaction(async (transaction) => {
+    await transaction.$queryRaw(
+      Prisma.sql`SELECT id FROM imported_payloads WHERE id = ${importedPayloadId}::uuid FOR UPDATE`,
+    );
+
     const importedPayload = await transaction.importedPayload.findUnique({
       where: { id: importedPayloadId },
       select: {
@@ -101,6 +127,7 @@ export function normalizeDailyPlanImport(
         rawJson: true,
         validationStatus: true,
         processingStatus: true,
+        createdAt: true,
       },
     });
 
@@ -118,19 +145,10 @@ export function normalizeDailyPlanImport(
         select: { id: true, _count: { select: { tasks: true } } },
       });
 
-      if (!existing) {
-        return markFailed(
-          transaction,
-          importedPayloadId,
-          "processed_record_not_found",
-          now,
-        );
-      }
-
       return {
         status: "already_processed",
-        dailyPlanId: existing.id,
-        taskCount: existing._count.tasks,
+        dailyPlanId: existing?.id ?? null,
+        taskCount: existing?._count.tasks ?? 0,
       };
     }
 
@@ -154,12 +172,20 @@ export function normalizeDailyPlanImport(
     }
 
     const payload = envelope.data.payload;
+    const owner = await resolveTrustedMachineOwner(
+      transaction,
+      ownerAuthentikSubject,
+    );
+    if (owner.status !== "resolved") {
+      return markFailed(transaction, importedPayloadId, owner.status, now);
+    }
+
     const dayLog = await transaction.dayLog.findFirst({
       where: {
+        cycleId: owner.cycle.id,
         date: new Date(`${payload.date}T00:00:00.000Z`),
         dayNumber: payload.day_number,
         phase: { name: payload.phase },
-        cycle: { status: "ACTIVE" },
       },
       select: { id: true },
     });
@@ -173,6 +199,15 @@ export function normalizeDailyPlanImport(
       );
     }
 
+    const existingPlan = await transaction.dailyPlan.findUnique({
+      where: { dayLogId: dayLog.id },
+      select: {
+        id: true,
+        _count: { select: { tasks: true } },
+        importedPayload: { select: { id: true, createdAt: true } },
+      },
+    });
+
     const tasks = normalizedTasks(payload);
     const planData = {
       importedPayloadId,
@@ -184,31 +219,40 @@ export function normalizeDailyPlanImport(
       downshiftRule: payload.downshift_rule,
       contextSummary: payload.context_summary,
     };
-    const dailyPlan = await transaction.dailyPlan.upsert({
-      where: { dayLogId: dayLog.id },
-      create: {
-        ...planData,
-        dayLogId: dayLog.id,
-        tasks: { create: tasks },
-      },
-      update: {
-        ...planData,
-        tasks: {
-          deleteMany: {},
-          create: tasks,
-        },
-      },
-      select: { id: true },
-    });
+    const shouldReplace =
+      !existingPlan ||
+      isNewerImport(importedPayload, existingPlan.importedPayload);
+    const dailyPlanId = shouldReplace
+      ? (
+          await transaction.dailyPlan.upsert({
+            where: { dayLogId: dayLog.id },
+            create: {
+              ...planData,
+              dayLogId: dayLog.id,
+              tasks: { create: tasks },
+            },
+            update: {
+              ...planData,
+              tasks: {
+                deleteMany: {},
+                create: tasks,
+              },
+            },
+            select: { id: true },
+          })
+        ).id
+      : existingPlan.id;
 
-    await transaction.dayLog.update({
-      where: { id: dayLog.id },
-      data: {
-        mission: payload.mission,
-        supportiveMessage: payload.supportive_message,
-      },
-    });
-    await reconcileDayStatusInTransaction(transaction, dayLog.id, now);
+    if (shouldReplace) {
+      await transaction.dayLog.update({
+        where: { id: dayLog.id },
+        data: {
+          mission: payload.mission,
+          supportiveMessage: payload.supportive_message,
+        },
+      });
+      await reconcileDayStatusInTransaction(transaction, dayLog.id, now);
+    }
     await transaction.importedPayload.update({
       where: { id: importedPayloadId },
       data: {
@@ -220,8 +264,8 @@ export function normalizeDailyPlanImport(
 
     return {
       status: "processed",
-      dailyPlanId: dailyPlan.id,
-      taskCount: tasks.length,
+      dailyPlanId,
+      taskCount: shouldReplace ? tasks.length : existingPlan._count.tasks,
     };
   });
 }

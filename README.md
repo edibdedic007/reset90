@@ -122,6 +122,7 @@ reset90_codex_cli_pack_v5_final/
 │   ├── 13_INSPIRATIONS.md
 │   ├── 14_SOURCE_RESEARCH_NOTES.md
 │   ├── 15_ADR_PROCESS_AND_REASONING.md
+│   ├── 19_SECURITY_CHECKLIST.md
 │   └── adr/
 │       ├── README.md
 │       ├── TEMPLATE.md

@@ -1,21 +1,45 @@
-import { requireBrowserSession } from "@/server/auth/session";
+import { getReadOnlyBrowserSession } from "@/server/auth/session";
 import {
   handleCreateContextRequest,
   handleGetContextRequest,
 } from "@/server/context";
 import { getPrismaClient } from "@/server/db/client";
+import {
+  handleBrowserMutation,
+  handleSafeApplicationRequest,
+} from "@/server/http/security";
 
 export const dynamic = "force-dynamic";
 
-const dependencies = {
-  requireSession: requireBrowserSession,
-  getDatabase: getPrismaClient,
-};
-
 export function GET(request: Request) {
-  return handleGetContextRequest(request, dependencies);
+  return handleSafeApplicationRequest("context.read", async () => {
+    const session = await getReadOnlyBrowserSession();
+    if (!session) {
+      return Response.json(
+        { ok: false, error: "unauthorized" },
+        { status: 401 },
+      );
+    }
+    return handleGetContextRequest(request, {
+      requireSession: async () => session,
+      getDatabase: getPrismaClient,
+    });
+  });
 }
 
 export function POST(request: Request) {
-  return handleCreateContextRequest(request, dependencies);
+  return handleBrowserMutation(
+    request,
+    "POST",
+    "context.create",
+    {
+      appUrl: process.env.APP_URL,
+      getSession: getReadOnlyBrowserSession,
+    },
+    (boundedRequest, session) =>
+      handleCreateContextRequest(boundedRequest, {
+        requireSession: async () => session,
+        getDatabase: getPrismaClient,
+      }),
+  );
 }

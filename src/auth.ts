@@ -5,11 +5,15 @@ import {
   getAuthentikProviderConfig,
   getAuthMode,
   getAuthSecret,
+  getSessionCookieConfig,
   isPublicAuthPath,
   SESSION_MAX_AGE_SECONDS,
   shouldTrustAuthHost,
   shouldUseSecureCookies,
 } from "./server/auth/config";
+import { storeBrowserUser } from "./server/auth/users";
+import { getPrismaClient } from "./server/db/client";
+import { writeSafeLogEvent } from "./server/http/security";
 
 const authentikConfig = getAuthentikProviderConfig();
 
@@ -22,7 +26,43 @@ export const authConfig = {
   },
   trustHost: shouldTrustAuthHost(),
   useSecureCookies: shouldUseSecureCookies(),
+  cookies: {
+    sessionToken: getSessionCookieConfig(),
+  },
   callbacks: {
+    async signIn({ user, account }) {
+      if (getAuthMode() !== "oidc") {
+        return true;
+      }
+
+      const authentikSubject =
+        account?.provider === "authentik"
+          ? account.providerAccountId.trim()
+          : "";
+      if (!authentikSubject) {
+        return false;
+      }
+
+      try {
+        await storeBrowserUser(getPrismaClient(), {
+          authentikSubject,
+          email: user.email ?? null,
+          displayName: user.name ?? null,
+          isDev: false,
+        });
+      } catch {
+        writeSafeLogEvent({
+          event: "authentication_provisioning_failed",
+          operation: "authentik_sign_in",
+          code: "user_provisioning_failed",
+          httpStatus: 403,
+          correlationId: "not_available",
+        });
+        return false;
+      }
+
+      return true;
+    },
     authorized({ auth, request }) {
       if (isPublicAuthPath(request.nextUrl.pathname)) {
         return true;
@@ -34,9 +74,14 @@ export const authConfig = {
 
       return Boolean(auth?.user);
     },
-    jwt({ token, user }) {
-      if (user?.id) {
-        token.authentikSubject = user.id;
+    jwt({ token, account }) {
+      if (account?.provider === "authentik") {
+        const authentikSubject = account.providerAccountId.trim();
+        if (!authentikSubject) {
+          throw new Error("Authentik account subject is required");
+        }
+
+        token.authentikSubject = authentikSubject;
       }
 
       return token;
