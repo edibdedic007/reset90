@@ -1,10 +1,10 @@
 # Task State
 
-Last updated: 2026-07-21
+Last updated: 2026-07-22
 
 ## Current phase
 
-Phase 20 pre-production security hardening is implemented locally on
+Phase 20 pre-production security hardening is implemented and accepted locally on
 `fix/security-hardening`. Phase 19 was merged through PR `#22` after the stable
 GitHub Actions `quality` job passed, and this branch started from the updated
 `local`/`origin/local` merge commit with a clean pre-edit tree.
@@ -12,8 +12,9 @@ GitHub Actions `quality` job passed, and this branch started from the updated
 The bounded Phase 20 corrections restore Authentik lifecycle provisioning, make
 daily-plan replacement deterministically newest-wins, preserve intentionally
 stale processed daily-plan imports as idempotent no-ops, prevent Gold across
-missing day logs, and align the raw-import contract. Phase 20 is not marked
-complete because required Authentik browser login/logout smoke remains pending.
+missing day logs, align the raw-import contract, normalize the Authentik issuer,
+and map application identity to the stable OIDC provider account subject. The
+required real Authentik browser login/logout and security smoke passed.
 
 Phase 20 changes application security boundaries, request handling, logging,
 repository hygiene, tests, and security documentation only. It adds no product
@@ -29,8 +30,10 @@ and cycle ownership are server-derived. Central method policy rejects unsafe
 GET/HEAD and unsupported methods with bounded `405` responses and `Allow`.
 Application reads no longer provision users or reconcile status through writes.
 Successful Authentik sign-in now provisions or updates the application user by
-subject through the existing subject-keyed upsert before the JWT/session is used;
-subsequent session-backed reads remain lookup-only.
+stable `account.providerAccountId` through the existing subject-keyed upsert
+before the JWT/session is used; subsequent session-backed reads remain
+lookup-only. Missing provider account identity fails closed, and later JWT
+callbacks preserve the subject set during initial authentication.
 
 GPT imports accept only `Authorization: Bearer`, authenticate before body
 access, compare token digests in constant time, require canonical JSON within a
@@ -63,16 +66,10 @@ explicitly deferred.
 
 ## Next actions
 
-1. After explicit approval for the external Authentik write, create the missing
-   Reset90 OAuth2/OIDC application/provider with the localhost Auth.js callback,
-   configure Reset90 with its real values, and complete OIDC login, authenticated
-   navigation, same-origin mutation, foreign-origin rejection, Today no-plan
-   state, representative headers, visible-error privacy, and logout in a real
-   browser. Local dev/curl evidence does not replace this verification.
-2. Review and commit the Phase 20 diff with the suggested Conventional Commit
+1. Review and commit the Phase 20 diff with the suggested Conventional Commit
    message, then push and open a pull request through the user's normal workflow.
-3. Confirm the pull request `quality` job passes before merging into `local`.
-4. Start Phase 21 only after explicit approval.
+2. Confirm the pull request `quality` job passes before merging into `local`.
+3. Start Phase 21 only after explicit approval; no Phase 21 work has started.
 
 ## Verification evidence
 
@@ -99,39 +96,48 @@ explicitly deferred.
   the same foreign-origin mutation returned bounded `403 invalid_origin` without
   private fields. The task-started server was stopped; the pre-existing local DB
   stayed running.
-- The bounded real-OIDC smoke attempt confirmed healthy existing Authentik
-  server/worker containers, a `302` public root, and a `200` live-health
-  endpoint. Read-only Authentik inspection found no Reset90 application/provider
-  or localhost callback among the existing applications, while Reset90 remains
-  `AUTH_MODE=dev` with no local Authentik ID, secret, or issuer configured. No
-  browser executable is visible in this environment. Login, sign-in lifecycle
-  provisioning, authenticated navigation/mutations, browser error/privacy
-  inspection, logout, and post-logout route protection therefore remain
-  unverified; no external configuration was changed.
+- Focused Authentik lifecycle coverage passed `tests/auth.test.ts` with 17 tests.
+  It proves transient Auth.js user IDs do not become application identity, two
+  sign-ins sharing one provider subject upsert one Reset90 user, JWT/session
+  propagation and lookup use that subject, later JWT calls preserve it, and
+  missing provider identity fails closed.
+- The real Authentik browser smoke used the external `Reset90 Local`
+  authorization-code provider with the strict localhost Auth.js callback. Fresh
+  provisioning stored the stable subject
+  `586c822423846d03bf93c31b1b95e11777236249c6198f3877b1f42fd8336180`;
+  repeat login retained the same Reset90 user with no duplicate. Authenticated
+  Today rendered Day 1 with no imported plan; Energy `HIGH` survived hard refresh
+  and was present on the owned current-day row. The same-origin invalid energy
+  mutation returned bounded `400 invalid_energy_payload`; the credentialed
+  foreign-origin check reached Reset90 and returned application `403`.
+  Representative CSP, no-sniff, no-referrer, frame-denial, and permissions
+  headers passed; visible errors stayed private-safe; logout returned to sign-in;
+  and `/settings` redirected to sign-in after logout. Task-started processes were
+  stopped.
 
 ## Migration, deployment, and rollback
 
-- No change to `prisma/schema.prisma`; no migration, backfill, data repair,
-  dependency, or production transformation. Existing migrations are validation
-  inputs only.
-- Rollback is application code, configuration, tests, repository checks, and
-  documentation. It needs no database restore, migration reversal, import
-  replay, data cleanup, export cleanup, or user-data correction.
+- No change to `prisma/schema.prisma`; no migration, backfill, dependency, or
+  production transformation. Existing migrations are validation inputs only.
+- Local verification removed two disposable transient-subject smoke fixtures,
+  then created one disposable stable-subject Reset90 user with one smoke cycle,
+  three phases, 90 empty days, and one `HIGH` energy value. Rollback needs no
+  migration reversal or import replay; remove that local fixture and the external
+  local Authentik application/provider if the smoke environment is no longer
+  needed, then revert the application/configuration/test/documentation diff.
 
 ## Latest handoff
 
-- 2026-07-21T22:07:40Z — fix/security-hardening — bounded Phase 20 correction
-  preserved stale processed daily-plan imports as monotonic idempotent no-ops
-  without changing newest-wins ordering or normalized data; final focused unit
-  coverage passed 1 file/7 tests and PostgreSQL coverage passed 2 files/12 tests
-  after all 9 migrations; first/final correction `make check` passed with 25
-  unit/component files/449 tests, 2 PostgreSQL files/12 tests, and production
-  build; live Authentik health passed, but read-only inspection found no Reset90
-  OIDC application/provider or localhost callback, Reset90 has only dev-auth
-  local config, and no browser executable is visible, so real login/provisioning/
-  navigation/mutation/logout verification remains blocked and Phase 20 remains
-  incomplete; no schema, migration, dependency, external auth write, deployment,
-  HSTS, browser tooling, or Phase 21 work
+- 2026-07-22T00:32:33Z — fix/security-hardening — real Authentik verification
+  exposed and corrected transient Auth.js user-ID persistence by using stable
+  `providerAccountId` for lifecycle provisioning and JWT/session identity;
+  focused auth coverage passed 1 file/17 tests; guarded local cleanup removed only
+  disposable transient-subject fixtures; fresh and repeat OIDC login stored one
+  stable Reset90 user; Today empty-state, persisted owned Energy `HIGH`, bounded
+  same-origin `400`, application foreign-origin `403`, representative headers,
+  private-safe errors, logout, and protected-route denial passed; no schema,
+  migration, dependency, production deployment, HSTS, browser tooling, or Phase
+  21 work
 
 ## Historical detail
 

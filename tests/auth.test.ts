@@ -96,21 +96,25 @@ describe("browser auth config", () => {
     ).toThrow("AUTH_SECRET must be at least 32 characters in oidc mode");
   });
 
-  it("trims Authentik issuer trailing slash", () => {
-    expect(
-      getAuthentikProviderConfig({
-        AUTH_MODE: "oidc",
-        AUTH_SECRET: "01234567890123456789012345678901",
-        AUTH_AUTHENTIK_ID: "reset90",
-        AUTH_AUTHENTIK_SECRET: "client-secret",
-        AUTH_AUTHENTIK_ISSUER:
-          "https://auth.example.com/application/o/reset90/",
-      }),
-    ).toEqual({
-      clientId: "reset90",
-      clientSecret: "client-secret",
-      issuer: "https://auth.example.com/application/o/reset90",
-    });
+  it("normalizes Authentik issuer to exactly one trailing slash", () => {
+    for (const issuer of [
+      "https://auth.example.com/application/o/reset90",
+      "https://auth.example.com/application/o/reset90/",
+    ]) {
+      expect(
+        getAuthentikProviderConfig({
+          AUTH_MODE: "oidc",
+          AUTH_SECRET: "01234567890123456789012345678901",
+          AUTH_AUTHENTIK_ID: "reset90",
+          AUTH_AUTHENTIK_SECRET: "client-secret",
+          AUTH_AUTHENTIK_ISSUER: issuer,
+        }),
+      ).toEqual({
+        clientId: "reset90",
+        clientSecret: "client-secret",
+        issuer: "https://auth.example.com/application/o/reset90/",
+      });
+    }
   });
 
   it("keeps GPT ingest outside browser auth", () => {
@@ -206,42 +210,62 @@ describe("browser user persistence", () => {
 });
 
 describe("Authentik authentication lifecycle provisioning", () => {
-  const authenticatedSession = {
-    user: {
-      authentikSubject: "authentik-user",
-      email: "browser@example.test",
-      name: "Browser User",
-    },
-  };
-
-  it("provisions a missing application user during sign-in, then reads without writing", async () => {
-    let storedUser: BrowserUserRecord | null = null;
-    const upsert = vi.fn().mockImplementation(({ create }) => {
-      storedUser = { id: "user-1", ...create };
+  it("uses one stable provider subject across transient Auth.js users and session reads", async () => {
+    const stableSubject = "stable-authentik-subject";
+    const storedUsers = new Map<string, BrowserUserRecord>();
+    const upsert = vi.fn().mockImplementation(({ where, create, update }) => {
+      const existing = storedUsers.get(where.authentikSubject);
+      const storedUser = existing
+        ? { ...existing, ...update }
+        : { id: `user-${storedUsers.size + 1}`, ...create };
+      storedUsers.set(where.authentikSubject, storedUser);
       return storedUser;
     });
-    const findUnique = vi.fn(() => storedUser);
+    const findUnique = vi.fn(({ where }) =>
+      storedUsers.get(where.authentikSubject),
+    );
     const database = { user: { upsert, findUnique } };
     const { authConfig, getPrismaClient } = await loadAuthConfig(database);
+    const account = {
+      provider: "authentik",
+      providerAccountId: stableSubject,
+      type: "oidc" as const,
+    };
 
     await expect(
       authConfig.callbacks.signIn({
         user: {
-          id: "authentik-user",
+          id: "transient-user-a",
           email: "browser@example.test",
           name: "Browser User",
         },
-        account: null,
+        account,
         profile: undefined,
         email: undefined,
         credentials: undefined,
       }),
     ).resolves.toBe(true);
-    expect(getPrismaClient).toHaveBeenCalledTimes(1);
-    expect(upsert).toHaveBeenCalledWith({
-      where: { authentikSubject: "authentik-user" },
+
+    await expect(
+      authConfig.callbacks.signIn({
+        user: {
+          id: "transient-user-b",
+          email: "updated@example.test",
+          name: "Updated Browser User",
+        },
+        account,
+        profile: undefined,
+        email: undefined,
+        credentials: undefined,
+      }),
+    ).resolves.toBe(true);
+
+    expect(getPrismaClient).toHaveBeenCalledTimes(2);
+    expect(upsert).toHaveBeenCalledTimes(2);
+    expect(upsert).toHaveBeenNthCalledWith(1, {
+      where: { authentikSubject: stableSubject },
       create: {
-        authentikSubject: "authentik-user",
+        authentikSubject: stableSubject,
         email: "browser@example.test",
         displayName: "Browser User",
       },
@@ -250,6 +274,77 @@ describe("Authentik authentication lifecycle provisioning", () => {
         displayName: "Browser User",
       },
     });
+    expect(upsert).toHaveBeenNthCalledWith(2, {
+      where: { authentikSubject: stableSubject },
+      create: {
+        authentikSubject: stableSubject,
+        email: "updated@example.test",
+        displayName: "Updated Browser User",
+      },
+      update: {
+        email: "updated@example.test",
+        displayName: "Updated Browser User",
+      },
+    });
+    expect(storedUsers.size).toBe(1);
+    expect(storedUsers.get(stableSubject)).toEqual({
+      id: "user-1",
+      authentikSubject: stableSubject,
+      email: "updated@example.test",
+      displayName: "Updated Browser User",
+    });
+
+    const initialToken = await authConfig.callbacks.jwt({
+      token: {},
+      user: {
+        id: "transient-user-a",
+        email: "browser@example.test",
+        name: "Browser User",
+      },
+      account,
+      profile: undefined,
+      trigger: "signIn",
+      isNewUser: true,
+    });
+    expect(initialToken.authentikSubject).toBe(stableSubject);
+
+    const laterToken = await authConfig.callbacks.jwt({
+      token: initialToken,
+      user: {
+        id: "transient-user-b",
+        email: "updated@example.test",
+        name: "Updated Browser User",
+      },
+      account: null,
+      profile: undefined,
+      trigger: undefined,
+      isNewUser: false,
+    });
+    expect(laterToken.authentikSubject).toBe(stableSubject);
+
+    const authenticatedSession = await authConfig.callbacks.session({
+      session: {
+        user: {
+          id: "user-1",
+          email: "updated@example.test",
+          emailVerified: null,
+          name: "Updated Browser User",
+          authentikSubject: "",
+        },
+        expires: new Date("2099-01-01T00:00:00.000Z") as Date & string,
+        sessionToken: "session-token",
+        userId: "user-1",
+      },
+      token: laterToken,
+      user: {
+        id: "user-1",
+        email: "updated@example.test",
+        emailVerified: null,
+        name: "Updated Browser User",
+      },
+      newSession: undefined,
+    });
+    expect(authenticatedSession.user.authentikSubject).toBe(stableSubject);
 
     const { getReadOnlyBrowserSession } = await loadReadOnlyBrowserSession(
       authenticatedSession,
@@ -257,48 +352,48 @@ describe("Authentik authentication lifecycle provisioning", () => {
     );
     await expect(getReadOnlyBrowserSession()).resolves.toEqual({
       userId: "user-1",
-      authentikSubject: "authentik-user",
-      email: "browser@example.test",
-      displayName: "Browser User",
+      authentikSubject: stableSubject,
+      email: "updated@example.test",
+      displayName: "Updated Browser User",
       isDev: false,
     });
-    expect(findUnique).toHaveBeenCalledTimes(1);
-    expect(upsert).toHaveBeenCalledTimes(1);
+    expect(findUnique).toHaveBeenCalledWith({
+      where: { authentikSubject: stableSubject },
+      select: {
+        id: true,
+        authentikSubject: true,
+        email: true,
+        displayName: true,
+      },
+    });
+    expect(upsert).toHaveBeenCalledTimes(2);
   });
 
-  it("updates an existing subject during sign-in without duplicate creation", async () => {
-    const existing: BrowserUserRecord = {
-      id: "user-1",
-      authentikSubject: "authentik-user",
-      email: "old@example.test",
-      displayName: "Old Name",
-    };
-    const upsert = vi.fn().mockResolvedValue({
-      ...existing,
-      email: "browser@example.test",
-      displayName: "Browser User",
+  it("fails closed when Authentik omits the provider account subject", async () => {
+    const upsert = vi.fn();
+    const { authConfig, getPrismaClient } = await loadAuthConfig({
+      user: { upsert },
     });
-    const { authConfig } = await loadAuthConfig({ user: { upsert } });
 
     await expect(
       authConfig.callbacks.signIn({
         user: {
-          id: "authentik-user",
+          id: "transient-user",
           email: "browser@example.test",
           name: "Browser User",
         },
-        account: null,
+        account: {
+          provider: "authentik",
+          providerAccountId: "   ",
+          type: "oidc",
+        },
         profile: undefined,
         email: undefined,
         credentials: undefined,
       }),
-    ).resolves.toBe(true);
-    expect(upsert).toHaveBeenCalledTimes(1);
-    expect(upsert).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: { authentikSubject: "authentik-user" },
-      }),
-    );
+    ).resolves.toBe(false);
+    expect(getPrismaClient).not.toHaveBeenCalled();
+    expect(upsert).not.toHaveBeenCalled();
   });
 });
 

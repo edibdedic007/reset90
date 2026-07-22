@@ -17,7 +17,7 @@ shame-based streaks.
 - Docker Compose locally and in production, with Traefik expected in production
 - GitHub Actions CI
 
-## Implemented through Phase 20
+## Implemented and accepted through Phase 20
 
 - Repository, local environment, Prisma schema/migrations, seed data, readiness,
   quality gates, CI, backups/export/deployment helpers.
@@ -61,13 +61,18 @@ shame-based streaks.
 Phase 20 hardens the pre-production application boundary without changing
 product semantics or the database schema. Browser mutations require an existing
 authenticated user, exact configured origin, JSON, and a streamed 16 KiB body
-limit. Authentik sign-in provisions or updates the application user by subject
-inside the Auth.js lifecycle; subsequent application reads resolve that existing
-user without writes. GPT imports require header-only machine authentication
-before body access, a trusted existing owner with one active cycle, a streamed
-128 KiB body limit, and process-local endpoint/principal rate limits. Application
-GET/HEAD handlers remain read-only, logs are allowlist-only, compatible security
-headers are centralized, and Git-backed repository hygiene checks fail closed.
+limit. Authentik sign-in provisions or updates the application user by the
+stable OIDC provider account subject inside the Auth.js lifecycle; subsequent
+application reads resolve that existing user without writes. A real local
+Authentik browser smoke verified redirect, callback, stable-subject
+provisioning and repeat login, authenticated navigation and mutations,
+same-origin validation, foreign-origin rejection, empty Today state, headers,
+private-safe errors, logout, and protected-route denial. GPT imports require
+header-only machine authentication before body access, a trusted existing owner
+with one active cycle, a streamed 128 KiB body limit, and process-local
+endpoint/principal rate limits. Application GET/HEAD handlers remain read-only,
+logs are allowlist-only, compatible security headers are centralized, and
+Git-backed repository hygiene checks fail closed.
 
 Phase 21 remains separate production deployment work. Production containers,
 Traefik/TLS configuration, trusted proxy behavior, HSTS, distributed or
@@ -89,10 +94,10 @@ IP-based rate limiting, and cutover are not implemented here.
   `src/server/context-export/`; packet generation is allowlist-only and
   read-only.
 - Browser auth and GPT machine ingest auth remain separate boundaries. Authentik
-  sign-in provisions or updates the application user by subject inside the
-  Auth.js lifecycle; browser reads resolve existing users without application
-  provisioning. Mutations also require the exact canonical application origin
-  and a 16 KiB streamed JSON body limit.
+  sign-in provisions or updates the application user by stable
+  `providerAccountId` inside the Auth.js lifecycle; browser reads resolve
+  existing users without application provisioning. Mutations also require the
+  exact canonical application origin and a 16 KiB streamed JSON body limit.
 - GPT imports authenticate before body access, use a fixed 128 KiB streamed JSON
   body limit, resolve exactly one trusted-owner active cycle, and use rolling
   process-local limits of 120 endpoint requests and 30 principal requests per

@@ -54,7 +54,7 @@ export function getAuthSecret(env: AuthEnv = process.env) {
 }
 
 export function normalizeIssuer(issuer: string) {
-  return issuer.replace(/\/+$/, "");
+  return `${issuer.replace(/\/+$/, "")}/`;
 }
 
 export function getAuthentikProviderConfig(

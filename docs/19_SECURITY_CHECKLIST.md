@@ -1,12 +1,17 @@
 # Phase 20 Security Checklist
 
-Status: implemented on `fix/security-hardening`.
+Status: implemented and accepted locally on `fix/security-hardening` after real
+Authentik OIDC browser verification.
 
 ## Browser boundary
 
 - Custom browser mutations require an Auth.js browser identity that resolves to
   an existing Reset90 user. Application reads and mutations do not create or
   upsert users.
+- Authentik sign-in provisions or updates that user only during the Auth.js
+  lifecycle, keyed by stable `account.providerAccountId`. Transient Auth.js
+  `user.id` values and email matching never define application identity. Missing
+  provider account identity fails closed.
 - User, owner, active cycle, current UTC day, and mutation timestamps are
   derived server-side. Existing owned-query and singular-active-cycle
   constraints remain authoritative.
@@ -81,6 +86,25 @@ Status: implemented on `fix/security-hardening`.
   also prove a synthetic tracked secret path fails.
 - Phase 20 does not scan Git history, rewrite history, install an external secret
   scanner, add a durable audit log, or change encryption/storage architecture.
+
+## Accepted verification
+
+- The external local `Reset90 Local` confidential Authentik provider uses only
+  the authorization-code grant and the strict localhost Auth.js callback. No
+  Docker-network, Traefik, TLS, HSTS, or production deployment change was made.
+- Real browser redirect and callback provisioned the stable Authentik subject;
+  repeat login resolved the same Reset90 user without duplication. Authenticated
+  navigation, session persistence, logout, and post-logout protected-route denial
+  passed.
+- Today rendered the approved no-plan empty state. Energy `HIGH` persisted after
+  hard refresh and was verified on the authenticated user's owned current-day
+  database row.
+- A same-origin invalid energy mutation returned bounded validation code
+  `400 invalid_energy_payload`. A credentialed foreign-origin mutation reached
+  the Reset90 application boundary and returned HTTP `403`.
+- Representative CSP, no-sniff, no-referrer, frame-denial, and permissions
+  headers were present. CSP did not prevent OIDC callback, authenticated
+  navigation, mutation, or logout, and visible errors exposed no private data.
 
 ## Phase 21 deployment assumptions
 

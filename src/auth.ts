@@ -29,13 +29,21 @@ export const authConfig = {
     sessionToken: getSessionCookieConfig(),
   },
   callbacks: {
-    async signIn({ user }) {
-      if (getAuthMode() !== "oidc" || !user.id) {
+    async signIn({ user, account }) {
+      if (getAuthMode() !== "oidc") {
         return true;
       }
 
+      const authentikSubject =
+        account?.provider === "authentik"
+          ? account.providerAccountId.trim()
+          : "";
+      if (!authentikSubject) {
+        return false;
+      }
+
       await storeBrowserUser(getPrismaClient(), {
-        authentikSubject: user.id,
+        authentikSubject,
         email: user.email ?? null,
         displayName: user.name ?? null,
         isDev: false,
@@ -53,9 +61,14 @@ export const authConfig = {
 
       return Boolean(auth?.user);
     },
-    jwt({ token, user }) {
-      if (user?.id) {
-        token.authentikSubject = user.id;
+    jwt({ token, account }) {
+      if (account?.provider === "authentik") {
+        const authentikSubject = account.providerAccountId.trim();
+        if (!authentikSubject) {
+          throw new Error("Authentik account subject is required");
+        }
+
+        token.authentikSubject = authentikSubject;
       }
 
       return token;
