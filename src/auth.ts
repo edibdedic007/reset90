@@ -13,6 +13,7 @@ import {
 } from "./server/auth/config";
 import { storeBrowserUser } from "./server/auth/users";
 import { getPrismaClient } from "./server/db/client";
+import { writeSafeLogEvent } from "./server/http/security";
 
 const authentikConfig = getAuthentikProviderConfig();
 
@@ -42,12 +43,24 @@ export const authConfig = {
         return false;
       }
 
-      await storeBrowserUser(getPrismaClient(), {
-        authentikSubject,
-        email: user.email ?? null,
-        displayName: user.name ?? null,
-        isDev: false,
-      });
+      try {
+        await storeBrowserUser(getPrismaClient(), {
+          authentikSubject,
+          email: user.email ?? null,
+          displayName: user.name ?? null,
+          isDev: false,
+        });
+      } catch {
+        writeSafeLogEvent({
+          event: "authentication_provisioning_failed",
+          operation: "authentik_sign_in",
+          code: "user_provisioning_failed",
+          httpStatus: 403,
+          correlationId: "not_available",
+        });
+        return false;
+      }
+
       return true;
     },
     authorized({ auth, request }) {

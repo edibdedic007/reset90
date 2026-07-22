@@ -71,6 +71,9 @@ explicitly deferred.
 2. Confirm the pull request `quality` job passes before merging into `local`.
 3. Start Phase 21 only after explicit approval; no Phase 21 work has started.
 
+The final Phase 20 tree remains unvalidated by the external pull-request
+`quality` job until this correction is committed, pushed, and passes that job.
+
 ## Verification evidence
 
 - Final stale-import correction coverage passed 1 unit/service file with 7 tests
@@ -85,10 +88,9 @@ explicitly deferred.
   with 11 tests, including concurrent distinct daily plans converging on the
   newest immutable raw import while existing idempotency, replacement,
   transaction, and cross-user isolation coverage remained green.
-- First and only final correction `make check` passed: tracked-sensitive paths, frozen
-  install, formatting, lint, typecheck, 25 unit/component files with 449 tests,
-  payload/schema drift, Prisma validation, all 9 migrations, 2 PostgreSQL files
-  with 12 tests, production build, shell syntax, and whitespace.
+- The final `make check` passed after one initial run exposed a focused
+  test-fixture type error that was corrected. The current
+  provisioning-containment correction's final `make check` also passed.
 - One bounded local smoke attempt used the existing dev workflow on normal port
   3000. Dev-auth root navigation and Today API returned `200`; Today had no
   normalized plan; CSP, frame denial, no-sniff, no-referrer, and permissions
@@ -96,16 +98,18 @@ explicitly deferred.
   the same foreign-origin mutation returned bounded `403 invalid_origin` without
   private fields. The task-started server was stopped; the pre-existing local DB
   stayed running.
-- Focused Authentik lifecycle coverage passed `tests/auth.test.ts` with 17 tests.
+- Focused Authentik lifecycle coverage passed `tests/auth.test.ts` with 18 tests.
   It proves transient Auth.js user IDs do not become application identity, two
   sign-ins sharing one provider subject upsert one Reset90 user, JWT/session
   propagation and lookup use that subject, later JWT calls preserve it, and
-  missing provider identity fails closed.
+  missing provider identity fails closed. Provisioning rejection is contained
+  inside the `signIn` callback, denies sign-in without rethrowing the original
+  exception, emits one fixed allowlisted failure event, and excludes private
+  sentinels, identity fields, Prisma details, and stack text from logs.
 - The real Authentik browser smoke used the external `Reset90 Local`
   authorization-code provider with the strict localhost Auth.js callback. Fresh
-  provisioning stored the stable subject
-  `586c822423846d03bf93c31b1b95e11777236249c6198f3877b1f42fd8336180`;
-  repeat login retained the same Reset90 user with no duplicate. Authenticated
+  provisioning stored the expected stable Authentik provider account subject.
+  Repeat login retained the same Reset90 user with no duplicate. Authenticated
   Today rendered Day 1 with no imported plan; Energy `HIGH` survived hard refresh
   and was present on the owned current-day row. The same-origin invalid energy
   mutation returned bounded `400 invalid_energy_payload`; the credentialed
@@ -128,16 +132,13 @@ explicitly deferred.
 
 ## Latest handoff
 
-- 2026-07-22T00:32:33Z — fix/security-hardening — real Authentik verification
-  exposed and corrected transient Auth.js user-ID persistence by using stable
-  `providerAccountId` for lifecycle provisioning and JWT/session identity;
-  focused auth coverage passed 1 file/17 tests; guarded local cleanup removed only
-  disposable transient-subject fixtures; fresh and repeat OIDC login stored one
-  stable Reset90 user; Today empty-state, persisted owned Energy `HIGH`, bounded
-  same-origin `400`, application foreign-origin `403`, representative headers,
-  private-safe errors, logout, and protected-route denial passed; no schema,
-  migration, dependency, production deployment, HSTS, browser tooling, or Phase
-  21 work
+- 2026-07-22T00:59:50Z — fix/security-hardening — bounded correction contained
+  Authentik provisioning failures inside `signIn`, denied authentication without
+  rethrowing private exceptions, and emitted one fixed allowlisted log event;
+  focused auth coverage passed 1 file/18 tests and final `make check` passed; real
+  provider subject removed from tracked task state; no schema, migration,
+  dependency, ownership, email-linking, deployment, or Phase 21 change; external
+  pull-request `quality` remains pending until later commit/push
 
 ## Historical detail
 

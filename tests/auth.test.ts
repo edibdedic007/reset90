@@ -67,6 +67,7 @@ async function loadAuthConfig(database: unknown) {
 }
 
 afterEach(() => {
+  vi.restoreAllMocks();
   vi.unstubAllEnvs();
   vi.doUnmock("../src/auth");
   vi.doUnmock("../src/server/db/client");
@@ -394,6 +395,84 @@ describe("Authentik authentication lifecycle provisioning", () => {
     ).resolves.toBe(false);
     expect(getPrismaClient).not.toHaveBeenCalled();
     expect(upsert).not.toHaveBeenCalled();
+  });
+
+  it("denies sign-in and logs only fixed metadata when provisioning fails", async () => {
+    const privateSentinel = "PRIVATE_PROVISIONING_SENTINEL";
+    const testEmail = "private-browser@example.test";
+    const providerSubject = "private-authentik-provider-subject";
+    const provisioningError = Object.assign(
+      new Error(
+        `${privateSentinel}: PrismaClientKnownRequestError P2002 INSERT INTO users constraint users_authentikSubject_key`,
+      ),
+      {
+        code: "P2002",
+        name: "PrismaClientKnownRequestError",
+        stack: `PrismaClientKnownRequestError: ${privateSentinel}\n    at provisionUser (private-query.ts:42:7)`,
+      },
+    );
+    const upsert = vi.fn().mockRejectedValue(provisioningError);
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+    const { authConfig } = await loadAuthConfig({ user: { upsert } });
+
+    await expect(
+      authConfig.callbacks.signIn({
+        user: {
+          id: "transient-user",
+          email: testEmail,
+          name: "Private Browser User",
+        },
+        account: {
+          provider: "authentik",
+          providerAccountId: providerSubject,
+          type: "oidc",
+        },
+        profile: undefined,
+        email: undefined,
+        credentials: undefined,
+      }),
+    ).resolves.toBe(false);
+
+    expect(upsert).toHaveBeenCalledWith({
+      where: { authentikSubject: providerSubject },
+      create: {
+        authentikSubject: providerSubject,
+        email: testEmail,
+        displayName: "Private Browser User",
+      },
+      update: {
+        email: testEmail,
+        displayName: "Private Browser User",
+      },
+    });
+    expect(consoleError).toHaveBeenCalledTimes(1);
+    expect(consoleError).toHaveBeenCalledWith(
+      JSON.stringify({
+        event: "authentication_provisioning_failed",
+        operation: "authentik_sign_in",
+        code: "user_provisioning_failed",
+        http_status: 403,
+        correlation_id: "not_available",
+      }),
+    );
+
+    const logged = consoleError.mock.calls
+      .map(([message]) => String(message))
+      .join("\n");
+    for (const privateValue of [
+      privateSentinel,
+      testEmail,
+      providerSubject,
+      "PrismaClientKnownRequestError",
+      "P2002",
+      "INSERT INTO",
+      "users_authentikSubject_key",
+      "at provisionUser",
+    ]) {
+      expect(logged).not.toContain(privateValue);
+    }
   });
 });
 
