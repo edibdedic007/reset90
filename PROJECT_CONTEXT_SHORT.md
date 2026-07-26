@@ -98,12 +98,16 @@ artifacts before a single-transaction restore. Production restore shares the
 deployment lock, requires stopped writes and exact interactive confirmation,
 creates a verified pre-restore backup, restores and verifies a staging database,
 replaces production contents without merging, and leaves the application
-stopped for explicit immutable-revision selection. A real isolated PostgreSQL
-drill verifies migrations, ownership-sensitive representative data,
-relationships, constraints, serialization fidelity, and Prisma access. The
-production backup volume remains local recovery storage; encrypted off-host
-copy is an operator requirement, while provider integration and scheduling
-remain deferred.
+stopped for explicit immutable-revision selection. Selected production restore
+bundles remain retention-protected under that lock, must record a full Git SHA,
+and are revalidated immediately before staging. Cleanup reconciles actual
+database names and preserves ambiguous recoverable states. A real isolated
+PostgreSQL drill verifies current migration history, ownership-sensitive
+representative data, relationships, uniqueness, explicit foreign-key rejection,
+serialization fidelity, and Prisma access. The production backup volume remains
+PostgreSQL/operator-only local recovery storage; the app does not mount it.
+Encrypted off-host copy is an operator requirement, while provider integration
+and scheduling remain deferred.
 
 ## Durable implementation rules
 
@@ -173,8 +177,8 @@ remain deferred.
   values cannot override its interpolation. The app joins private and external
   Traefik networks, PostgreSQL joins only the private network, and neither
   service publishes a host port. The application requires writable export
-  storage; persistent backups are written through the PostgreSQL deployment
-  path, not by normal application runtime behavior.
+  storage; it does not mount the database-backup volume. Persistent backups are
+  available only through the PostgreSQL/operator path.
 - Production images use immutable full Git SHA tags, run non-root, and start
   with the production server. Under one deployment lock, deployment creates and
   verifies a persistent revision-stamped backup through the canonical backup
@@ -183,9 +187,11 @@ remain deferred.
 - Only verified final `.sql.gz` bundles with matching SHA-256 and versioned
   metadata are eligible for restore, retention, off-host copy, or rollback
   evidence. Production deployment and restore share one host lock; restore also
-  requires stopped writes, a verified pre-restore backup, and exact interactive
-  confirmation. Restore never migrates, seeds, restarts services, or deletes
-  volumes automatically.
+  requires stopped writes, a full backup Git SHA, locked and pre-staging
+  revalidation, a retention-protected selected artifact, a verified pre-restore
+  backup, and exact interactive confirmation. Restore cleanup reconciles actual
+  PostgreSQL names and preserves ambiguous recoverable databases. Restore never
+  migrates, seeds, restarts services, or deletes volumes automatically.
 - Container readiness uses `/api/ready` and therefore includes PostgreSQL.
   Public readiness separately verifies the canonical HTTPS route and certificate.
 

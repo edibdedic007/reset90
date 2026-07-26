@@ -13,6 +13,8 @@ GIT_SHA=""
 DATABASE_NAME=""
 DATABASE_USER=""
 SERVICE="db"
+RETENTION_PROTECT_FILE=""
+DEPLOYMENT_LOCK_FD=""
 PUBLISHED=0
 RAW_TEMP=""
 COMPRESSED_TEMP=""
@@ -33,7 +35,8 @@ usage() {
   printf '%s\n' \
     "Usage: backup-db.sh --environment local|test|production --env-file FILE" \
     "  --backup-root ABSOLUTE_PATH --purpose PURPOSE [--git-sha SHA]" \
-    "  [--compose-file FILE] [--project NAME] [--database NAME] [--user NAME]"
+    "  [--compose-file FILE] [--project NAME] [--database NAME] [--user NAME]" \
+    "  [--retention-protect-file BACKUP.sql.gz]"
 }
 
 cleanup_temporary_backup() {
@@ -45,6 +48,14 @@ cleanup_temporary_backup() {
   if [[ "$PUBLISHED" -ne 1 ]]; then
     rm -f -- "${FINAL_CHECKSUM:-}" "${FINAL_METADATA:-}"
   fi
+}
+
+handle_signal() {
+  local status="$1"
+
+  trap - EXIT HUP INT TERM
+  cleanup_temporary_backup
+  exit "$status"
 }
 
 compose() {
@@ -102,6 +113,14 @@ while [[ $# -gt 0 ]]; do
       SERVICE="${2:-}"
       shift 2
       ;;
+    --retention-protect-file)
+      RETENTION_PROTECT_FILE="${2:-}"
+      shift 2
+      ;;
+    --deployment-lock-fd)
+      DEPLOYMENT_LOCK_FD="${2:-}"
+      shift 2
+      ;;
     --help)
       usage
       exit 0
@@ -122,6 +141,17 @@ done
 [[ "$BACKUP_ROOT" == /* ]] || fail "backup-root-must-be-absolute"
 [[ "$PURPOSE" =~ ^[a-z][a-z0-9-]{0,31}$ ]] || fail "invalid-purpose"
 [[ "$SERVICE" =~ ^[a-zA-Z0-9_-]+$ ]] || fail "invalid-service"
+if [[ -n "$DEPLOYMENT_LOCK_FD" ]]; then
+  [[ "$DEPLOYMENT_LOCK_FD" =~ ^[0-9]+$ ]] ||
+    fail "invalid-deployment-lock-fd"
+fi
+if [[ -n "$RETENTION_PROTECT_FILE" ]]; then
+  protected_basename="${RETENTION_PROTECT_FILE##*/}"
+  [[ "$RETENTION_PROTECT_FILE" == "$BACKUP_ROOT/$protected_basename" ]] ||
+    fail "retention-protect-file-outside-root"
+  [[ "$protected_basename" =~ $RESET90_BACKUP_NAME_REGEX ]] ||
+    fail "retention-protect-file-invalid"
+fi
 
 if [[ -z "$COMPOSE_FILE" ]]; then
   case "$ENVIRONMENT" in
@@ -249,7 +279,16 @@ if [[ "$ENVIRONMENT" == "production" ]]; then
         rm -f -- "$final_checksum" "$final_metadata"
       fi
     }
-    trap cleanup EXIT HUP INT TERM
+    handle_signal() {
+      status="$1"
+      trap - EXIT HUP INT TERM
+      cleanup
+      exit "$status"
+    }
+    trap cleanup EXIT
+    trap "handle_signal 129" HUP
+    trap "handle_signal 130" INT
+    trap "handle_signal 143" TERM
 
     detected_major="$(
       pg_dump --version |
@@ -318,7 +357,10 @@ else
   COMPRESSED_TEMP="$BACKUP_ROOT/.$filename.$$.gz.partial"
   CHECKSUM_TEMP="$BACKUP_ROOT/.$filename.$$.sha256.partial"
   METADATA_TEMP="$BACKUP_ROOT/.$filename.$$.meta.partial"
-  trap cleanup_temporary_backup EXIT HUP INT TERM
+  trap cleanup_temporary_backup EXIT
+  trap 'handle_signal 129' HUP
+  trap 'handle_signal 130' INT
+  trap 'handle_signal 143' TERM
 
   compose exec -T "$SERVICE" pg_dump \
     --no-owner \
@@ -373,6 +415,12 @@ retention_arguments=(
 )
 if [[ -n "$COMPOSE_PROJECT" ]]; then
   retention_arguments+=(--project "$COMPOSE_PROJECT")
+fi
+if [[ -n "$RETENTION_PROTECT_FILE" ]]; then
+  retention_arguments+=(--protect-file "$RETENTION_PROTECT_FILE")
+fi
+if [[ -n "$DEPLOYMENT_LOCK_FD" ]]; then
+  retention_arguments+=(--deployment-lock-fd "$DEPLOYMENT_LOCK_FD")
 fi
 "$SCRIPT_DIR/backup-retention.sh" "${retention_arguments[@]}" ||
   fail "retention"

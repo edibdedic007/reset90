@@ -153,10 +153,11 @@ Traefik remains the only public listener and forwards the canonical HTTPS host
 to application port `3000`.
 
 Normal application runtime requires writable export storage. The current
-Compose topology also mounts the persistent backup volume at `/app/backups`, but
-database backups are created through the deployment workflow inside the
-PostgreSQL service. The application process is not the backup writer and does
-not require backup-volume write access for normal runtime behavior.
+Compose topology does not mount the database-backup volume into the application
+service. Only PostgreSQL mounts `reset90_backups`, at `/backups`, for canonical
+operator-controlled backup, retention, and restore commands. An application
+compromise therefore cannot read, replace, or delete database dump bundles
+through a mounted backup path.
 
 HSTS remains disabled in Phase 21. It may be activated only after the real
 canonical HTTPS route, redirects, Authentik callback, and proxy behavior pass
@@ -284,6 +285,10 @@ Apply the same bounded selector:
 make db-backup-retention RETENTION_MODE=--apply
 ```
 
+Production retention shares the deployment/restore lock. Restore also passes
+its selected bundle as an exact protected path to automatic retention during
+the pre-restore backup, so that backup cannot prune the restore source.
+
 The canonical restore defaults to an explicitly test-only, loopback PostgreSQL
 URL. The target name must contain `test`, must differ from the backup source
 database, and must be empty before restore:
@@ -303,7 +308,11 @@ docker compose -p reset90_phase22_restore \
 `restore-db.sh` validates the complete bundle and SQL dump marker before target
 mutation, requires the supported PostgreSQL major, restores in one transaction,
 and rejects missing or unsafe input, inherited `DATABASE_URL`, a populated
-target, or failed/inconsistent Prisma migration history.
+target, or invalid current Prisma migration history. Validation requires every
+checked-in migration to have exactly one completed current record, rejects a
+missing migration table, unfinished or unresolved failed migrations, and
+unexpected current migration names, and permits a historical rolled-back record
+only when the same checked-in migration has a completed current record.
 
 Production restore is an exceptional operator action. First stop application
 writes explicitly; the script never stops or restarts the application for the
@@ -320,16 +329,22 @@ operator. Then invoke it from an interactive terminal:
   --file /backups/<verified-backup>.sql.gz
 ```
 
-Production mode validates the selected bundle, requires an exact typed
-confirmation containing the production database and backup filename, acquires
-the shared deployment lock, proves application writes remain stopped, and
-creates a new verified `prerestore` backup. It restores into a new staging
-database, verifies connectivity and Prisma migration state, then replaces the
-production database by guarded database renames. Failure cleanup removes only
-the staging database or restores the prior name when promotion did not finish.
-The application remains stopped. The operator must select and verify the exact
-immutable Git revision recorded by the restored backup before starting it.
-Forward migration to a newer revision is a separate explicit action.
+Production mode requires the selected filename and metadata to record one full
+40-character Git SHA; `unknown-revision` and abbreviated or malformed revisions
+are rejected. After exact typed confirmation, it acquires the shared deployment
+lock before validating the selected bundle, proves application writes remain
+stopped, and creates a verified `prerestore` backup while protecting the
+selected bundle from retention. It revalidates the bundle and its digest again
+immediately before streaming it into a new staging database. Only a verified
+and unchanged staging database can reach guarded production database renames.
+Failure and signal cleanup inspects actual PostgreSQL database names instead of
+in-memory command flags, restores the original name when that state is
+unambiguous, removes only a clearly disposable staging database, and preserves
+old/promoted databases when both remain recoverable. Cleanup is repeat-safe,
+releases the lock, and retains the shared lock file. The application remains
+stopped. The operator must select and verify the exact immutable Git revision
+recorded by the restored backup before starting it. Forward migration to a newer
+revision is a separate explicit action.
 
 Production restore never runs Prisma migrations, seeds, schema reset, `db
 push`, volume deletion, `docker compose down -v`, image selection, or
@@ -347,10 +362,11 @@ make db-restore-drill
 The drill uses a unique Compose project and two distinct test databases. It
 applies every checked-in migration, inserts representative ownership-sensitive
 data, creates a canonical backup, restores a separate empty target, verifies
-gzip/checksum/migration history/data/relationships/constraints/Unicode,
-multiline text/timestamps/JSON, performs a Prisma query, and removes only its
-disposable resources. Failed drills retain their known temporary diagnostic
-directory; successful drills remove it. Automatic scheduling remains deferred.
+gzip/checksum/current migration history/data/relationships/uniqueness, rejects
+one explicit invalid foreign-key write, verifies Unicode, multiline
+text/timestamps/JSON, performs a Prisma query, and removes only its disposable
+resources. Failed drills retain their known temporary diagnostic directory;
+successful drills remove it. Automatic scheduling remains deferred.
 
 Copy a verified production bundle out of the named Docker volume only as a
 three-file unit. Use an operator-owned encrypted destination:

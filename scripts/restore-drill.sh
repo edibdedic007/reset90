@@ -263,6 +263,20 @@ if compose exec -T db psql -X -v ON_ERROR_STOP=1 \
   fail "uniqueness-constraint-not-enforced"
 fi
 
+if compose exec -T db psql -X -v ON_ERROR_STOP=1 \
+  -U "$DATABASE_USER" \
+  -d "$TARGET_DATABASE" \
+  -c "INSERT INTO reset_cycles
+      (id, user_id, name, start_date, end_date, status, updated_at)
+      VALUES
+      ('90000000-0000-0000-0000-000000000002',
+       '90000000-0000-0000-0000-000000000099',
+       'Invalid foreign key', '2026-07-01', '2026-09-28', 'PLANNED',
+       CURRENT_TIMESTAMP);" \
+  >/dev/null 2>&1; then
+  fail "foreign-key-constraint-not-enforced"
+fi
+
 DATABASE_URL="$TARGET_URL" pnpm exec tsx -e '
   import { createPrismaClient } from "./src/server/db/client.ts";
   void (async () => {
@@ -290,7 +304,7 @@ DATABASE_URL="$TARGET_URL" pnpm exec tsx -e '
 
 printf 'restore-drill:evidence backup=%s checksum=passed source=%s target=%s\n' \
   "$(basename "$BACKUP_FILE")" "$SOURCE_DATABASE" "$TARGET_DATABASE"
-printf 'restore-drill:evidence migrations=passed representative-data=passed relationships=passed application-query=passed\n'
+printf 'restore-drill:evidence migrations=passed representative-data=passed relationships=passed foreign-key=passed application-query=passed\n'
 printf 'restore-drill:evidence completed=%s\n' \
   "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 DRILL_PASSED=1

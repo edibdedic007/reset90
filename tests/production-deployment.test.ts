@@ -44,7 +44,6 @@ function productionEnvironment(revision = fullRevision) {
     `GPT_INGEST_TOKEN=${secretSentinels.gpt}`,
     "GPT_INGEST_OWNER_SUBJECT=stable-owner-subject",
     "EXPORT_DIR=/app/exports",
-    "BACKUP_DIR=/app/backups",
     "APP_VERSION=0.1.0",
     `GIT_COMMIT=${revision}`,
     "RESET90_HOST=reset90.test.invalid",
@@ -371,6 +370,7 @@ describe("production environment contract", () => {
     );
     expect(example).not.toContain("GPT_INGEST_MAX_BODY_BYTES");
     expect(example).not.toContain("1048576");
+    expect(example).not.toContain("BACKUP_DIR");
     expect(
       run(script, [join(repository, ".env.production.example")]).status,
     ).toBe(1);
@@ -395,7 +395,8 @@ describe("production image and Compose policy", () => {
     expect(runner).toContain("USER reset90");
     expect(runner).toContain("EXPOSE 3000");
     expect(runner).toContain("/api/ready");
-    expect(runner).toContain("chown reset90:reset90 /app/exports /app/backups");
+    expect(runner).toContain("chown reset90:reset90 /app/exports");
+    expect(runner).not.toContain("/app/backups");
     expect(runner).toContain(
       'CMD ["node", "node_modules/next/dist/bin/next", "start"]',
     );
@@ -467,6 +468,40 @@ describe("production image and Compose policy", () => {
         (volume) => volume.type === "volume",
       ),
     ).toBe(true);
+    expect(app.volumes).toEqual([
+      {
+        source: "reset90_exports",
+        target: "/app/exports",
+        type: "volume",
+        volume: {},
+      },
+    ]);
+    expect(
+      app.volumes.some((volume) => volume.source === "reset90_backups"),
+    ).toBe(false);
+    expect(db.volumes).toContainEqual({
+      source: "reset90_backups",
+      target: "/backups",
+      type: "volume",
+      volume: {},
+    });
+    expect(
+      Object.entries(config.services)
+        .filter(([, service]) =>
+          (
+            service as {
+              volumes?: Array<{ source: string }>;
+            }
+          ).volumes?.some((volume) => volume.source === "reset90_backups"),
+        )
+        .map(([serviceName]) => serviceName),
+    ).toEqual(["db"]);
+    const legacyExample = readFileSync(
+      join(repository, "examples/docker-compose.production.yml"),
+      "utf8",
+    );
+    expect(legacyExample).not.toContain("reset90_backups:/app/backups");
+    expect(legacyExample).toContain("reset90_backups:/backups");
     expect(Object.keys(config.volumes).sort()).toEqual([
       "reset90_backups",
       "reset90_exports",

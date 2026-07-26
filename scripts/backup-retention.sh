@@ -9,6 +9,11 @@ COMPOSE_FILE=""
 COMPOSE_PROJECT=""
 BACKUP_ROOT=""
 MODE=""
+PROTECTED_FILE=""
+LOCK_FILE="${DEPLOY_LOCK_FILE:-/tmp/reset90-production-deploy.lock}"
+DEPLOYMENT_LOCK_FD=""
+RETENTION_LOCK_FD=8
+RETENTION_LOCK_HELD=0
 RETENTION_DAYS=30
 MINIMUM_KEEP=7
 MANIFEST=""
@@ -25,11 +30,24 @@ usage() {
   printf '%s\n' \
     "Usage: backup-retention.sh --environment local|test|production" \
     "  --env-file FILE --backup-root ABSOLUTE_PATH --dry-run|--apply" \
-    "  [--compose-file FILE] [--project NAME]"
+    "  [--compose-file FILE] [--project NAME] [--protect-file BACKUP.sql.gz]"
 }
 
 cleanup() {
-  rm -f -- "${MANIFEST:-}" "${SORTED_MANIFEST:-}"
+  [[ -z "${MANIFEST:-}" ]] || rm -f -- "$MANIFEST"
+  [[ -z "${SORTED_MANIFEST:-}" ]] || rm -f -- "$SORTED_MANIFEST"
+  if [[ "$RETENTION_LOCK_HELD" -eq 1 ]]; then
+    flock -u "$RETENTION_LOCK_FD" || true
+    RETENTION_LOCK_HELD=0
+  fi
+}
+
+handle_signal() {
+  local status="$1"
+
+  trap - EXIT HUP INT TERM
+  cleanup
+  exit "$status"
 }
 
 compose() {
@@ -75,6 +93,14 @@ while [[ $# -gt 0 ]]; do
       MODE="apply"
       shift
       ;;
+    --protect-file)
+      PROTECTED_FILE="${2:-}"
+      shift 2
+      ;;
+    --deployment-lock-fd)
+      DEPLOYMENT_LOCK_FD="${2:-}"
+      shift 2
+      ;;
     --help)
       usage
       exit 0
@@ -94,6 +120,17 @@ done
 [[ -n "$BACKUP_ROOT" ]] || fail "backup-root-required"
 [[ "$BACKUP_ROOT" == /* ]] || fail "backup-root-must-be-absolute"
 [[ "$MODE" =~ ^(dry-run|apply)$ ]] || fail "retention-mode-required"
+if [[ -n "$DEPLOYMENT_LOCK_FD" ]]; then
+  [[ "$DEPLOYMENT_LOCK_FD" =~ ^[0-9]+$ ]] ||
+    fail "invalid-deployment-lock-fd"
+fi
+if [[ -n "$PROTECTED_FILE" ]]; then
+  protected_basename="${PROTECTED_FILE##*/}"
+  [[ "$PROTECTED_FILE" == "$BACKUP_ROOT/$protected_basename" ]] ||
+    fail "protect-file-outside-root"
+  [[ "$protected_basename" =~ $RESET90_BACKUP_NAME_REGEX ]] ||
+    fail "protect-file-invalid"
+fi
 
 if [[ -z "$COMPOSE_FILE" ]]; then
   case "$ENVIRONMENT" in
@@ -115,10 +152,24 @@ if [[ "$ENVIRONMENT" == "production" ]]; then
   [[ "$ENV_FILE" != "$REPO_ROOT/.env.production.example" ]] ||
     fail "example-env-not-allowed"
   [[ "$BACKUP_ROOT" == "/backups" ]] || fail "production-backup-root-invalid"
-  for required_command in docker; do
+  for required_command in docker flock; do
     command -v "$required_command" >/dev/null 2>&1 ||
       fail "missing-command-$required_command"
   done
+  if [[ -n "$DEPLOYMENT_LOCK_FD" ]]; then
+    [[ -e "/proc/$$/fd/$DEPLOYMENT_LOCK_FD" ]] ||
+      fail "deployment-lock-fd-unavailable"
+    flock -n "$DEPLOYMENT_LOCK_FD" ||
+      fail "production-lock-held"
+  else
+    exec 8>>"$LOCK_FILE" || fail "production-lock-unavailable"
+    flock -n "$RETENTION_LOCK_FD" || fail "production-lock-held"
+    RETENTION_LOCK_HELD=1
+  fi
+  trap cleanup EXIT
+  trap 'handle_signal 129' HUP
+  trap 'handle_signal 130' INT
+  trap 'handle_signal 143' TERM
   docker compose version >/dev/null 2>&1 || fail "missing-docker-compose"
 
   compose exec -T db sh -eu -c '
@@ -130,6 +181,7 @@ if [[ "$ENVIRONMENT" == "production" ]]; then
     marker_value="$6"
     expected_major="$7"
     metadata_version="$8"
+    protected_file="$9"
 
     case "$root" in
       /*backup*) ;;
@@ -212,6 +264,9 @@ if [[ "$ENVIRONMENT" == "production" ]]; then
       if [ "$rank" -le "$minimum_keep" ] || [ "$created" -ge "$cutoff" ]; then
         continue
       fi
+      if [ -n "$protected_file" ] && [ "$file" = "$protected_file" ]; then
+        continue
+      fi
       candidates=$((candidates + 1))
       for exact in "$file" "$file.sha256" "$file.meta"; do
         if [ "$mode" = "dry-run" ]; then
@@ -236,7 +291,8 @@ if [[ "$ENVIRONMENT" == "production" ]]; then
     "$RESET90_BACKUP_ROOT_MARKER" \
     "$RESET90_BACKUP_ROOT_MARKER_VALUE" \
     "$RESET90_POSTGRES_MAJOR" \
-    "$RESET90_BACKUP_METADATA_VERSION" ||
+    "$RESET90_BACKUP_METADATA_VERSION" \
+    "$PROTECTED_FILE" ||
     fail "production-retention"
   exit 0
 fi
@@ -258,9 +314,19 @@ if [[ ! -e "$BACKUP_ROOT/$RESET90_BACKUP_ROOT_MARKER" ]]; then
 fi
 require_existing_backup_root "$BACKUP_ROOT" || fail "backup-root-invalid"
 BACKUP_ROOT="$(realpath -e -- "$BACKUP_ROOT")"
+if [[ -n "$PROTECTED_FILE" ]]; then
+  protected_parent="$(realpath -e -- "$(dirname -- "$PROTECTED_FILE")")" ||
+    fail "protect-file-outside-root"
+  [[ "$protected_parent" == "$BACKUP_ROOT" ]] ||
+    fail "protect-file-outside-root"
+  PROTECTED_FILE="$BACKUP_ROOT/${PROTECTED_FILE##*/}"
+fi
 MANIFEST="$(mktemp /tmp/reset90-retention-manifest.XXXXXX)"
 SORTED_MANIFEST="$(mktemp /tmp/reset90-retention-sorted.XXXXXX)"
-trap cleanup EXIT HUP INT TERM
+trap cleanup EXIT
+trap 'handle_signal 129' HUP
+trap 'handle_signal 130' INT
+trap 'handle_signal 143' TERM
 
 verified=0
 while IFS= read -r -d '' file; do
@@ -288,6 +354,9 @@ while IFS=$'\t' read -r created file; do
   rank=$((rank + 1))
   verified=$((verified + 1))
   if [[ "$rank" -le "$MINIMUM_KEEP" || "$created" -ge "$cutoff" ]]; then
+    continue
+  fi
+  if [[ -n "$PROTECTED_FILE" && "$file" == "$PROTECTED_FILE" ]]; then
     continue
   fi
   candidates=$((candidates + 1))

@@ -24,7 +24,6 @@ services:
       GPT_INGEST_TOKEN: "${GPT_INGEST_TOKEN:?GPT_INGEST_TOKEN is required}"
       GPT_INGEST_OWNER_SUBJECT: "${GPT_INGEST_OWNER_SUBJECT:?GPT_INGEST_OWNER_SUBJECT is required}"
       EXPORT_DIR: "${EXPORT_DIR:?EXPORT_DIR is required}"
-      BACKUP_DIR: "${BACKUP_DIR:?BACKUP_DIR is required}"
       APP_VERSION: "${APP_VERSION:?APP_VERSION is required}"
       GIT_COMMIT: "${GIT_COMMIT:?GIT_COMMIT is required}"
     depends_on:
@@ -34,7 +33,6 @@ services:
       - "3000"
     volumes:
       - reset90_exports:/app/exports
-      - reset90_backups:/app/backups
     networks:
       - reset90_internal
       - traefik

@@ -13,7 +13,6 @@ services:
         condition: service_healthy
     volumes:
       - reset90_exports:/app/exports
-      - reset90_backups:/app/backups
     networks:
       - reset90_internal
       - traefik
@@ -43,6 +42,7 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-reset90}
     volumes:
       - reset90_postgres:/var/lib/postgresql/data
+      - reset90_backups:/backups
     networks:
       - reset90_internal
     healthcheck:

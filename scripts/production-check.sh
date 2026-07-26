@@ -68,8 +68,6 @@ fi
   fail "POSTGRES_DB contains unsupported characters."
 [[ "${values[EXPORT_DIR]}" == "/app/exports" ]] ||
   fail "EXPORT_DIR must be /app/exports."
-[[ "${values[BACKUP_DIR]}" == "/app/backups" ]] ||
-  fail "BACKUP_DIR must be /app/backups."
 
 for key in TRAEFIK_NETWORK TRAEFIK_ENTRYPOINT TRAEFIK_CERT_RESOLVER; do
   [[ "${values[$key]}" =~ ^[A-Za-z0-9_.-]+$ ]] ||

@@ -16,9 +16,6 @@ LOCK_HELD=0
 VALIDATION_TEMP=""
 STAGING_DATABASE=""
 OLD_DATABASE=""
-STAGING_EXISTS=0
-OLD_RENAMED=0
-TARGET_RENAMED=0
 
 source "$SCRIPT_DIR/lib/backup-restore.sh"
 source "$SCRIPT_DIR/lib/production-env.sh"
@@ -48,11 +45,12 @@ compose() {
   fi
 }
 
-database_exists() {
+database_presence() {
   local database_name="$1"
   local database_user="$2"
+  local result
 
-  [[ "$(
+  result="$(
     compose exec -T "$SERVICE" psql -X -A -t \
       -U "$database_user" \
       -d postgres \
@@ -60,7 +58,18 @@ database_exists() {
       -c "SELECT CASE WHEN EXISTS (
         SELECT 1 FROM pg_database WHERE datname = :'database_name'
       ) THEN 'yes' ELSE 'no' END;"
-  )" == "yes" ]]
+  )" || return 1
+  case "$result" in
+    yes)
+      printf 'exists'
+      ;;
+    no)
+      printf 'missing'
+      ;;
+    *)
+      return 1
+      ;;
+  esac
 }
 
 release_lock() {
@@ -70,48 +79,223 @@ release_lock() {
   fi
 }
 
+cleanup_production_databases() {
+  local target_state old_state staging_state
+
+  [[ -n "${TARGET_DATABASE:-}" && -n "${TARGET_USER:-}" ]] || return 0
+  [[ -n "$STAGING_DATABASE" && -n "$OLD_DATABASE" ]] || return 0
+
+  target_state="$(database_presence "$TARGET_DATABASE" "$TARGET_USER")" ||
+    target_state="unknown"
+  old_state="$(database_presence "$OLD_DATABASE" "$TARGET_USER")" ||
+    old_state="unknown"
+  staging_state="$(database_presence "$STAGING_DATABASE" "$TARGET_USER")" ||
+    staging_state="unknown"
+
+  if [[ "$target_state" == "missing" && "$old_state" == "exists" ]]; then
+    compose exec -T "$SERVICE" psql -X -v ON_ERROR_STOP=1 \
+      -U "$TARGET_USER" \
+      -d postgres \
+      -c "ALTER DATABASE \"$OLD_DATABASE\" RENAME TO \"$TARGET_DATABASE\";" \
+      >/dev/null 2>&1 || return 0
+    target_state="$(database_presence "$TARGET_DATABASE" "$TARGET_USER")" ||
+      target_state="unknown"
+    old_state="$(database_presence "$OLD_DATABASE" "$TARGET_USER")" ||
+      old_state="unknown"
+  fi
+
+  if [[ "$target_state" == "exists" &&
+    "$old_state" == "missing" &&
+    "$staging_state" == "exists" ]]; then
+    compose exec -T "$SERVICE" dropdb -U "$TARGET_USER" --force \
+      "$STAGING_DATABASE" >/dev/null 2>&1 || true
+  fi
+}
+
 cleanup() {
-  rm -f -- "${VALIDATION_TEMP:-}"
+  local exit_status=$?
+
+  set +e
+  [[ -z "${VALIDATION_TEMP:-}" ]] || rm -f -- "$VALIDATION_TEMP"
   if [[ "$ENVIRONMENT" == "production" && "$LOCK_HELD" -eq 1 ]]; then
-    if [[ "$OLD_RENAMED" -eq 1 && "$TARGET_RENAMED" -eq 0 ]]; then
-      compose exec -T "$SERVICE" psql -X -v ON_ERROR_STOP=1 \
-        -U "$TARGET_USER" \
-        -d postgres \
-        -c "ALTER DATABASE \"$OLD_DATABASE\" RENAME TO \"$TARGET_DATABASE\";" \
-        >/dev/null 2>&1 || true
-    fi
-    if [[ "$STAGING_EXISTS" -eq 1 && "$TARGET_RENAMED" -eq 0 ]]; then
-      compose exec -T "$SERVICE" dropdb -U "$TARGET_USER" --force \
-        "$STAGING_DATABASE" >/dev/null 2>&1 || true
-    fi
+    cleanup_production_databases
   fi
   release_lock
+  return "$exit_status"
+}
+
+handle_signal() {
+  local status="$1"
+
+  trap - EXIT HUP INT TERM
+  cleanup
+  exit "$status"
+}
+
+verify_prisma_migration_state() {
+  local database_name="$1"
+  local database_user="$2"
+  local table_state migration_rows migration_name migration_state
+  local expected_name
+  declare -A expected=()
+  declare -A successful=()
+  declare -A rolled_back=()
+
+  while IFS= read -r expected_name; do
+    [[ "$expected_name" =~ ^[0-9][0-9A-Za-z_]*$ ]] || return 1
+    expected["$expected_name"]=1
+  done < <(
+    find "$REPO_ROOT/prisma/migrations" \
+      -mindepth 1 -maxdepth 1 -type d -printf '%f\n' |
+      sort
+  )
+  [[ "${#expected[@]}" -gt 0 ]] || return 1
+
+  table_state="$(
+    compose exec -T "$SERVICE" psql -X -A -t \
+      -U "$database_user" \
+      -d "$database_name" \
+      -c "SELECT CASE
+        WHEN to_regclass('public._prisma_migrations') IS NULL
+          THEN 'missing'
+        ELSE 'present'
+      END;"
+  )" || return 1
+  [[ "$table_state" == "present" ]] || return 1
+
+  migration_rows="$(
+    compose exec -T "$SERVICE" psql -X -A -t -F $'\t' \
+      -U "$database_user" \
+      -d "$database_name" \
+      -c 'SELECT migration_name, CASE
+        WHEN finished_at IS NOT NULL AND rolled_back_at IS NULL
+          THEN '"'completed'"'
+        WHEN finished_at IS NULL AND rolled_back_at IS NULL
+          AND COALESCE(logs, '"''"') = '"''"'
+          THEN '"'unfinished'"'
+        WHEN finished_at IS NULL AND rolled_back_at IS NULL
+          THEN '"'failed'"'
+        WHEN finished_at IS NULL AND rolled_back_at IS NOT NULL
+          THEN '"'rolled-back'"'
+        ELSE '"'inconsistent'"'
+      END
+      FROM "_prisma_migrations"
+      ORDER BY migration_name, started_at, id;'
+  )" || return 1
+
+  while IFS=$'\t' read -r migration_name migration_state; do
+    [[ -n "$migration_name" || -n "$migration_state" ]] || continue
+    [[ "$migration_name" =~ ^[0-9][0-9A-Za-z_]*$ ]] || return 1
+    case "$migration_state" in
+      completed)
+        successful["$migration_name"]=$((
+          ${successful["$migration_name"]:-0} + 1
+        ))
+        ;;
+      rolled-back)
+        rolled_back["$migration_name"]=1
+        ;;
+      unfinished | failed | inconsistent)
+        return 1
+        ;;
+      *)
+        return 1
+        ;;
+    esac
+  done <<< "$migration_rows"
+
+  for migration_name in "${!successful[@]}"; do
+    [[ -n "${expected[$migration_name]:-}" ]] || return 1
+    [[ "${successful[$migration_name]}" -eq 1 ]] || return 1
+  done
+  for migration_name in "${!rolled_back[@]}"; do
+    [[ -n "${expected[$migration_name]:-}" ]] || return 1
+    [[ "${successful[$migration_name]:-0}" -eq 1 ]] || return 1
+  done
+  for migration_name in "${!expected[@]}"; do
+    [[ "${successful[$migration_name]:-0}" -eq 1 ]] || return 1
+  done
 }
 
 verify_restored_database() {
   local database_name="$1"
   local database_user="$2"
-  local migration_state
 
   compose exec -T "$SERVICE" psql -X -A -t \
     -U "$database_user" \
-    -d "$database_name" \
-    -c "SELECT 1;" >/dev/null ||
-    return 1
-  migration_state="$(
-    compose exec -T "$SERVICE" psql -X -A -t \
-      -U "$database_user" \
       -d "$database_name" \
-      -c 'SELECT CASE
-        WHEN to_regclass('"'public._prisma_migrations'"') IS NULL THEN '"'missing'"'
-        WHEN EXISTS (
-          SELECT 1 FROM "_prisma_migrations"
-          WHERE finished_at IS NULL OR rolled_back_at IS NOT NULL
-        ) THEN '"'failed'"'
-        ELSE '"'valid'"'
-      END;'
+      -c "SELECT 1;" >/dev/null ||
+    return 1
+  verify_prisma_migration_state "$database_name" "$database_user"
+}
+
+validate_production_backup() {
+  local metadata_result
+
+  metadata_result="$(
+    compose exec -T "$SERVICE" sh -eu -c '
+      root="$1"
+      file="$2"
+      base="$3"
+      marker_name="$4"
+      marker_value="$5"
+      metadata_version="$6"
+      expected_major="$7"
+
+      [ -d "$root" ] && [ ! -L "$root" ] || exit 50
+      [ -f "$root/$marker_name" ] && [ ! -L "$root/$marker_name" ] || exit 50
+      [ "$(cat "$root/$marker_name")" = "$marker_value" ] || exit 50
+      [ -s "$file" ] && [ ! -L "$file" ] || exit 51
+      [ -s "$file.sha256" ] && [ ! -L "$file.sha256" ] || exit 51
+      [ -s "$file.meta" ] && [ ! -L "$file.meta" ] || exit 51
+      [ "$(stat -c "%a" "$file")" = "600" ] || exit 51
+      [ "$(stat -c "%a" "$file.sha256")" = "600" ] || exit 51
+      [ "$(stat -c "%a" "$file.meta")" = "600" ] || exit 51
+      gzip -t "$file" >/dev/null 2>&1 || exit 52
+      digest="$(sha256sum "$file" | awk "{ print \$1 }")"
+      printf "%s\n" "$digest" | grep -Eq "^[0-9a-f]{64}$" || exit 53
+      (
+        cd "$root"
+        sha256sum -c "$base.sha256" >/dev/null 2>&1
+      ) || exit 53
+
+      timestamp="$(printf "%s" "$base" | cut -d_ -f2)"
+      purpose="$(printf "%s" "$base" | cut -d_ -f3)"
+      revision="${base#reset90_${timestamp}_${purpose}_}"
+      revision="${revision%.sql.gz}"
+      printf "%s\n" "$revision" | grep -Eq "^[0-9a-f]{40}$" || exit 54
+      metadata="$file.meta"
+      grep -qx "metadata_version=$metadata_version" "$metadata" || exit 54
+      grep -qx "filename=$base" "$metadata" || exit 54
+      grep -qx "created_utc=$timestamp" "$metadata" || exit 54
+      grep -qx "purpose=$purpose" "$metadata" || exit 54
+      grep -qx "git_sha=$revision" "$metadata" || exit 54
+      grep -qx "postgres_major=$expected_major" "$metadata" || exit 55
+      source_database="$(
+        awk -F= '"'"'$1 == "source_database" { count += 1; value = substr($0, 17) }
+          END { if (count != 1) exit 1; printf "%s", value }'"'"' "$metadata"
+      )" || exit 54
+      printf "%s\n" "$source_database" |
+        grep -Eq "^[A-Za-z_][A-Za-z0-9_]{0,62}$" || exit 54
+      gzip -cd "$file" |
+        awk '"'"'index($0, "PostgreSQL database dump") { found = 1 }
+          END { exit(found ? 0 : 1) }'"'"' || exit 56
+      printf "%s\t%s\t%s\t%s" \
+        "$source_database" "$revision" "$expected_major" "$digest"
+    ' sh \
+      "$BACKUP_ROOT" \
+      "$BACKUP_FILE" \
+      "$BACKUP_BASENAME" \
+      "$RESET90_BACKUP_ROOT_MARKER" \
+      "$RESET90_BACKUP_ROOT_MARKER_VALUE" \
+      "$RESET90_BACKUP_METADATA_VERSION" \
+      "$RESET90_POSTGRES_MAJOR"
   )" || return 1
-  [[ "$migration_state" == "valid" ]]
+  IFS=$'\t' read -r SOURCE_DATABASE BACKUP_REVISION BACKUP_MAJOR \
+    BACKUP_DIGEST <<< "$metadata_result"
+  [[ "$BACKUP_REVISION" =~ ^[0-9a-f]{40}$ ]] || return 1
+  [[ "$BACKUP_DIGEST" =~ ^[0-9a-f]{64}$ ]] || return 1
+  BACKUP_FINGERPRINT="$SOURCE_DATABASE"$'\t'"$BACKUP_REVISION"$'\t'"$BACKUP_MAJOR"$'\t'"$BACKUP_DIGEST"
 }
 
 while [[ $# -gt 0 ]]; do
@@ -175,7 +359,7 @@ fi
 [[ "$COMPOSE_FILE" == /* ]] || COMPOSE_FILE="$PWD/$COMPOSE_FILE"
 [[ -f "$COMPOSE_FILE" ]] || fail "compose-file-missing"
 
-for required_command in awk dirname docker flock grep gunzip gzip node realpath rm sha256sum stat; do
+for required_command in awk dirname docker find flock grep gunzip gzip node realpath rm sha256sum sort stat; do
   command -v "$required_command" >/dev/null 2>&1 ||
     fail "missing-command-$required_command"
 done
@@ -198,7 +382,10 @@ if [[ "$ENVIRONMENT" == "test" ]]; then
 
   VALIDATION_TEMP="$(mktemp /tmp/reset90-restore-validation.XXXXXX.sql)"
   chmod 600 -- "$VALIDATION_TEMP"
-  trap cleanup EXIT HUP INT TERM
+  trap cleanup EXIT
+  trap 'handle_signal 129' HUP
+  trap 'handle_signal 130' INT
+  trap 'handle_signal 143' TERM
   gunzip -c -- "$VALIDATED_BACKUP_FILE" > "$VALIDATION_TEMP" ||
     fail "backup-decompression"
   grep -Fq "PostgreSQL database dump" "$VALIDATION_TEMP" ||
@@ -291,6 +478,9 @@ BACKUP_BASENAME="${BACKUP_FILE##*/}"
   fail "backup-path-outside-root"
 [[ "$BACKUP_BASENAME" =~ $RESET90_BACKUP_NAME_REGEX ]] ||
   fail "backup-filename-invalid"
+BACKUP_NAME_REVISION="${BASH_REMATCH[3]}"
+[[ "$BACKUP_NAME_REVISION" =~ ^[0-9a-f]{40}$ ]] ||
+  fail "production-backup-revision-invalid"
 
 "$SCRIPT_DIR/production-check.sh" "$ENV_FILE"
 TARGET_DATABASE="$(production_env_value "$ENV_FILE" POSTGRES_DB)" ||
@@ -306,64 +496,6 @@ CURRENT_REVISION="$(production_env_value "$ENV_FILE" GIT_COMMIT)" ||
 [[ "$CURRENT_REVISION" =~ ^[0-9a-f]{40}$ ]] ||
   fail "production-revision-invalid"
 
-metadata_result="$(
-  compose exec -T "$SERVICE" sh -eu -c '
-    root="$1"
-    file="$2"
-    base="$3"
-    marker_name="$4"
-    marker_value="$5"
-    metadata_version="$6"
-    expected_major="$7"
-
-    [ -d "$root" ] && [ ! -L "$root" ] || exit 50
-    [ -f "$root/$marker_name" ] && [ ! -L "$root/$marker_name" ] || exit 50
-    [ "$(cat "$root/$marker_name")" = "$marker_value" ] || exit 50
-    [ -s "$file" ] && [ ! -L "$file" ] || exit 51
-    [ -s "$file.sha256" ] && [ ! -L "$file.sha256" ] || exit 51
-    [ -s "$file.meta" ] && [ ! -L "$file.meta" ] || exit 51
-    [ "$(stat -c "%a" "$file")" = "600" ] || exit 51
-    [ "$(stat -c "%a" "$file.sha256")" = "600" ] || exit 51
-    [ "$(stat -c "%a" "$file.meta")" = "600" ] || exit 51
-    gzip -t "$file" >/dev/null 2>&1 || exit 52
-    (
-      cd "$root"
-      sha256sum -c "$base.sha256" >/dev/null 2>&1
-    ) || exit 53
-
-    timestamp="$(printf "%s" "$base" | cut -d_ -f2)"
-    purpose="$(printf "%s" "$base" | cut -d_ -f3)"
-    revision="${base#reset90_${timestamp}_${purpose}_}"
-    revision="${revision%.sql.gz}"
-    metadata="$file.meta"
-    grep -qx "metadata_version=$metadata_version" "$metadata" || exit 54
-    grep -qx "filename=$base" "$metadata" || exit 54
-    grep -qx "created_utc=$timestamp" "$metadata" || exit 54
-    grep -qx "purpose=$purpose" "$metadata" || exit 54
-    grep -qx "git_sha=$revision" "$metadata" || exit 54
-    grep -qx "postgres_major=$expected_major" "$metadata" || exit 55
-    source_database="$(
-      awk -F= '"'"'$1 == "source_database" { count += 1; value = substr($0, 17) }
-        END { if (count != 1) exit 1; printf "%s", value }'"'"' "$metadata"
-    )" || exit 54
-    printf "%s\n" "$source_database" |
-      grep -Eq "^[A-Za-z_][A-Za-z0-9_]{0,62}$" || exit 54
-    gzip -cd "$file" |
-      awk '"'"'index($0, "PostgreSQL database dump") { found = 1 }
-        END { exit(found ? 0 : 1) }'"'"' || exit 56
-    printf "%s\t%s\t%s" "$source_database" "$revision" "$expected_major"
-  ' sh \
-    "$BACKUP_ROOT" \
-    "$BACKUP_FILE" \
-    "$BACKUP_BASENAME" \
-    "$RESET90_BACKUP_ROOT_MARKER" \
-    "$RESET90_BACKUP_ROOT_MARKER_VALUE" \
-    "$RESET90_BACKUP_METADATA_VERSION" \
-    "$RESET90_POSTGRES_MAJOR"
-)" || fail "backup-artifact-invalid"
-IFS=$'\t' read -r SOURCE_DATABASE BACKUP_REVISION BACKUP_MAJOR \
-  <<< "$metadata_result"
-
 [[ -t 0 && -t 1 ]] || fail "production-restore-requires-interactive-tty"
 EXPECTED_CONFIRMATION="RESTORE $TARGET_DATABASE FROM $BACKUP_BASENAME"
 read -r -p "Type '$EXPECTED_CONFIRMATION' to continue: " CONFIRMATION
@@ -374,11 +506,21 @@ command -v flock >/dev/null 2>&1 || fail "missing-command-flock"
 exec 9>>"$LOCK_FILE" || fail "production-lock-unavailable"
 flock -n "$LOCK_FD" || fail "production-lock-held"
 LOCK_HELD=1
-trap cleanup EXIT HUP INT TERM
+trap cleanup EXIT
+trap 'handle_signal 129' HUP
+trap 'handle_signal 130' INT
+trap 'handle_signal 143' TERM
 printf 'restore:production-lock-acquired\n'
+
+validate_production_backup || fail "backup-artifact-invalid"
+INITIAL_BACKUP_FINGERPRINT="$BACKUP_FINGERPRINT"
+INITIAL_SOURCE_DATABASE="$SOURCE_DATABASE"
 
 [[ -z "$(compose ps --status running -q app)" ]] ||
   fail "application-writes-not-stopped"
+target_presence="$(database_presence "$TARGET_DATABASE" "$TARGET_USER")" ||
+  fail "target-database-state-unavailable"
+[[ "$target_presence" == "exists" ]] || fail "target-database-missing"
 
 "$SCRIPT_DIR/backup-db.sh" \
   --environment production \
@@ -386,7 +528,9 @@ printf 'restore:production-lock-acquired\n'
   --compose-file "$COMPOSE_FILE" \
   --backup-root "$BACKUP_ROOT" \
   --purpose prerestore \
-  --git-sha "$CURRENT_REVISION" ||
+  --git-sha "$CURRENT_REVISION" \
+  --retention-protect-file "$BACKUP_FILE" \
+  --deployment-lock-fd "$LOCK_FD" ||
   fail "pre-restore-backup"
 
 timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
@@ -396,17 +540,23 @@ OLD_DATABASE="${TARGET_DATABASE}_prerestore_${timestamp}_$$"
   fail "unsafe-staging-database"
 [[ "$OLD_DATABASE" =~ $RESET90_SAFE_DATABASE_REGEX ]] ||
   fail "unsafe-old-database"
-[[ "$SOURCE_DATABASE" != "$STAGING_DATABASE" ]] ||
+[[ "$INITIAL_SOURCE_DATABASE" != "$STAGING_DATABASE" ]] ||
   fail "source-target-database-equality"
-database_exists "$STAGING_DATABASE" "$TARGET_USER" &&
+staging_presence="$(database_presence "$STAGING_DATABASE" "$TARGET_USER")" ||
+  fail "staging-database-state-unavailable"
+[[ "$staging_presence" == "missing" ]] ||
   fail "staging-database-collision"
-database_exists "$OLD_DATABASE" "$TARGET_USER" &&
+old_presence="$(database_presence "$OLD_DATABASE" "$TARGET_USER")" ||
+  fail "old-database-state-unavailable"
+[[ "$old_presence" == "missing" ]] ||
   fail "old-database-collision"
 
 compose exec -T "$SERVICE" createdb -U "$TARGET_USER" -T template0 \
   "$STAGING_DATABASE" ||
   fail "staging-database-create"
-STAGING_EXISTS=1
+validate_production_backup || fail "backup-artifact-invalid"
+[[ "$BACKUP_FINGERPRINT" == "$INITIAL_BACKUP_FINGERPRINT" ]] ||
+  fail "backup-artifact-changed"
 compose exec -T "$SERVICE" sh -eu -c '
   file="$1"
   user="$2"
@@ -432,17 +582,13 @@ compose exec -T "$SERVICE" psql -X -v ON_ERROR_STOP=1 \
   -d postgres \
   -c "ALTER DATABASE \"$TARGET_DATABASE\" RENAME TO \"$OLD_DATABASE\";" ||
   fail "target-rename"
-OLD_RENAMED=1
 compose exec -T "$SERVICE" psql -X -v ON_ERROR_STOP=1 \
   -U "$TARGET_USER" \
   -d postgres \
   -c "ALTER DATABASE \"$STAGING_DATABASE\" RENAME TO \"$TARGET_DATABASE\";" ||
   fail "staging-promote"
-TARGET_RENAMED=1
-STAGING_EXISTS=0
 compose exec -T "$SERVICE" dropdb -U "$TARGET_USER" --force "$OLD_DATABASE" ||
   fail "old-database-remove"
-OLD_RENAMED=0
 
 printf 'restore:complete mode=production target=%s backup=%s\n' \
   "$TARGET_DATABASE" "$BACKUP_BASENAME"

@@ -50,8 +50,8 @@ WORKDIR /app
 RUN apk add --no-cache curl \
   && addgroup --system --gid 1001 reset90 \
   && adduser --system --uid 1001 --ingroup reset90 reset90 \
-  && mkdir -p /app/exports /app/backups \
-  && chown reset90:reset90 /app/exports /app/backups
+  && mkdir -p /app/exports \
+  && chown reset90:reset90 /app/exports
 
 ENV HOSTNAME=0.0.0.0
 ENV NEXT_TELEMETRY_DISABLED=1

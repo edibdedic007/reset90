@@ -166,7 +166,8 @@ database_name="$(production_env_value "$ENV_FILE" POSTGRES_DB)"
   --purpose predeploy \
   --git-sha "$REVISION" \
   --user "$database_user" \
-  --database "$database_name" ||
+  --database "$database_name" \
+  --deployment-lock-fd "$DEPLOY_LOCK_FD" ||
   fail "backup"
 
 log "image:build"
