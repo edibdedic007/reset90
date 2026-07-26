@@ -139,6 +139,8 @@ function deploymentHarness() {
 
   mkdirSync(binaries, { recursive: true });
   for (const script of [
+    "backup-db.sh",
+    "backup-retention.sh",
     "deploy-production.sh",
     "healthcheck.sh",
     "production-check.sh",
@@ -146,6 +148,10 @@ function deploymentHarness() {
   ]) {
     copyExecutable(join(repository, "scripts", script), join(scripts, script));
   }
+  copyExecutable(
+    join(repository, "scripts/lib/backup-restore.sh"),
+    join(scripts, "lib/backup-restore.sh"),
+  );
   copyExecutable(
     join(repository, "scripts/lib/production-env.sh"),
     join(scripts, "lib/production-env.sh"),
@@ -213,6 +219,10 @@ function deploymentHarness() {
       "  else",
       '    printf "healthy\\n"',
       "  fi",
+      "  exit 0",
+      "fi",
+      'if [[ "$joined" == *"pg_dump --version"* ]]; then',
+      '  printf "pg_dump (PostgreSQL) 16.9\\n"',
       "  exit 0",
       "fi",
       'if [[ "$joined" == *" ps -q db" ]]; then',

@@ -4,128 +4,124 @@ Last updated: 2026-07-26
 
 ## Current phase
 
-Phase 21 production Docker Compose and reverse-proxy deployment artefacts are
-implemented on `chore/production-deployment`. This phase prepares and validates
-deployment locally; it does not connect to or change live infrastructure,
-production data, DNS, Traefik, Authentik, certificates, or secrets.
+Phase 22 backup, restore, retention, and disaster-recovery workflow is
+implemented on `feature/backup-restore`. This phase changes operator-only
+scripts, tests, Compose test-port configuration, Make targets, and directly
+relevant documentation. It performs no live production backup, restore,
+migration, service start, cutover, rollback, host configuration, or off-host
+provider integration.
 
-Phase 21 adds no product feature, Prisma schema change, application migration,
-seed change, backfill, dependency version, browser-auth change, GPT contract
-change, ownership change, or HSTS policy.
+Phase 22 adds no product UI/API/server action, Auth.js/Authentik/OIDC behavior,
+ownership bypass, Prisma model, migration, seed, backfill, dependency, or
+product-domain status.
 
 ## Active task
 
-The production image uses four stages, the committed frozen pnpm lockfile, a
-production Next.js build, pruned runtime dependencies, and a non-root UID/GID
-1001 runtime. It contains the production Next and Prisma CLIs, checked-in Prisma
-schema/migrations, readiness curl utility, writable export storage, and the
-mounted backup path. Normal application runtime requires writable exports;
-database backup writes belong to the deployment/PostgreSQL path. It does not
-copy environment files, Git metadata, tests, docs, source bind mounts, backups,
-exports, logs, or development servers into the final stage.
+`scripts/backup-db.sh` remains the canonical backup entry point and `make
+db-backup` remains the canonical Make target. Backup requires explicit
+environment, environment file, Compose file, absolute approved backup root, and
+purpose. The matching PostgreSQL 16 container supplies `pg_dump`. Local/test
+backups use restrictive uniquely named temporary files; production performs the
+same guarded algorithm inside the named backup volume. Final `.sql.gz`,
+`.sha256`, and `.meta` files are published only after non-empty dump,
+compression, gzip validation, checksum, metadata, and permission checks pass.
+Production deployment now calls this canonical path before migration.
 
-Production Compose defines exactly one app and one PostgreSQL service. The app
-joins the private Reset90 network and existing external Traefik network;
-PostgreSQL joins only the private network. Neither service publishes a host
-port. Traefik labels exist only on the app and route the canonical HTTPS host to
-internal port 3000. PostgreSQL data, generated exports, and database backups use
-named volumes. Both containers use `restart: unless-stopped`.
+`scripts/backup-retention.sh` selects only verified final bundles under a marked
+absolute Reset90 backup root. It keeps 30 days and at least the newest seven,
+supports exact-path dry-run/apply output, removes bundle files as one unit, and
+ignores unknown, malformed, symlinked, and `.partial` files.
 
-The ignored `.env.production` is selected explicitly for Compose interpolation.
-The committed example contains placeholders only. Preflight requires production
-OIDC, canonical HTTPS `APP_URL`, matching `RESET90_HOST`, database hostname
-`db`, database URL username/database matching `POSTGRES_USER`/`POSTGRES_DB`,
-distinct browser/OIDC/GPT secrets, fixed runtime paths, full lowercase Git SHA,
-and required Traefik values. Ambient values cannot override the selected file,
-and the obsolete configurable 1 MiB GPT limit is absent.
+`scripts/restore-db.sh` defaults to guarded test mode. It rejects inherited
+`DATABASE_URL`, non-loopback or non-test targets, populated or source-equal
+targets, unsafe paths/symlinks, unsupported filenames/metadata/PostgreSQL
+majors, malformed gzip/SQL markers, missing or mismatched checksums, and
+failed/inconsistent Prisma migration state. Test restore uses one transaction.
 
-Deployment now acquires one non-blocking host lock before deployment-state
-writes or Docker mutation and retains it through backup, build, migration,
-promotion, health verification, and revision recording. Preflight checks
-commands/files, env values, a clean checked-out `main` whose `HEAD`, local
-`main`, and configured SHA match, Compose interpolation, and the external
-Traefik network. It records the attempted SHA, starts and waits for PostgreSQL,
-creates and verifies a uniquely named revision-stamped pre-migration backup,
-builds the immutable SHA image, runs one explicit `prisma migrate deploy`,
-promotes without rebuilding or deleting volumes, waits for database/application
-health, verifies the canonical public HTTPS readiness URL, prints bounded
-status/allowlisted logs, and records successful/previous known-good revisions.
-Failed application/public health stops the failed app and does not record
-success. Owner exit releases the lock without deleting its shared lock file.
+Production restore requires explicit production mode/environment, a selected
+verified backup inside `/backups`, an interactive terminal, and exact
+confirmation naming both target database and backup. It uses the same
+non-blocking host lock as deployment, proves application writes are stopped,
+creates a verified `prerestore` backup, restores into a new staging database,
+verifies it, replaces production contents through guarded database renames, and
+leaves the application stopped for explicit immutable-revision selection. It
+does not migrate, seed, reset schema, delete volumes, select an image, or restart
+the app.
+
+`scripts/restore-drill.sh` creates one unique disposable Compose project with
+separate source and target databases, applies all migrations, inserts
+representative ownership-sensitive data, uses canonical backup/restore, verifies
+migration history/data/relationships/constraints/serialization fidelity and a
+Prisma query, then removes only disposable resources. Documentation classifies
+the named production volume as local recovery storage and gives a checksum-
+preserving three-file copy procedure for encrypted off-host storage.
 
 ## Next phase
 
-Phase 22 has not started. Live server access, host package changes, production
-directories/network/routes, DNS, certificates, Authentik clients, real secrets,
-first live backup/migration/start, complete live OIDC/GPT verification, HSTS
-selection, and rollback/restore drills remain explicitly deferred.
+Phase 23 has not started. No live server, directories, Docker networks,
+Traefik/DNS/certificates, Authentik clients, production secrets, first live
+backup/migration/start/restore, HSTS, observability, scheduling, or provider
+integration was changed.
 
 ## Next actions
 
-1. Review the commit-ready Phase 21 diff.
+1. Review the commit-ready Phase 22 diff.
 2. Commit with the suggested Conventional Commit message, push, open the pull
    request, and require the external `quality` job before merge.
-3. Do not begin Phase 22 without separate explicit approval.
+3. Do not begin Phase 23 without separate explicit approval.
 
 ## Verification evidence
 
-- Focused production deployment coverage passes 1 file with 28 tests. It parses
-  fully rendered Compose JSON; checks image/runtime policy, private networks,
-  Traefik labels, named volumes, missing interpolation, database identity
-  consistency, and secret-safe env errors. It exercises accepted `main`,
-  feature/`local` rejection before Docker mutation, concurrent lock exclusion,
-  failure-path lock release, quoted-path deploy success, and existing deploy
-  gate failures with command stubs.
-- Bash syntax passes for all new/changed production scripts. Non-secret Compose
-  validation with `.env.production.example` passes without rendering values.
-- Targeted TypeScript checking passes after typing partial fake environment
-  overrides without weakening production environment types.
-- Actual Docker build enforces the frozen lockfile, compiles Next.js in
-  production, prunes all dev dependencies, creates the non-root final image, and
-  confirms the health utility, Prisma CLI/schema/migrations, internal port 3000,
-  production start command, and forbidden-file exclusions.
-- Disposable stack smoke created a pre-migration backup, applied all 9 existing
-  migrations once, reported no pending migrations on repeat, reached healthy
-  PostgreSQL and app readiness, and exposed no host-published database port.
-- The first smoke migration command exposed pnpm attempting a non-root
-  dependency repair. Runtime start/migration now invoke the checked-in Next and
-  Prisma CLIs directly, and the second migration attempt passed.
-- The second stack smoke reached healthy application readiness, then exposed a
-  root-owned fresh export volume. The image now seeds export/backup mount points
-  as UID/GID 1001. Per the two-attempt smoke cap, the full stack was not started
-  a third time; a focused fresh named-volume test proved non-root export writes
-  and persistence across container recreation.
-- Forced PostgreSQL recreation retained all 9 migration records and the
-  verified revision-stamped backup. All disposable containers, networks,
-  volumes, temp environment data, and the potentially misleading uncommitted
-  SHA image tag were removed afterward.
-- The single final correction `make check` passed with frozen dependency install,
-  formatting, lint, TypeScript, 26 unit/component files with 478 tests, payload
-  and generated-schema drift validation, Prisma validation, all 9 migrations,
-  2 PostgreSQL files with 12 tests, production Next.js build, shell syntax, and
-  Git diff whitespace checks.
+- Focused backup/restore plus production-deployment coverage passes 2 files with
+  69 tests. It covers explicit selection, atomic verified publication,
+  collisions and failure cleanup, secret-safe output, retention dry-run/apply
+  selection, invalid artifact/path/metadata/checksum/gzip/SQL rejection,
+  disposable target guards, PostgreSQL major compatibility, non-interactive
+  production failure, canonical deployment reuse, deployment ordering, and
+  shared deployment lock regression behavior.
+- The real disposable PostgreSQL drill passed. It applied all 9 checked-in
+  migrations to a unique source, inserted two users/two owned cycles plus
+  imported/normalized/task/check-in data, created and checksummed a canonical
+  backup, restored a distinct initially empty target, verified migration state,
+  ownership relationships, foreign keys, uniqueness, Unicode, multiline text,
+  timestamps, JSON, and a Prisma ownership query, then removed its container,
+  network, tmpfs databases, and successful backup directory.
+- The first drill invocation was blocked by sandbox Docker-socket permissions.
+  The first host-side drill reached the final application query and exposed a
+  harness-only top-level-await incompatibility; wrapping the query in an async
+  function corrected it. The next complete drill passed. Both known failed
+  disposable temp directories were removed after diagnosis.
+- Bash syntax, focused Prettier, the final focused 2-file/69-test rerun, Make
+  target/alias inspection, executable modes, and Git diff whitespace pass.
+- The single final `make check` passed with tracked-sensitive-path validation,
+  frozen dependencies, formatting, lint, TypeScript, 27 unit/component files
+  with 519 tests, payload/schema drift, Prisma validation, all 9 migrations, 2
+  PostgreSQL files with 12 tests, production Next.js build, shell syntax, and
+  Git diff whitespace.
 
-## Migration, deployment, and rollback
+## Migration, deployment, rollback, and risk
 
-- No `prisma/schema.prisma` or migration file changed. Smoke used only existing
-  migrations against an isolated disposable PostgreSQL volume.
+- No `prisma/schema.prisma`, checked-in migration, seed, or normalized data
+  behavior changed. The drill used only disposable PostgreSQL resources.
 - No live deployment or production data operation occurred.
-- Repeated migration on the isolated current database was a no-op. Deployment
-  never seeds, runs `migrate dev`, uses `db push`, resets schema, selects
-  `latest`, executes `down -v`, rotates secrets, or deletes named volumes.
-- Before migration failure, the existing application remains untouched. After
-  migration, compatibility with the prior app must be decided from checked-in
-  contracts. Compatible rollback uses the previous known-good immutable image;
-  incompatible rollback requires stopped writes and an explicit operator restore
-  from the verified backup. No destructive restore is automatic.
+- Deployment still stops before migration when canonical pre-deploy backup or
+  retention fails. Restore is never triggered by deployment failure.
+- Script rollback is reverting this Phase 22 diff. Any future real production
+  restore is intentionally manual, destructive, lock-protected, and requires
+  independent off-host backup readiness plus explicit immutable image choice.
+- Production backup/restore mutation paths are covered with command stubs, not
+  live production data. Real production readiness remains unconfirmed until an
+  authorised operator makes and transfers a verified production backup and
+  completes the documented recovery process.
 
 ## Latest handoff
 
-- 2026-07-26T20:01:11Z — `chore/production-deployment` — bounded Phase 21
-  correction added one non-blocking full-sequence deployment lock, enforced the
-  clean checked-out `main` revision boundary, matched database URL identity to
-  PostgreSQL settings, and corrected backup ownership wording; focused 1
-  file/28 tests, targeted typecheck, Bash syntax, and the single final
-  correction `make check` passed; no live restore/cutover, schema/migration,
-  storage topology, product/auth/ownership, HSTS, or Phase 22 change; next step:
-  review and commit, then push/open the PR and require its external `quality` job
+- 2026-07-26T21:34:54Z — `feature/backup-restore` — Phase 22 canonical
+  backup/restore/retention workflow, production deployment reuse/shared-lock
+  restore guards, real disposable recovery drill, off-host copy procedure, and
+  2-file/69-test focused coverage implemented; real drill passed all 9
+  migrations plus ownership/data/constraint/Prisma verification and cleaned its
+  resources; final Bash/focused/diff gates and single full `make check` pass
+  with 27 files/519 tests plus 2 PostgreSQL files/12 tests and production build;
+  no live production, schema/migration/seed, product/auth/ownership, or Phase 23
+  change

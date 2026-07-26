@@ -105,8 +105,11 @@ for required_file in \
   "$COMPOSE_FILE" \
   "$REPO_ROOT/Dockerfile" \
   "$SCRIPT_DIR/healthcheck.sh" \
+  "$SCRIPT_DIR/backup-db.sh" \
+  "$SCRIPT_DIR/backup-retention.sh" \
   "$SCRIPT_DIR/production-check.sh" \
-  "$SCRIPT_DIR/production-compose.sh"; do
+  "$SCRIPT_DIR/production-compose.sh" \
+  "$SCRIPT_DIR/lib/backup-restore.sh"; do
   [[ -f "$required_file" ]] || fail "missing-required-file"
 done
 
@@ -152,18 +155,19 @@ log "backup:start-database"
 compose up -d --no-build db || fail "database-start"
 wait_for_health db 30 || fail "database-health-before-backup"
 
-timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
-backup_path="/backups/reset90_${timestamp}_$$_${REVISION}.sql.gz"
 log "backup:create"
-compose exec -T db sh -eu -c '
-  backup_path="$1"
-  temporary_path="${backup_path%.gz}.tmp"
-  trap "rm -f \"$temporary_path\"" EXIT
-  pg_dump -U "$POSTGRES_USER" "$POSTGRES_DB" > "$temporary_path"
-  test -s "$temporary_path"
-  gzip -c "$temporary_path" > "$backup_path"
-  test -s "$backup_path"
-' sh "$backup_path" || fail "backup"
+database_user="$(production_env_value "$ENV_FILE" POSTGRES_USER)"
+database_name="$(production_env_value "$ENV_FILE" POSTGRES_DB)"
+"$SCRIPT_DIR/backup-db.sh" \
+  --environment production \
+  --env-file "$ENV_FILE" \
+  --compose-file "$COMPOSE_FILE" \
+  --backup-root /backups \
+  --purpose predeploy \
+  --git-sha "$REVISION" \
+  --user "$database_user" \
+  --database "$database_name" ||
+  fail "backup"
 
 log "image:build"
 compose build app || fail "image-build"

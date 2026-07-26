@@ -133,6 +133,10 @@ Production requirements:
 - a verified pre-migration database backup;
 - tested restore path.
 
+The production backup volume is local recovery storage. It does not protect
+against loss of the production host, disk, or site. Production readiness also
+requires at least one verified backup bundle in encrypted off-host storage.
+
 Copy `.env.production.example` to the ignored `.env.production`, replace every
 placeholder, and set `GIT_COMMIT` to the full commit intended for deployment.
 Production Compose is always invoked with that file explicitly:
@@ -187,8 +191,8 @@ The script stops at the first failed gate:
 5. Record the attempted immutable revision.
 6. Validate fully interpolated Compose without printing it.
 7. Require the configured external Traefik network.
-8. Start/wait for PostgreSQL and create a non-empty timestamped pre-migration
-   backup containing the revision on the persistent backup volume;
+8. Start/wait for PostgreSQL and invoke the canonical backup script to create a
+   verified pre-migration backup bundle on the persistent backup volume;
 9. Build `reset90:<full-commit-sha>`.
 10. Run `prisma migrate deploy` once in that exact image.
 11. Start/update services without building or deleting volumes.
@@ -198,10 +202,11 @@ The script stops at the first failed gate:
 14. Show bounded service status and allowlisted recent application logs.
 15. Record the successful revision while retaining the previous known-good SHA.
 
-The lock remains held through backup, build, migration, promotion, internal and
-public health verification, and revision recording. Exit cleanup unlocks only
-the owning file descriptor after success or failure; it does not delete the
-shared lock file or override another owner.
+The same non-blocking host lock protects deployment and production restore. It
+remains held through backup, build, migration, promotion, internal and public
+health verification, and revision recording. Exit cleanup unlocks only the
+owning file descriptor after success or failure; it does not delete the shared
+lock file or override another owner.
 
 Repeated deployment of the same clean revision repeats safety gates and the
 backup, but migrations remain idempotent and no seed, secret rotation, volume
@@ -238,6 +243,136 @@ Rollback never selects `latest`, edits `.env.production` automatically, runs
 seeds, resets the schema, or deletes named volumes. A destructive restore is
 always an explicit operator action and is reserved for live operations, not
 Phase 21 validation. No live restore or production cutover was performed.
+
+## Backup, retention, and restore
+
+`scripts/backup-db.sh` and `make db-backup` are the canonical manual backup
+entry points. The Make target explicitly selects local Compose, `.env.local`,
+the repository `backups/` root, and the `manual` purpose. Direct script
+invocation requires an explicit environment, environment file, Compose file,
+absolute backup root, and purpose. Ambient database values do not select or
+override those settings.
+
+Each verified backup is a restrictive-permission bundle:
+
+```text
+reset90_<UTC>_<purpose>_<full-git-sha-or-unknown-revision>.sql.gz
+reset90_<UTC>_<purpose>_<full-git-sha-or-unknown-revision>.sql.gz.sha256
+reset90_<UTC>_<purpose>_<full-git-sha-or-unknown-revision>.sql.gz.meta
+```
+
+The matching PostgreSQL 16 container supplies `pg_dump`. Creation uses
+uniquely named `.partial` files and publishes the final compressed SQL filename
+only after non-empty output, `gzip -t`, SHA-256 generation, and versioned
+metadata succeed. Production backups require a full Git SHA. Only final bundles
+with valid gzip, checksum, metadata version, PostgreSQL major, safe source
+database identifier, filename, root marker, and `0600` permissions are eligible
+for restore or retention.
+
+Retention runs only after a verified backup. It keeps backups for 30 days and
+always preserves the newest seven verified bundles. Unknown, malformed,
+symlinked, or temporary files are ignored. Preview exact candidate paths
+without deletion:
+
+```bash
+make db-backup-retention
+```
+
+Apply the same bounded selector:
+
+```bash
+make db-backup-retention RETENTION_MODE=--apply
+```
+
+The canonical restore defaults to an explicitly test-only, loopback PostgreSQL
+URL. The target name must contain `test`, must differ from the backup source
+database, and must be empty before restore:
+
+```bash
+TEST_DATABASE_PORT=55432 \
+  docker compose -p reset90_phase22_restore \
+  -f docker-compose.test.yml up -d --wait db
+
+TEST_DATABASE_URL='postgresql://reset90_test:reset90_test_password@127.0.0.1:55432/reset90_test' \
+  make db-restore FILE="$PWD/backups/<verified-backup>.sql.gz"
+
+docker compose -p reset90_phase22_restore \
+  -f docker-compose.test.yml down --volumes
+```
+
+`restore-db.sh` validates the complete bundle and SQL dump marker before target
+mutation, requires the supported PostgreSQL major, restores in one transaction,
+and rejects missing or unsafe input, inherited `DATABASE_URL`, a populated
+target, or failed/inconsistent Prisma migration history.
+
+Production restore is an exceptional operator action. First stop application
+writes explicitly; the script never stops or restarts the application for the
+operator. Then invoke it from an interactive terminal:
+
+```bash
+./scripts/production-compose.sh stop app
+
+./scripts/restore-db.sh \
+  --environment production \
+  --env-file "$PWD/.env.production" \
+  --compose-file "$PWD/docker-compose.production.yml" \
+  --backup-root /backups \
+  --file /backups/<verified-backup>.sql.gz
+```
+
+Production mode validates the selected bundle, requires an exact typed
+confirmation containing the production database and backup filename, acquires
+the shared deployment lock, proves application writes remain stopped, and
+creates a new verified `prerestore` backup. It restores into a new staging
+database, verifies connectivity and Prisma migration state, then replaces the
+production database by guarded database renames. Failure cleanup removes only
+the staging database or restores the prior name when promotion did not finish.
+The application remains stopped. The operator must select and verify the exact
+immutable Git revision recorded by the restored backup before starting it.
+Forward migration to a newer revision is a separate explicit action.
+
+Production restore never runs Prisma migrations, seeds, schema reset, `db
+push`, volume deletion, `docker compose down -v`, image selection, or
+application restart. Deployment failure never triggers restore.
+
+## Restore drill and off-host recovery
+
+Run the complete disposable PostgreSQL drill monthly and before declaring
+production recovery ready:
+
+```bash
+make db-restore-drill
+```
+
+The drill uses a unique Compose project and two distinct test databases. It
+applies every checked-in migration, inserts representative ownership-sensitive
+data, creates a canonical backup, restores a separate empty target, verifies
+gzip/checksum/migration history/data/relationships/constraints/Unicode,
+multiline text/timestamps/JSON, performs a Prisma query, and removes only its
+disposable resources. Failed drills retain their known temporary diagnostic
+directory; successful drills remove it. Automatic scheduling remains deferred.
+
+Copy a verified production bundle out of the named Docker volume only as a
+three-file unit. Use an operator-owned encrypted destination:
+
+```bash
+backup_name='reset90_<UTC>_<purpose>_<full-git-sha>.sql.gz'
+off_host_dir='/path/on/encrypted-off-host-storage/reset90'
+
+install -d -m 700 "$off_host_dir"
+./scripts/production-compose.sh cp "db:/backups/$backup_name" "$off_host_dir/$backup_name"
+./scripts/production-compose.sh cp "db:/backups/$backup_name.sha256" "$off_host_dir/$backup_name.sha256"
+./scripts/production-compose.sh cp "db:/backups/$backup_name.meta" "$off_host_dir/$backup_name.meta"
+chmod 600 \
+  "$off_host_dir/$backup_name" \
+  "$off_host_dir/$backup_name.sha256" \
+  "$off_host_dir/$backup_name.meta"
+(cd "$off_host_dir" && sha256sum -c "$backup_name.sha256")
+```
+
+The checksum must pass again after transfer. Phase 22 does not choose a storage
+provider or install scheduling, replication, WAL archiving, point-in-time
+recovery, or cloud integration.
 
 ## Environment variable rules
 

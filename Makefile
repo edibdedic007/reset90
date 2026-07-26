@@ -1,9 +1,20 @@
 SHELL := /usr/bin/env bash
 
-.PHONY: help session context phase phase-bundle review-bundle new-work update-task-state setup-local bootstrap install dev dev-up dev-down logs check quality-check check-sensitive lint format format-check typecheck test test-integration build db-validate db-migrate db-seed db-reset db-backup db-restore validate-payloads env-check prod-check prod-config prod-build prod-up prod-down prod-logs prod-health deploy-production export-full docs-bundle healthcheck
+.PHONY: help session context phase phase-bundle review-bundle new-work update-task-state setup-local bootstrap install dev dev-up dev-down logs check quality-check check-sensitive lint format format-check typecheck test test-integration build db-validate db-migrate db-seed db-reset db-backup db-backup-retention db-restore db-restore-drill validate-payloads env-check prod-check prod-config prod-build prod-up prod-down prod-logs prod-health deploy-production export-full docs-bundle healthcheck
 
 LOCAL_COMPOSE := docker compose --env-file .env.local -f docker-compose.local.yml
 PRODUCTION_ENV_FILE ?= .env.production
+BACKUP_ENVIRONMENT ?= local
+BACKUP_ENV_FILE ?= .env.local
+BACKUP_COMPOSE_FILE ?= docker-compose.local.yml
+BACKUP_ROOT ?= $(CURDIR)/backups
+BACKUP_PURPOSE ?= manual
+RETENTION_MODE ?= --dry-run
+RESTORE_ENVIRONMENT ?= test
+RESTORE_ENV_FILE ?= /dev/null
+RESTORE_COMPOSE_FILE ?= docker-compose.test.yml
+RESTORE_PROJECT ?= reset90_phase22_restore
+RESTORE_BACKUP_ROOT ?= $(CURDIR)/backups
 
 help:
 	@echo "Reset90 commands"
@@ -26,7 +37,9 @@ help:
 	@echo "  make prod-check              Validate .env.production baseline keys/placeholders"
 	@echo "  make prod-config             Validate fully interpolated production Compose"
 	@echo "  make db-backup               Create database backup"
+	@echo "  make db-backup-retention     Preview verified-backup retention"
 	@echo "  make db-restore FILE=x       Restore database backup"
+	@echo "  make db-restore-drill        Run disposable PostgreSQL restore drill"
 	@echo "  make deploy-production       Deploy production with backup and healthcheck"
 	@echo "  make docs-bundle             Generate all-in-one docs bundle"
 
@@ -131,11 +144,33 @@ prod-config:
 	RESET90_ENV_FILE="$(PRODUCTION_ENV_FILE)" ./scripts/production-compose.sh config --quiet
 
 db-backup:
-	./scripts/backup-db.sh
+	./scripts/backup-db.sh \
+		--environment "$(BACKUP_ENVIRONMENT)" \
+		--env-file "$(BACKUP_ENV_FILE)" \
+		--compose-file "$(BACKUP_COMPOSE_FILE)" \
+		--backup-root "$(BACKUP_ROOT)" \
+		--purpose "$(BACKUP_PURPOSE)"
+
+db-backup-retention:
+	./scripts/backup-retention.sh \
+		--environment "$(BACKUP_ENVIRONMENT)" \
+		--env-file "$(BACKUP_ENV_FILE)" \
+		--compose-file "$(BACKUP_COMPOSE_FILE)" \
+		--backup-root "$(BACKUP_ROOT)" \
+		$(RETENTION_MODE)
 
 db-restore:
 	@if [ -z "$(FILE)" ]; then echo "Usage: make db-restore FILE=backup.sql.gz"; exit 1; fi
-	./scripts/restore-db.sh "$(FILE)"
+	env -u DATABASE_URL ./scripts/restore-db.sh \
+		--environment "$(RESTORE_ENVIRONMENT)" \
+		--env-file "$(RESTORE_ENV_FILE)" \
+		--compose-file "$(RESTORE_COMPOSE_FILE)" \
+		--project "$(RESTORE_PROJECT)" \
+		--backup-root "$(RESTORE_BACKUP_ROOT)" \
+		--file "$(FILE)"
+
+db-restore-drill:
+	./scripts/restore-drill.sh
 
 prod-build:
 	RESET90_ENV_FILE="$(PRODUCTION_ENV_FILE)" ./scripts/production-compose.sh build app

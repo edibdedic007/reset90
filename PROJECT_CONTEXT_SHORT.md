@@ -17,7 +17,7 @@ shame-based streaks.
 - Docker Compose locally and in production, with Traefik expected in production
 - GitHub Actions CI
 
-## Implemented and accepted through Phase 20
+## Implemented and accepted through Phase 22
 
 - Repository, local environment, Prisma schema/migrations, seed data, readiness,
   quality gates, CI, backups/export/deployment helpers.
@@ -87,6 +87,23 @@ the real canonical HTTPS route, redirects, Authentik callback, and
 controlled-proxy behavior pass cutover verification. Live infrastructure, DNS,
 secrets, migrations, rollback drills, distributed/IP rate limiting, monitoring,
 registry promotion, and high availability remain deferred.
+
+Phase 22 hardens the canonical operator-only database backup/restore boundary.
+Backups are compressed plain SQL bundles with explicit environment selection,
+temporary-first atomic publication, gzip validation, SHA-256, versioned
+non-private metadata, restrictive permissions, and safe 30-day/newest-seven
+retention. Production deployment reuses that canonical backup path.
+Disposable restore rejects unsafe or populated targets and validates complete
+artifacts before a single-transaction restore. Production restore shares the
+deployment lock, requires stopped writes and exact interactive confirmation,
+creates a verified pre-restore backup, restores and verifies a staging database,
+replaces production contents without merging, and leaves the application
+stopped for explicit immutable-revision selection. A real isolated PostgreSQL
+drill verifies migrations, ownership-sensitive representative data,
+relationships, constraints, serialization fidelity, and Prisma access. The
+production backup volume remains local recovery storage; encrypted off-host
+copy is an operator requirement, while provider integration and scheduling
+remain deferred.
 
 ## Durable implementation rules
 
@@ -160,9 +177,15 @@ registry promotion, and high availability remain deferred.
   path, not by normal application runtime behavior.
 - Production images use immutable full Git SHA tags, run non-root, and start
   with the production server. Under one deployment lock, deployment creates and
-  verifies a persistent revision-stamped backup before one explicit
-  `prisma migrate deploy`, never seeds, never selects `latest`, and never
-  deletes named volumes.
+  verifies a persistent revision-stamped backup through the canonical backup
+  script before one explicit `prisma migrate deploy`, never seeds, never selects
+  `latest`, and never deletes named volumes.
+- Only verified final `.sql.gz` bundles with matching SHA-256 and versioned
+  metadata are eligible for restore, retention, off-host copy, or rollback
+  evidence. Production deployment and restore share one host lock; restore also
+  requires stopped writes, a verified pre-restore backup, and exact interactive
+  confirmation. Restore never migrates, seeds, restarts services, or deletes
+  volumes automatically.
 - Container readiness uses `/api/ready` and therefore includes PostgreSQL.
   Public readiness separately verifies the canonical HTTPS route and certificate.
 
