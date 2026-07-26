@@ -1,16 +1,37 @@
+name: reset90
+
 services:
   app:
-    image: reset90:latest
+    image: "reset90:${GIT_COMMIT:?GIT_COMMIT is required}"
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: reset90-app
+      args:
+        APP_VERSION: "${APP_VERSION:?APP_VERSION is required}"
+        GIT_COMMIT: "${GIT_COMMIT:?GIT_COMMIT is required}"
     restart: unless-stopped
-    env_file:
-      - .env.production
+    environment:
+      NODE_ENV: "${NODE_ENV:?NODE_ENV is required}"
+      AUTH_MODE: "${AUTH_MODE:?AUTH_MODE is required}"
+      APP_URL: "${APP_URL:?APP_URL is required}"
+      PORT: "${PORT:?PORT is required}"
+      DATABASE_URL: "${DATABASE_URL:?DATABASE_URL is required}"
+      AUTH_SECRET: "${AUTH_SECRET:?AUTH_SECRET is required}"
+      AUTH_TRUST_HOST: "${AUTH_TRUST_HOST:?AUTH_TRUST_HOST is required}"
+      AUTH_AUTHENTIK_ID: "${AUTH_AUTHENTIK_ID:?AUTH_AUTHENTIK_ID is required}"
+      AUTH_AUTHENTIK_SECRET: "${AUTH_AUTHENTIK_SECRET:?AUTH_AUTHENTIK_SECRET is required}"
+      AUTH_AUTHENTIK_ISSUER: "${AUTH_AUTHENTIK_ISSUER:?AUTH_AUTHENTIK_ISSUER is required}"
+      GPT_INGEST_TOKEN: "${GPT_INGEST_TOKEN:?GPT_INGEST_TOKEN is required}"
+      GPT_INGEST_OWNER_SUBJECT: "${GPT_INGEST_OWNER_SUBJECT:?GPT_INGEST_OWNER_SUBJECT is required}"
+      EXPORT_DIR: "${EXPORT_DIR:?EXPORT_DIR is required}"
+      BACKUP_DIR: "${BACKUP_DIR:?BACKUP_DIR is required}"
+      APP_VERSION: "${APP_VERSION:?APP_VERSION is required}"
+      GIT_COMMIT: "${GIT_COMMIT:?GIT_COMMIT is required}"
     depends_on:
       db:
         condition: service_healthy
+    expose:
+      - "3000"
     volumes:
       - reset90_exports:/app/exports
       - reset90_backups:/app/backups
@@ -19,37 +40,55 @@ services:
       - traefik
     labels:
       - "traefik.enable=true"
-      - "traefik.docker.network=${TRAEFIK_NETWORK}"
-      - "traefik.http.routers.reset90.rule=Host(`${RESET90_HOST}`)"
-      - "traefik.http.routers.reset90.entrypoints=${TRAEFIK_ENTRYPOINT:-websecure}"
+      - "traefik.docker.network=${TRAEFIK_NETWORK:?TRAEFIK_NETWORK is required}"
+      - "traefik.http.routers.reset90.rule=Host(`${RESET90_HOST:?RESET90_HOST is required}`)"
+      - "traefik.http.routers.reset90.entrypoints=${TRAEFIK_ENTRYPOINT:?TRAEFIK_ENTRYPOINT is required}"
       - "traefik.http.routers.reset90.tls=true"
-      - "traefik.http.routers.reset90.tls.certresolver=${TRAEFIK_CERT_RESOLVER:-letsencrypt}"
+      - "traefik.http.routers.reset90.tls.certresolver=${TRAEFIK_CERT_RESOLVER:?TRAEFIK_CERT_RESOLVER is required}"
       - "traefik.http.services.reset90.loadbalancer.server.port=3000"
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/healthz || exit 1"]
-      interval: 30s
-      timeout: 5s
-      retries: 5
+      test:
+        [
+          "CMD",
+          "curl",
+          "--fail",
+          "--silent",
+          "--show-error",
+          "--output",
+          "/dev/null",
+          "--connect-timeout",
+          "2",
+          "--max-time",
+          "5",
+          "http://127.0.0.1:3000/api/ready",
+        ]
+      interval: 10s
+      timeout: 6s
+      retries: 12
+      start_period: 10s
 
   db:
     image: postgres:16-alpine
-    container_name: reset90-db
     restart: unless-stopped
-    env_file:
-      - .env.production
     environment:
-      POSTGRES_USER: ${POSTGRES_USER:-reset90}
+      POSTGRES_USER: "${POSTGRES_USER:?POSTGRES_USER is required}"
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
-      POSTGRES_DB: ${POSTGRES_DB:-reset90}
+      POSTGRES_DB: "${POSTGRES_DB:?POSTGRES_DB is required}"
     volumes:
       - reset90_postgres:/var/lib/postgresql/data
+      - reset90_backups:/backups
     networks:
       - reset90_internal
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-reset90} -d ${POSTGRES_DB:-reset90}"]
+      test:
+        [
+          "CMD-SHELL",
+          'pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"',
+        ]
       interval: 10s
       timeout: 5s
-      retries: 5
+      retries: 12
+      start_period: 5s
 
 volumes:
   reset90_postgres:
@@ -61,4 +100,4 @@ networks:
     driver: bridge
   traefik:
     external: true
-    name: ${TRAEFIK_NETWORK:-traefik_proxy}
+    name: "${TRAEFIK_NETWORK:?TRAEFIK_NETWORK is required}"

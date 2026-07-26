@@ -104,30 +104,52 @@ Local auth:
 Expected files:
 
 - `.env.production`
+- `Dockerfile`
 - `docker-compose.production.yml`
-- persistent Postgres volume
-- persistent exports/backups volume
-- reverse proxy HTTPS route
+- persistent PostgreSQL, exports, and backups named volumes
+- an existing external Traefik Docker network and HTTPS route
 - Authentik OIDC provider/app
 
 Production requirements:
 
 - HTTPS only;
-- `APP_URL` set to the exact canonical application origin;
+- one application container on internal port `3000`;
+- one PostgreSQL container with no published host port;
+- `APP_URL` set to the exact canonical HTTPS origin;
+- `RESET90_HOST` set to the hostname from `APP_URL`;
 - Authentik OIDC for UI;
 - Auth.js session secret in `AUTH_SECRET`;
 - `AUTH_AUTHENTIK_ID`, `AUTH_AUTHENTIK_SECRET`, and
   `AUTH_AUTHENTIK_ISSUER` from the Authentik provider;
 - `AUTH_TRUST_HOST=true` behind the trusted Traefik route;
-- separate GPT ingest token;
+- separate GPT ingest token and existing trusted-owner subject;
+- `DATABASE_URL` using Compose service hostname `db`;
+- persistent `/app/exports` and `/app/backups`;
+- immutable full Git commit SHA image tags;
 - no dev auth;
 - logs retained but scrubbed;
-- daily DB backup;
+- a verified pre-migration database backup;
 - tested restore path.
 
-Phase 20 intentionally omits HSTS. Phase 21 must verify final HTTPS termination
-and trusted reverse-proxy behavior before selecting HSTS, subdomain, or preload
-policy.
+Copy `.env.production.example` to the ignored `.env.production`, replace every
+placeholder, and set `GIT_COMMIT` to the full commit intended for deployment.
+Production Compose is always invoked with that file explicitly:
+
+```bash
+make prod-check
+make prod-config
+```
+
+`scripts/production-compose.sh` prevents ambient shell values from overriding
+the explicitly selected file. The app joins the private Reset90 network and the
+configured existing Traefik network. PostgreSQL joins only the private network.
+Traefik remains the only public listener and forwards the canonical HTTPS host
+to application port `3000`.
+
+HSTS remains disabled in Phase 21. It may be activated only after the real
+canonical HTTPS route, redirects, Authentik callback, and proxy behavior pass
+cutover verification. `includeSubDomains`, preload, and preload-list submission
+remain out of scope.
 
 ## Deployment flow
 
@@ -137,37 +159,74 @@ local branch -> feature branch -> local -> main -> production deploy
 
 Deploy steps:
 
-1. Ensure `main` is clean and up to date.
-2. Run CI/checks.
-3. SSH to server or run deploy on server.
-4. Create pre-deploy backup.
-5. Pull latest `main`.
-6. Build image.
-7. Run migrations.
-8. Start services.
-9. Healthcheck.
-10. Check logs.
+Phase 21 prepares and validates this flow but does not run it against the live
+server. From a clean checkout of the intended production revision:
+
+```bash
+./scripts/deploy-production.sh
+```
+
+The script stops at the first failed gate:
+
+1. Verify required commands, files, and the ignored production env file.
+2. Validate production values and reject known placeholders.
+3. verify a clean checkout and require `GIT_COMMIT` to match `HEAD`;
+4. record the attempted immutable revision;
+5. validate fully interpolated Compose without printing it;
+6. require the configured external Traefik network;
+7. start/wait for PostgreSQL and create a non-empty timestamped pre-migration
+   backup containing the revision on the persistent backup volume;
+8. build `reset90:<full-commit-sha>`;
+9. run `prisma migrate deploy` once in that exact image;
+10. start/update services without building or deleting volumes;
+11. wait separately for database and application readiness;
+12. verify the canonical public HTTPS readiness URL with certificate validation
+    and no unexpected redirect origin;
+13. show bounded service status and allowlisted recent application logs;
+14. record the successful revision while retaining the previous known-good SHA.
+
+Repeated deployment of the same clean revision repeats safety gates and the
+backup, but migrations remain idempotent and no seed, secret rotation, volume
+deletion, or domain-data creation occurs.
 
 ## Rollback flow
 
 If deploy fails before migrations:
 
-- checkout previous commit/tag;
-- rebuild/restart;
-- check health.
+- the existing application revision remains running;
+- select the immutable SHA in
+  `.runtime/production-deploy/successful.sha` or
+  `previous-successful.sha`;
+- check out that clean revision and set the ignored environment's `GIT_COMMIT`
+  to the same SHA;
+- start the already-built image without deleting volumes;
+- verify PostgreSQL, internal application, and public HTTPS health;
+- do not restore the database when no schema/data change occurred.
 
 If deploy fails after migrations:
 
-- stop app;
-- restore pre-deploy backup if needed;
-- checkout previous commit/tag;
-- restart;
-- document incident.
+- the failed application is not recorded as successful and is stopped when
+  internal or public health fails;
+- inspect the checked-in migration and previous application contract;
+- if compatible, run the previous known-good immutable image against the
+  migrated database and verify all health boundaries;
+- if incompatible or destructive, stop writes and perform an explicit operator
+  restore from the verified revision-stamped backup before starting the previous
+  image;
+- verify database, authentication, internal application, and public HTTPS health;
+- document the incident.
+
+Rollback never selects `latest`, edits `.env.production` automatically, runs
+seeds, resets the schema, or deletes named volumes. A destructive restore is
+always an explicit operator action and is reserved for live operations, not
+Phase 21 validation.
 
 ## Environment variable rules
 
 - Commit only `.env.example` files.
 - Never commit `.env.local` or `.env.production`.
 - Use long random secrets.
+- Keep browser, OIDC, and GPT secrets distinct.
 - Rotate GPT ingest token if exposed.
 - Keep production passwords out of chat/logs.
+- Do not use `set -x` around production operations.
