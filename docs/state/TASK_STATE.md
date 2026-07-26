@@ -1,147 +1,131 @@
 # Task State
 
-Last updated: 2026-07-22
+Last updated: 2026-07-26
 
 ## Current phase
 
-Phase 20 pre-production security hardening is implemented and accepted locally on
-`fix/security-hardening`. Phase 19 was merged through PR `#22` after the stable
-GitHub Actions `quality` job passed, and this branch started from the updated
-`local`/`origin/local` merge commit with a clean pre-edit tree.
+Phase 21 production Docker Compose and reverse-proxy deployment artefacts are
+implemented on `chore/production-deployment`. This phase prepares and validates
+deployment locally; it does not connect to or change live infrastructure,
+production data, DNS, Traefik, Authentik, certificates, or secrets.
 
-The bounded Phase 20 corrections restore Authentik lifecycle provisioning, make
-daily-plan replacement deterministically newest-wins, preserve intentionally
-stale processed daily-plan imports as idempotent no-ops, prevent Gold across
-missing day logs, align the raw-import contract, normalize the Authentik issuer,
-and map application identity to the stable OIDC provider account subject. The
-required real Authentik browser login/logout and security smoke passed.
-
-Phase 20 changes application security boundaries, request handling, logging,
-repository hygiene, tests, and security documentation only. It adds no product
-feature, dependency, Prisma schema change, migration, deployment topology, HSTS,
-or Phase 21 implementation.
+Phase 21 adds no product feature, Prisma schema change, application migration,
+seed change, backfill, dependency version, browser-auth change, GPT contract
+change, ownership change, or HSTS policy.
 
 ## Active task
 
-Custom browser mutations now require an Auth.js session mapped to an existing
-application user, exact `APP_URL` origin, non-cross-site fetch context, JSON,
-identity encoding, a streamed 16 KiB body limit, and route validation. Browser
-and cycle ownership are server-derived. Central method policy rejects unsafe
-GET/HEAD and unsupported methods with bounded `405` responses and `Allow`.
-Application reads no longer provision users or reconcile status through writes.
-Successful Authentik sign-in now provisions or updates the application user by
-stable `account.providerAccountId` through the existing subject-keyed upsert
-before the JWT/session is used; subsequent session-backed reads remain
-lookup-only. Missing provider account identity fails closed, and later JWT
-callbacks preserve the subject set during initial authentication.
+The production image uses four stages, the committed frozen pnpm lockfile, a
+production Next.js build, pruned runtime dependencies, and a non-root UID/GID
+1001 runtime. It contains the production Next and Prisma CLIs, checked-in Prisma
+schema/migrations, readiness curl utility, writable export storage, and the
+mounted backup path. Normal application runtime requires writable exports;
+database backup writes belong to the deployment/PostgreSQL path. It does not
+copy environment files, Git metadata, tests, docs, source bind mounts, backups,
+exports, logs, or development servers into the final stage.
 
-GPT imports accept only `Authorization: Bearer`, authenticate before body
-access, compare token digests in constant time, require canonical JSON within a
-streamed 128 KiB limit, and resolve one configured existing owner with exactly
-one owned active cycle. Every normalizer shares that owner boundary; daily-plan
-targeting is cycle-scoped. Rolling process-local limits enforce 120 endpoint
-requests and 30 per token fingerprint per 60 seconds without retaining raw
-tokens.
-Daily-plan normalization now compares immutable raw import `createdAt` then ID
-under the existing owned-cycle lock. Older pending imports become processed
-no-ops for normalized state; newer imports still replace approved plan fields
-and tasks transactionally without overwriting later browser/check-in energy.
+Production Compose defines exactly one app and one PostgreSQL service. The app
+joins the private Reset90 network and existing external Traefik network;
+PostgreSQL joins only the private network. Neither service publishes a host
+port. Traefik labels exist only on the app and route the canonical HTTPS host to
+internal port 3000. PostgreSQL data, generated exports, and database backups use
+named volumes. Both containers use `restart: unless-stopped`.
 
-Read-only status derivation supplies comeback status only from the immediately
-preceding cycle day. Missing day-log rows remain gaps and break Gold eligibility.
+The ignored `.env.production` is selected explicitly for Compose interpolation.
+The committed example contains placeholders only. Preflight requires production
+OIDC, canonical HTTPS `APP_URL`, matching `RESET90_HOST`, database hostname
+`db`, database URL username/database matching `POSTGRES_USER`/`POSTGRES_DB`,
+distinct browser/OIDC/GPT secrets, fixed runtime paths, full lowercase Git SHA,
+and required Traefik values. Ambient values cannot override the selected file,
+and the obsolete configurable 1 MiB GPT limit is absent.
 
-Production-safe logging exposes allowlisted metadata only. Central response
-headers provide CSP, frame denial, no-sniff, no-referrer, and a restrictive
-permissions policy without HSTS. Production Auth.js cookies remain secure,
-HTTP-only, and SameSite Lax; local HTTP development retains non-Secure cookies.
-Git and Docker ignore sensitive artifacts, and the quality gate now fails when
-Git tracks forbidden sensitive paths while permitting placeholder examples.
+Deployment now acquires one non-blocking host lock before deployment-state
+writes or Docker mutation and retains it through backup, build, migration,
+promotion, health verification, and revision recording. Preflight checks
+commands/files, env values, a clean checked-out `main` whose `HEAD`, local
+`main`, and configured SHA match, Compose interpolation, and the external
+Traefik network. It records the attempted SHA, starts and waits for PostgreSQL,
+creates and verifies a uniquely named revision-stamped pre-migration backup,
+builds the immutable SHA image, runs one explicit `prisma migrate deploy`,
+promotes without rebuilding or deleting volumes, waits for database/application
+health, verifies the canonical public HTTPS readiness URL, prints bounded
+status/allowlisted logs, and records successful/previous known-good revisions.
+Failed application/public health stops the failed app and does not record
+success. Owner exit releases the lock without deleting its shared lock file.
 
 ## Next phase
 
-Phase 21 production Docker Compose and reverse-proxy deployment has not started.
-Production containers, Traefik/TLS routing, trusted proxy handling, HSTS,
-distributed/IP-based rate limiting, deployment automation, and cutover remain
-explicitly deferred.
+Phase 22 has not started. Live server access, host package changes, production
+directories/network/routes, DNS, certificates, Authentik clients, real secrets,
+first live backup/migration/start, complete live OIDC/GPT verification, HSTS
+selection, and rollback/restore drills remain explicitly deferred.
 
 ## Next actions
 
-1. Review and commit the Phase 20 diff with the suggested Conventional Commit
-   message, then push and open a pull request through the user's normal workflow.
-2. Confirm the pull request `quality` job passes before merging into `local`.
-3. Start Phase 21 only after explicit approval; no Phase 21 work has started.
-
-The final Phase 20 tree remains unvalidated by the external pull-request
-`quality` job until this correction is committed, pushed, and passes that job.
+1. Review the commit-ready Phase 21 diff.
+2. Commit with the suggested Conventional Commit message, push, open the pull
+   request, and require the external `quality` job before merge.
+3. Do not begin Phase 22 without separate explicit approval.
 
 ## Verification evidence
 
-- Final stale-import correction coverage passed 1 unit/service file with 7 tests
-  and 2 PostgreSQL files with 12 tests after applying all 9 migrations to a
-  disposable database. The regression proves newer-plan preservation, stale
-  `PROCESSED` monotonicity, and a second stale retry with no raw or normalized
-  mutation while replacement, concurrency, rollback, and ownership coverage
-  remains green.
-- Final focused auth/daily-plan/progress suite passed 3 files with 47 tests;
-  targeted typecheck passed.
-- PostgreSQL integration coverage applied all 9 migrations and passed 2 files
-  with 11 tests, including concurrent distinct daily plans converging on the
-  newest immutable raw import while existing idempotency, replacement,
-  transaction, and cross-user isolation coverage remained green.
-- The final `make check` passed after one initial run exposed a focused
-  test-fixture type error that was corrected. The current
-  provisioning-containment correction's final `make check` also passed.
-- One bounded local smoke attempt used the existing dev workflow on normal port
-  3000. Dev-auth root navigation and Today API returned `200`; Today had no
-  normalized plan; CSP, frame denial, no-sniff, no-referrer, and permissions
-  headers were present; an idempotent same-origin energy mutation returned `200`;
-  the same foreign-origin mutation returned bounded `403 invalid_origin` without
-  private fields. The task-started server was stopped; the pre-existing local DB
-  stayed running.
-- Focused Authentik lifecycle coverage passed `tests/auth.test.ts` with 18 tests.
-  It proves transient Auth.js user IDs do not become application identity, two
-  sign-ins sharing one provider subject upsert one Reset90 user, JWT/session
-  propagation and lookup use that subject, later JWT calls preserve it, and
-  missing provider identity fails closed. Provisioning rejection is contained
-  inside the `signIn` callback, denies sign-in without rethrowing the original
-  exception, emits one fixed allowlisted failure event, and excludes private
-  sentinels, identity fields, Prisma details, and stack text from logs.
-- The real Authentik browser smoke used the external `Reset90 Local`
-  authorization-code provider with the strict localhost Auth.js callback. Fresh
-  provisioning stored the expected stable Authentik provider account subject.
-  Repeat login retained the same Reset90 user with no duplicate. Authenticated
-  Today rendered Day 1 with no imported plan; Energy `HIGH` survived hard refresh
-  and was present on the owned current-day row. The same-origin invalid energy
-  mutation returned bounded `400 invalid_energy_payload`; the credentialed
-  foreign-origin check reached Reset90 and returned application `403`.
-  Representative CSP, no-sniff, no-referrer, frame-denial, and permissions
-  headers passed; visible errors stayed private-safe; logout returned to sign-in;
-  and `/settings` redirected to sign-in after logout. Task-started processes were
-  stopped.
+- Focused production deployment coverage passes 1 file with 28 tests. It parses
+  fully rendered Compose JSON; checks image/runtime policy, private networks,
+  Traefik labels, named volumes, missing interpolation, database identity
+  consistency, and secret-safe env errors. It exercises accepted `main`,
+  feature/`local` rejection before Docker mutation, concurrent lock exclusion,
+  failure-path lock release, quoted-path deploy success, and existing deploy
+  gate failures with command stubs.
+- Bash syntax passes for all new/changed production scripts. Non-secret Compose
+  validation with `.env.production.example` passes without rendering values.
+- Targeted TypeScript checking passes after typing partial fake environment
+  overrides without weakening production environment types.
+- Actual Docker build enforces the frozen lockfile, compiles Next.js in
+  production, prunes all dev dependencies, creates the non-root final image, and
+  confirms the health utility, Prisma CLI/schema/migrations, internal port 3000,
+  production start command, and forbidden-file exclusions.
+- Disposable stack smoke created a pre-migration backup, applied all 9 existing
+  migrations once, reported no pending migrations on repeat, reached healthy
+  PostgreSQL and app readiness, and exposed no host-published database port.
+- The first smoke migration command exposed pnpm attempting a non-root
+  dependency repair. Runtime start/migration now invoke the checked-in Next and
+  Prisma CLIs directly, and the second migration attempt passed.
+- The second stack smoke reached healthy application readiness, then exposed a
+  root-owned fresh export volume. The image now seeds export/backup mount points
+  as UID/GID 1001. Per the two-attempt smoke cap, the full stack was not started
+  a third time; a focused fresh named-volume test proved non-root export writes
+  and persistence across container recreation.
+- Forced PostgreSQL recreation retained all 9 migration records and the
+  verified revision-stamped backup. All disposable containers, networks,
+  volumes, temp environment data, and the potentially misleading uncommitted
+  SHA image tag were removed afterward.
+- The single final correction `make check` passed with frozen dependency install,
+  formatting, lint, TypeScript, 26 unit/component files with 478 tests, payload
+  and generated-schema drift validation, Prisma validation, all 9 migrations,
+  2 PostgreSQL files with 12 tests, production Next.js build, shell syntax, and
+  Git diff whitespace checks.
 
 ## Migration, deployment, and rollback
 
-- No change to `prisma/schema.prisma`; no migration, backfill, dependency, or
-  production transformation. Existing migrations are validation inputs only.
-- Local verification removed two disposable transient-subject smoke fixtures,
-  then created one disposable stable-subject Reset90 user with one smoke cycle,
-  three phases, 90 empty days, and one `HIGH` energy value. Rollback needs no
-  migration reversal or import replay; remove that local fixture and the external
-  local Authentik application/provider if the smoke environment is no longer
-  needed, then revert the application/configuration/test/documentation diff.
+- No `prisma/schema.prisma` or migration file changed. Smoke used only existing
+  migrations against an isolated disposable PostgreSQL volume.
+- No live deployment or production data operation occurred.
+- Repeated migration on the isolated current database was a no-op. Deployment
+  never seeds, runs `migrate dev`, uses `db push`, resets schema, selects
+  `latest`, executes `down -v`, rotates secrets, or deletes named volumes.
+- Before migration failure, the existing application remains untouched. After
+  migration, compatibility with the prior app must be decided from checked-in
+  contracts. Compatible rollback uses the previous known-good immutable image;
+  incompatible rollback requires stopped writes and an explicit operator restore
+  from the verified backup. No destructive restore is automatic.
 
 ## Latest handoff
 
-- 2026-07-22T00:59:50Z — fix/security-hardening — bounded correction contained
-  Authentik provisioning failures inside `signIn`, denied authentication without
-  rethrowing private exceptions, and emitted one fixed allowlisted log event;
-  focused auth coverage passed 1 file/18 tests and final `make check` passed; real
-  provider subject removed from tracked task state; no schema, migration,
-  dependency, ownership, email-linking, deployment, or Phase 21 change; external
-  pull-request `quality` remains pending until later commit/push
-
-## Historical detail
-
-Use `docs/state/SESSION_LOG.md` for chronological summaries and
-`docs/state/COMPLETED_PHASES.md` for the detailed Phase 0-10 completion archive.
-Do not copy completed-phase history back into this file.
+- 2026-07-26T20:01:11Z — `chore/production-deployment` — bounded Phase 21
+  correction added one non-blocking full-sequence deployment lock, enforced the
+  clean checked-out `main` revision boundary, matched database URL identity to
+  PostgreSQL settings, and corrected backup ownership wording; focused 1
+  file/28 tests, targeted typecheck, Bash syntax, and the single final
+  correction `make check` passed; no live restore/cutover, schema/migration,
+  storage topology, product/auth/ownership, HSTS, or Phase 22 change; next step:
+  review and commit, then push/open the PR and require its external `quality` job

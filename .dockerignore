@@ -1,6 +1,9 @@
 .git
 .github
 .codex
+docs
+examples
+tests
 node_modules
 .pnpm-store
 .next
@@ -40,3 +43,5 @@ backup-*.tar.gz
 export-*.zip
 codex-*.jsonl
 ALL_FILES_READY_TO_SAVE.md
+
+docker-compose*.yml

@@ -68,6 +68,8 @@ make db-reset
 make db-backup
 make db-restore FILE=backup.sql.gz
 make validate-payloads
+make prod-check
+make prod-config
 make prod-build
 make prod-up
 make prod-down
@@ -83,9 +85,17 @@ make docs-bundle
 - Use `set -euo pipefail` in Bash scripts.
 - Print what the script is doing.
 - Fail loudly.
+- Invoke production Compose through `scripts/production-compose.sh` with the
+  selected environment file explicitly.
+- Keep production diagnostics bounded and never print environment contents,
+  database URLs, secrets, tokens, cookies, authorization headers, or private
+  application data.
 - Do not hide destructive actions.
 - Require typed confirmation for restore/production destructive tasks.
 - Create backups before migrations/restore/deploy.
+- Run `prisma migrate deploy` as one explicit deployment step with the exact
+  immutable image being promoted; never seed or migrate in normal app startup.
+- Never use `docker compose down -v` for production deployment or rollback.
 - Scripts must be committed and executable.
 
 ## CI requirements

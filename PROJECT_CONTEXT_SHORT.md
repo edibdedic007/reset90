@@ -74,9 +74,19 @@ endpoint/principal rate limits. Application GET/HEAD handlers remain read-only,
 logs are allowlist-only, compatible security headers are centralized, and
 Git-backed repository hygiene checks fail closed.
 
-Phase 21 remains separate production deployment work. Production containers,
-Traefik/TLS configuration, trusted proxy behavior, HSTS, distributed or
-IP-based rate limiting, and cutover are not implemented here.
+Phase 21 adds the production deployment artefacts without performing live
+cutover: a frozen-lockfile multi-stage image, non-root runtime, explicit
+production environment contract, private PostgreSQL plus Traefik-only Compose
+topology, immutable commit tags, persistent data/export/backup volumes, ordered
+backup/build/migrate/promote gates, internal readiness and public HTTPS checks,
+and attempted/previous/successful revision records. Deployment requires a clean
+checked-out `main` whose `HEAD`, local `main` ref, and configured full commit SHA
+all match. One non-blocking host lock covers every deployment-state write,
+Docker mutation, health gate, and revision record. HSTS remains disabled until
+the real canonical HTTPS route, redirects, Authentik callback, and
+controlled-proxy behavior pass cutover verification. Live infrastructure, DNS,
+secrets, migrations, rollback drills, distributed/IP rate limiting, monitoring,
+registry promotion, and high availability remain deferred.
 
 ## Durable implementation rules
 
@@ -142,6 +152,19 @@ IP-based rate limiting, and cutover are not implemented here.
 - Recovery-aware statuses replace harsh streaks.
 - Production reverse proxy default is Traefik; change only through an explicit
   decision.
+- Production Compose receives one explicit ignored `.env.production`; ambient
+  values cannot override its interpolation. The app joins private and external
+  Traefik networks, PostgreSQL joins only the private network, and neither
+  service publishes a host port. The application requires writable export
+  storage; persistent backups are written through the PostgreSQL deployment
+  path, not by normal application runtime behavior.
+- Production images use immutable full Git SHA tags, run non-root, and start
+  with the production server. Under one deployment lock, deployment creates and
+  verifies a persistent revision-stamped backup before one explicit
+  `prisma migrate deploy`, never seeds, never selects `latest`, and never
+  deletes named volumes.
+- Container readiness uses `/api/ready` and therefore includes PostgreSQL.
+  Public readiness separately verifies the canonical HTTPS route and certificate.
 
 ## Source-of-truth map
 

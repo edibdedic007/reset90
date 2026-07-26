@@ -1,8 +1,9 @@
 SHELL := /usr/bin/env bash
 
-.PHONY: help session context phase phase-bundle review-bundle new-work update-task-state setup-local bootstrap install dev dev-up dev-down logs check quality-check check-sensitive lint format format-check typecheck test test-integration build db-validate db-migrate db-seed db-reset db-backup db-restore validate-payloads env-check prod-check prod-build prod-up prod-down prod-logs prod-health deploy-production export-full docs-bundle healthcheck
+.PHONY: help session context phase phase-bundle review-bundle new-work update-task-state setup-local bootstrap install dev dev-up dev-down logs check quality-check check-sensitive lint format format-check typecheck test test-integration build db-validate db-migrate db-seed db-reset db-backup db-restore validate-payloads env-check prod-check prod-config prod-build prod-up prod-down prod-logs prod-health deploy-production export-full docs-bundle healthcheck
 
 LOCAL_COMPOSE := docker compose --env-file .env.local -f docker-compose.local.yml
+PRODUCTION_ENV_FILE ?= .env.production
 
 help:
 	@echo "Reset90 commands"
@@ -23,6 +24,7 @@ help:
 	@echo "  make validate-payloads       Validate canonical GPT payload examples"
 	@echo "  make env-check               Validate .env.local baseline keys"
 	@echo "  make prod-check              Validate .env.production baseline keys/placeholders"
+	@echo "  make prod-config             Validate fully interpolated production Compose"
 	@echo "  make db-backup               Create database backup"
 	@echo "  make db-restore FILE=x       Restore database backup"
 	@echo "  make deploy-production       Deploy production with backup and healthcheck"
@@ -123,7 +125,10 @@ env-check:
 	./scripts/env-check.sh .env.local
 
 prod-check:
-	./scripts/production-check.sh
+	./scripts/production-check.sh "$(PRODUCTION_ENV_FILE)"
+
+prod-config:
+	RESET90_ENV_FILE="$(PRODUCTION_ENV_FILE)" ./scripts/production-compose.sh config --quiet
 
 db-backup:
 	./scripts/backup-db.sh
@@ -133,18 +138,21 @@ db-restore:
 	./scripts/restore-db.sh "$(FILE)"
 
 prod-build:
-	docker compose -f docker-compose.production.yml build
+	RESET90_ENV_FILE="$(PRODUCTION_ENV_FILE)" ./scripts/production-compose.sh build app
 
 prod-up:
-	docker compose -f docker-compose.production.yml up -d
+	RESET90_ENV_FILE="$(PRODUCTION_ENV_FILE)" ./scripts/production-compose.sh up -d --no-build db app
 
 prod-down:
-	docker compose -f docker-compose.production.yml down
+	RESET90_ENV_FILE="$(PRODUCTION_ENV_FILE)" ./scripts/production-compose.sh down
 
 prod-logs:
-	docker compose -f docker-compose.production.yml logs -f --tail=200 app
+	RESET90_ENV_FILE="$(PRODUCTION_ENV_FILE)" ./scripts/production-compose.sh logs -f --tail=200 app
 
-prod-health healthcheck:
+prod-health:
+	./scripts/healthcheck.sh "$(PRODUCTION_ENV_FILE)"
+
+healthcheck:
 	./scripts/healthcheck.sh
 
 deploy-production:
