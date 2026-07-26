@@ -1,7 +1,8 @@
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import {
   chmodSync,
   copyFileSync,
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -75,6 +76,39 @@ function run(
   });
 }
 
+function collectProcess(child: ReturnType<typeof spawn>) {
+  let stdout = "";
+  let stderr = "";
+
+  child.stdout?.setEncoding("utf8");
+  child.stderr?.setEncoding("utf8");
+  child.stdout?.on("data", (chunk: string) => {
+    stdout += chunk;
+  });
+  child.stderr?.on("data", (chunk: string) => {
+    stderr += chunk;
+  });
+
+  return new Promise<{ status: number | null; stderr: string; stdout: string }>(
+    (resolvePromise, rejectPromise) => {
+      child.on("error", rejectPromise);
+      child.on("close", (status) => {
+        resolvePromise({ status, stderr, stdout });
+      });
+    },
+  );
+}
+
+async function waitForFile(path: string) {
+  for (let attempt = 0; attempt < 200; attempt += 1) {
+    if (existsSync(path)) {
+      return;
+    }
+    await new Promise((resolvePromise) => setTimeout(resolvePromise, 10));
+  }
+  throw new Error(`Timed out waiting for ${path}`);
+}
+
 function writeEnvironment(contents = productionEnvironment()) {
   const directory = temporaryDirectory("reset90-production-env-");
   const path = join(directory, ".env.production");
@@ -143,6 +177,14 @@ function deploymentHarness() {
       '  printf "%s\\n" "$FAKE_GIT_SHA"',
       "  exit 0",
       "fi",
+      'if [[ "$joined" == *"symbolic-ref --quiet --short HEAD"* ]]; then',
+      '  printf "%s\\n" "$FAKE_GIT_BRANCH"',
+      "  exit 0",
+      "fi",
+      'if [[ "$joined" == *"rev-parse --verify refs/heads/main"* ]]; then',
+      '  printf "%s\\n" "$FAKE_MAIN_SHA"',
+      "  exit 0",
+      "fi",
       "exit 0",
       "",
     ].join("\n"),
@@ -155,6 +197,12 @@ function deploymentHarness() {
       "set -euo pipefail",
       'printf "docker %s\\n" "$*" >> "$FAKE_COMMAND_LOG"',
       'joined="$*"',
+      'if [[ -n "${FAKE_DOCKER_BLOCK_MATCH:-}" && "$joined" == *"$FAKE_DOCKER_BLOCK_MATCH"* ]]; then',
+      '  : > "$FAKE_DOCKER_BLOCKED_FILE"',
+      '  while [[ ! -f "$FAKE_DOCKER_RELEASE_FILE" ]]; do',
+      "    /bin/sleep 0.01",
+      "  done",
+      "fi",
       'if [[ -n "${FAKE_DOCKER_FAIL_MATCH:-}" && "$joined" == *"$FAKE_DOCKER_FAIL_MATCH"* ]]; then',
       "  exit 1",
       "fi",
@@ -202,8 +250,11 @@ function deploymentHarness() {
   const environment = {
     ...process.env,
     DEPLOY_STATE_DIR: stateDirectory,
+    DEPLOY_LOCK_FILE: join(root, "deployment.lock"),
     FAKE_COMMAND_LOG: commandLog,
+    FAKE_GIT_BRANCH: "main",
     FAKE_GIT_SHA: fullRevision,
+    FAKE_MAIN_SHA: fullRevision,
     PATH: `${binaries}:${process.env.PATH}`,
   };
 
@@ -215,6 +266,12 @@ function deploymentHarness() {
       run(join(scripts, "deploy-production.sh"), [], {
         cwd: root,
         env: { ...environment, ...extraEnvironment },
+      }),
+    spawn: (extraEnvironment: EnvironmentOverrides = {}) =>
+      spawn(join(scripts, "deploy-production.sh"), [], {
+        cwd: root,
+        env: { ...environment, ...extraEnvironment },
+        stdio: ["ignore", "pipe", "pipe"],
       }),
     stateDirectory,
   };
@@ -229,11 +286,41 @@ afterEach(() => {
 describe("production environment contract", () => {
   const script = join(repository, "scripts/production-check.sh");
 
-  it("accepts a complete non-secret validation environment", () => {
+  it("accepts matching database URL, user, and database values", () => {
     const result = run(script, [writeEnvironment()]);
     expect(result.stderr).toBe("");
     expect(result.status).toBe(0);
   });
+
+  it.each([
+    [
+      "username",
+      "DATABASE_URL username must match POSTGRES_USER.",
+      "postgresql://other_user:DATABASE_PASSWORD_SENTINEL_12345@db:5432/reset90",
+    ],
+    [
+      "database name",
+      "DATABASE_URL database name must match POSTGRES_DB.",
+      "postgresql://reset90:DATABASE_PASSWORD_SENTINEL_12345@db:5432/other_db",
+    ],
+  ])(
+    "rejects a database URL %s mismatch without credentials",
+    (_name, error, url) => {
+      const environment = replaceEnvironmentValue(
+        productionEnvironment(),
+        "DATABASE_URL",
+        url,
+      );
+      const result = run(script, [writeEnvironment(environment)]);
+
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain(error);
+      expect(`${result.stdout}${result.stderr}`).not.toContain(url);
+      expect(`${result.stdout}${result.stderr}`).not.toContain(
+        secretSentinels.database,
+      );
+    },
+  );
 
   it.each([
     ["development auth", "AUTH_MODE", "dev"],
@@ -398,7 +485,7 @@ describe("production image and Compose policy", () => {
 });
 
 describe("production deployment workflow", () => {
-  it("orders gates, records immutable revisions, and reruns idempotently", () => {
+  it("accepts checked-out main, orders gates, and records immutable revisions", () => {
     const harness = deploymentHarness();
     mkdirSync(harness.stateDirectory, { recursive: true });
     writeFileSync(
@@ -413,6 +500,8 @@ describe("production deployment workflow", () => {
     expect(second.status).toBe(0);
 
     const commandLog = readFileSync(harness.commandLog, "utf8");
+    expect(commandLog).toContain("symbolic-ref --quiet --short HEAD");
+    expect(commandLog).toContain("rev-parse --verify refs/heads/main");
     const config = commandLog.indexOf("config --quiet");
     const network = commandLog.indexOf("network inspect traefik_proxy");
     const backup = commandLog.indexOf("exec -T db");
@@ -448,6 +537,68 @@ describe("production deployment workflow", () => {
         "utf8",
       ),
     ).toBe(`${previousRevision}\n`);
+  });
+
+  it.each([
+    ["feature branch", "feature/phase-21-review"],
+    ["local-only revision", "local"],
+  ])("rejects a %s before Docker mutation", (_name, branch) => {
+    const harness = deploymentHarness();
+    const result = harness.run({
+      FAKE_GIT_BRANCH: branch,
+      FAKE_MAIN_SHA: previousRevision,
+    });
+    const commandLog = readFileSync(harness.commandLog, "utf8");
+
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain("failed:production-revision-not-main");
+    expect(commandLog).not.toContain("up -d");
+    expect(commandLog).not.toContain("build app");
+    expect(commandLog).not.toContain("run --rm");
+    expect(commandLog).not.toContain("exec -T");
+  });
+
+  it("keeps a second invocation out while the owner holds the lock", async () => {
+    const harness = deploymentHarness();
+    const blockedFile = join(harness.root, "deployment-blocked");
+    const releaseFile = join(harness.root, "deployment-release");
+    const first = harness.spawn({
+      FAKE_DOCKER_BLOCK_MATCH: "build app",
+      FAKE_DOCKER_BLOCKED_FILE: blockedFile,
+      FAKE_DOCKER_RELEASE_FILE: releaseFile,
+    });
+    const firstResultPromise = collectProcess(first);
+
+    try {
+      await waitForFile(blockedFile);
+      const commandLogBeforeSecond = readFileSync(harness.commandLog, "utf8");
+      const second = harness.run();
+
+      expect(second.status).not.toBe(0);
+      expect(second.stderr).toContain("failed:deployment-lock-held");
+      expect(readFileSync(harness.commandLog, "utf8")).toBe(
+        commandLogBeforeSecond,
+      );
+    } finally {
+      writeFileSync(releaseFile, "release\n");
+    }
+
+    const firstResult = await firstResultPromise;
+    expect(firstResult.stderr).toBe("");
+    expect(firstResult.status).toBe(0);
+  });
+
+  it("releases the lock after the owning deployment fails", () => {
+    const harness = deploymentHarness();
+    const failedOwner = harness.run({
+      FAKE_DOCKER_FAIL_MATCH: "build app",
+    });
+    const nextOwner = harness.run();
+
+    expect(failedOwner.status).not.toBe(0);
+    expect(failedOwner.stderr).toContain("failed:image-build");
+    expect(nextOwner.stderr).toBe("");
+    expect(nextOwner.status).toBe(0);
   });
 
   it.each([
@@ -519,7 +670,10 @@ describe("production deployment workflow", () => {
         scenario === "dirty"
           ? { FAKE_GIT_DIRTY: "1" }
           : scenario === "revision"
-            ? { FAKE_GIT_SHA: previousRevision }
+            ? {
+                FAKE_GIT_SHA: previousRevision,
+                FAKE_MAIN_SHA: previousRevision,
+              }
             : {},
       );
       const commandLog = readFileSync(harness.commandLog, "utf8");

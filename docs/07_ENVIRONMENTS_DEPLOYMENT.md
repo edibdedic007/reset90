@@ -123,8 +123,10 @@ Production requirements:
   `AUTH_AUTHENTIK_ISSUER` from the Authentik provider;
 - `AUTH_TRUST_HOST=true` behind the trusted Traefik route;
 - separate GPT ingest token and existing trusted-owner subject;
-- `DATABASE_URL` using Compose service hostname `db`;
-- persistent `/app/exports` and `/app/backups`;
+- `DATABASE_URL` using Compose service hostname `db`, with username matching
+  `POSTGRES_USER` and database name matching `POSTGRES_DB`;
+- writable persistent application export storage at `/app/exports`;
+- persistent database backup storage;
 - immutable full Git commit SHA image tags;
 - no dev auth;
 - logs retained but scrubbed;
@@ -146,6 +148,12 @@ configured existing Traefik network. PostgreSQL joins only the private network.
 Traefik remains the only public listener and forwards the canonical HTTPS host
 to application port `3000`.
 
+Normal application runtime requires writable export storage. The current
+Compose topology also mounts the persistent backup volume at `/app/backups`, but
+database backups are created through the deployment workflow inside the
+PostgreSQL service. The application process is not the backup writer and does
+not require backup-volume write access for normal runtime behavior.
+
 HSTS remains disabled in Phase 21. It may be activated only after the real
 canonical HTTPS route, redirects, Authentik callback, and proxy behavior pass
 cutover verification. `includeSubDomains`, preload, and preload-list submission
@@ -160,7 +168,10 @@ local branch -> feature branch -> local -> main -> production deploy
 Deploy steps:
 
 Phase 21 prepares and validates this flow but does not run it against the live
-server. From a clean checkout of the intended production revision:
+server. Deployment accepts only a clean, checked-out `main` branch where `HEAD`
+equals the local `refs/heads/main` revision and `.env.production` `GIT_COMMIT`.
+Detached HEADs, feature branches, and `local` are rejected even when clean. From
+that accepted production revision:
 
 ```bash
 ./scripts/deploy-production.sh
@@ -168,22 +179,29 @@ server. From a clean checkout of the intended production revision:
 
 The script stops at the first failed gate:
 
-1. Verify required commands, files, and the ignored production env file.
-2. Validate production values and reject known placeholders.
-3. verify a clean checkout and require `GIT_COMMIT` to match `HEAD`;
-4. record the attempted immutable revision;
-5. validate fully interpolated Compose without printing it;
-6. require the configured external Traefik network;
-7. start/wait for PostgreSQL and create a non-empty timestamped pre-migration
+1. Acquire one non-blocking host deployment lock before any deployment-state
+   write or Docker mutation; fail if another deployment owns it.
+2. Verify required commands, files, and the ignored production env file.
+3. Validate production values, database identity consistency, and placeholders.
+4. Verify the clean checked-out `main` revision boundary described above.
+5. Record the attempted immutable revision.
+6. Validate fully interpolated Compose without printing it.
+7. Require the configured external Traefik network.
+8. Start/wait for PostgreSQL and create a non-empty timestamped pre-migration
    backup containing the revision on the persistent backup volume;
-8. build `reset90:<full-commit-sha>`;
-9. run `prisma migrate deploy` once in that exact image;
-10. start/update services without building or deleting volumes;
-11. wait separately for database and application readiness;
-12. verify the canonical public HTTPS readiness URL with certificate validation
+9. Build `reset90:<full-commit-sha>`.
+10. Run `prisma migrate deploy` once in that exact image.
+11. Start/update services without building or deleting volumes.
+12. Wait separately for database and application readiness.
+13. Verify the canonical public HTTPS readiness URL with certificate validation
     and no unexpected redirect origin;
-13. show bounded service status and allowlisted recent application logs;
-14. record the successful revision while retaining the previous known-good SHA.
+14. Show bounded service status and allowlisted recent application logs.
+15. Record the successful revision while retaining the previous known-good SHA.
+
+The lock remains held through backup, build, migration, promotion, internal and
+public health verification, and revision recording. Exit cleanup unlocks only
+the owning file descriptor after success or failure; it does not delete the
+shared lock file or override another owner.
 
 Repeated deployment of the same clean revision repeats safety gates and the
 backup, but migrations remain idempotent and no seed, secret rotation, volume
@@ -219,7 +237,7 @@ If deploy fails after migrations:
 Rollback never selects `latest`, edits `.env.production` automatically, runs
 seeds, resets the schema, or deletes named volumes. A destructive restore is
 always an explicit operator action and is reserved for live operations, not
-Phase 21 validation.
+Phase 21 validation. No live restore or production cutover was performed.
 
 ## Environment variable rules
 

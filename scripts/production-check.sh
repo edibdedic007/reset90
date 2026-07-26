@@ -52,8 +52,16 @@ fi
   fail "RESET90_HOST must contain only a hostname."
 [[ "${values[AUTH_AUTHENTIK_ISSUER]}" =~ ^https://[^/?#]+/[^?#]+/?$ ]] ||
   fail "AUTH_AUTHENTIK_ISSUER must be an absolute HTTPS issuer URL."
-[[ "${values[DATABASE_URL]}" =~ ^postgres(ql)?://.+@db(:[0-9]+)?/[^/?#]+(\?.*)?$ ]] ||
+if [[ "${values[DATABASE_URL]}" =~ ^postgres(ql)?://([^:/?#@]+):[^@/?#]+@db(:[0-9]+)?/([^/?#]+)(\?.*)?$ ]]; then
+  database_url_user="${BASH_REMATCH[2]}"
+  database_url_database="${BASH_REMATCH[4]}"
+  [[ "$database_url_user" == "${values[POSTGRES_USER]}" ]] ||
+    fail "DATABASE_URL username must match POSTGRES_USER."
+  [[ "$database_url_database" == "${values[POSTGRES_DB]}" ]] ||
+    fail "DATABASE_URL database name must match POSTGRES_DB."
+else
   fail "DATABASE_URL must use Compose service hostname db."
+fi
 [[ "${values[POSTGRES_USER]}" =~ ^[A-Za-z0-9_]+$ ]] ||
   fail "POSTGRES_USER contains unsupported characters."
 [[ "${values[POSTGRES_DB]}" =~ ^[A-Za-z0-9_]+$ ]] ||

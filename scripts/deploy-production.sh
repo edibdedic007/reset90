@@ -6,10 +6,13 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd -P)"
 ENV_FILE="$REPO_ROOT/.env.production"
 COMPOSE_FILE="$REPO_ROOT/docker-compose.production.yml"
 STATE_DIR="${DEPLOY_STATE_DIR:-$REPO_ROOT/.runtime/production-deploy}"
+LOCK_FILE="${DEPLOY_LOCK_FILE:-/tmp/reset90-production-deploy.lock}"
 ATTEMPTED_FILE="$STATE_DIR/attempted.sha"
 SUCCESSFUL_FILE="$STATE_DIR/successful.sha"
 PREVIOUS_FILE="$STATE_DIR/previous-successful.sha"
 REVISION=""
+DEPLOY_LOCK_FD=9
+DEPLOY_LOCK_HELD=0
 
 source "$SCRIPT_DIR/lib/production-env.sh"
 
@@ -21,6 +24,13 @@ log() {
 fail() {
   log "failed:$1" >&2
   exit 1
+}
+
+release_deployment_lock() {
+  if [[ "$DEPLOY_LOCK_HELD" -eq 1 ]]; then
+    flock -u "$DEPLOY_LOCK_FD" || true
+    DEPLOY_LOCK_HELD=0
+  fi
 }
 
 compose() {
@@ -63,7 +73,7 @@ diagnostics() {
 }
 
 record_success() {
-  local current=""
+  local current="" successful_temp
 
   if [[ -s "$SUCCESSFUL_FILE" ]]; then
     IFS= read -r current < "$SUCCESSFUL_FILE" || true
@@ -71,9 +81,17 @@ record_success() {
   if [[ -n "$current" && "$current" != "$REVISION" ]]; then
     printf '%s\n' "$current" > "$PREVIOUS_FILE"
   fi
-  printf '%s\n' "$REVISION" > "$SUCCESSFUL_FILE.tmp"
-  mv "$SUCCESSFUL_FILE.tmp" "$SUCCESSFUL_FILE"
+  successful_temp="${SUCCESSFUL_FILE}.$$"
+  printf '%s\n' "$REVISION" > "$successful_temp"
+  mv "$successful_temp" "$SUCCESSFUL_FILE"
 }
+
+command -v flock >/dev/null 2>&1 || fail "missing-command-flock"
+exec 9>>"$LOCK_FILE" || fail "deployment-lock-unavailable"
+flock -n "$DEPLOY_LOCK_FD" || fail "deployment-lock-held"
+DEPLOY_LOCK_HELD=1
+trap release_deployment_lock EXIT
+log "deployment-lock:acquired"
 
 log "preflight:commands-and-files"
 for command in awk curl date docker git grep gzip mkdir mv sleep; do
@@ -107,6 +125,14 @@ log "preflight:clean-revision"
   fail "working-tree-not-clean"
 REVISION="$(git -C "$REPO_ROOT" rev-parse --verify HEAD)"
 [[ "$REVISION" =~ ^[0-9a-f]{40}$ ]] || fail "invalid-git-revision"
+current_branch="$(
+  git -C "$REPO_ROOT" symbolic-ref --quiet --short HEAD
+)" || fail "production-revision-not-main"
+[[ "$current_branch" == "main" ]] || fail "production-revision-not-main"
+main_revision="$(
+  git -C "$REPO_ROOT" rev-parse --verify refs/heads/main
+)" || fail "production-revision-not-main"
+[[ "$main_revision" == "$REVISION" ]] || fail "production-revision-not-main"
 configured_revision="$(production_env_value "$ENV_FILE" GIT_COMMIT)"
 [[ "$configured_revision" == "$REVISION" ]] ||
   fail "configured-revision-mismatch"
@@ -127,7 +153,7 @@ compose up -d --no-build db || fail "database-start"
 wait_for_health db 30 || fail "database-health-before-backup"
 
 timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
-backup_path="/backups/reset90_${timestamp}_${REVISION}.sql.gz"
+backup_path="/backups/reset90_${timestamp}_$$_${REVISION}.sql.gz"
 log "backup:create"
 compose exec -T db sh -eu -c '
   backup_path="$1"
