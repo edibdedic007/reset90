@@ -13,9 +13,12 @@ SERVICE="db"
 LOCK_FILE="${DEPLOY_LOCK_FILE:-/tmp/reset90-production-deploy.lock}"
 LOCK_FD=9
 LOCK_HELD=0
+DEGRADED_RECOVERY=0
 STATE_DIR="${DEPLOY_STATE_DIR:-$REPO_ROOT/.runtime/production-deploy}"
 DATABASE_COMPATIBLE_FILE="$STATE_DIR/database-compatible.sha"
 VALIDATION_TEMP=""
+COMPATIBLE_STATE_TEMP=""
+PRE_RESTORE_LOG=""
 STAGING_DATABASE=""
 OLD_DATABASE=""
 
@@ -31,7 +34,7 @@ usage() {
   printf '%s\n' \
     "Usage: restore-db.sh --environment test|production --env-file FILE" \
     "  --backup-root ABSOLUTE_PATH --file BACKUP.sql.gz" \
-    "  [--compose-file FILE] [--project NAME]"
+    "  [--compose-file FILE] [--project NAME] [--degraded-recovery]"
 }
 
 compose() {
@@ -111,6 +114,11 @@ cleanup_production_databases() {
     "$staging_state" == "exists" ]]; then
     compose exec -T "$SERVICE" dropdb -U "$TARGET_USER" --force \
       "$STAGING_DATABASE" >/dev/null 2>&1 || true
+  elif [[ "$target_state" == "missing" &&
+    "$old_state" == "missing" &&
+    "$staging_state" == "exists" ]]; then
+    compose exec -T "$SERVICE" dropdb -U "$TARGET_USER" --force \
+      "$STAGING_DATABASE" >/dev/null 2>&1 || true
   fi
 }
 
@@ -119,6 +127,9 @@ cleanup() {
 
   set +e
   [[ -z "${VALIDATION_TEMP:-}" ]] || rm -f -- "$VALIDATION_TEMP"
+  [[ -z "${COMPATIBLE_STATE_TEMP:-}" ]] ||
+    rm -f -- "$COMPATIBLE_STATE_TEMP"
+  [[ -z "${PRE_RESTORE_LOG:-}" ]] || rm -f -- "$PRE_RESTORE_LOG"
   if [[ "$ENVIRONMENT" == "production" && "$LOCK_HELD" -eq 1 ]]; then
     cleanup_production_databases
   fi
@@ -197,6 +208,80 @@ verify_restored_database() {
     "$database_user" \
     "$expected_migration_count" \
     "$expected_migration_sha256"
+}
+
+persist_database_compatible_revision() {
+  local revision="$1"
+
+  [[ "$revision" =~ ^[0-9a-f]{40}$ ]] || return 1
+  mkdir -p -- "$STATE_DIR" || return 1
+  COMPATIBLE_STATE_TEMP="$(
+    mktemp "$STATE_DIR/.database-compatible.sha.XXXXXX"
+  )" || return 1
+  chmod 600 -- "$COMPATIBLE_STATE_TEMP" || return 1
+  printf '%s\n' "$revision" > "$COMPATIBLE_STATE_TEMP" || return 1
+  mv -- "$COMPATIBLE_STATE_TEMP" "$DATABASE_COMPATIBLE_FILE" || return 1
+  COMPATIBLE_STATE_TEMP=""
+}
+
+fail_compatibility_state_persistence() {
+  printf '%s\n' \
+    "restore:database-restored compatibility-state=operator-repair-required" \
+    "restore:operator-repair file=$DATABASE_COMPATIBLE_FILE revision=$BACKUP_COMPATIBLE_REVISION" \
+    "restore:failed:compatible-state-persistence" >&2
+  exit 1
+}
+
+attempt_pre_restore_backup() {
+  local status failure_line failure_reason line
+
+  PRE_RESTORE_LOG="$(mktemp /tmp/reset90-pre-restore-backup.XXXXXX.log)" ||
+    return 1
+  chmod 600 -- "$PRE_RESTORE_LOG" || return 1
+  if "$SCRIPT_DIR/backup-db.sh" "$@" > "$PRE_RESTORE_LOG" 2>&1; then
+    status=0
+  else
+    status=$?
+  fi
+  while IFS= read -r line; do
+    printf '%s\n' "$line"
+  done < "$PRE_RESTORE_LOG"
+
+  if [[ "$status" -eq 0 ]]; then
+    rm -f -- "$PRE_RESTORE_LOG"
+    PRE_RESTORE_LOG=""
+    return 0
+  fi
+  if grep -Fq "backup:verified filename=" "$PRE_RESTORE_LOG"; then
+    printf '%s\n' \
+      "restore:pre-restore-backup-retention=failed bundle=preserved" >&2
+    rm -f -- "$PRE_RESTORE_LOG"
+    PRE_RESTORE_LOG=""
+    return 0
+  fi
+
+  failure_line="$(
+    awk '/^backup:failed:/ { value = $0 } END { print value }' \
+      "$PRE_RESTORE_LOG"
+  )"
+  failure_reason="${failure_line#backup:failed:}"
+  rm -f -- "$PRE_RESTORE_LOG"
+  PRE_RESTORE_LOG=""
+  case "$failure_reason" in
+    postgres-service-missing | postgres-service-unhealthy | \
+      postgres-tooling-missing | postgres-major-version-unsupported | \
+      migration-contract-unavailable | migration-contract-invalid | \
+      creation-or-validation | pg-dump | zero-byte-dump | compression | \
+      zero-byte-compressed-output | gzip-integrity | checksum | metadata | \
+      permissions | publish-backup | publish-checksum | publish-metadata | \
+      final-publication-validation | published-artifact-invalid | \
+      filename-collision)
+      return 2
+      ;;
+    *)
+      return 1
+      ;;
+  esac
 }
 
 validate_production_backup() {
@@ -346,6 +431,10 @@ while [[ $# -gt 0 ]]; do
       SERVICE="${2:-}"
       shift 2
       ;;
+    --degraded-recovery)
+      DEGRADED_RECOVERY=1
+      shift
+      ;;
     --help)
       usage
       exit 0
@@ -366,6 +455,9 @@ done
 [[ "$BACKUP_ROOT" == /* ]] || fail "backup-root-must-be-absolute"
 [[ -n "$BACKUP_FILE" ]] || fail "backup-file-required"
 [[ "$SERVICE" =~ ^[a-zA-Z0-9_-]+$ ]] || fail "invalid-service"
+if [[ "$DEGRADED_RECOVERY" -eq 1 && "$ENVIRONMENT" != "production" ]]; then
+  fail "degraded-recovery-production-only"
+fi
 
 if [[ -z "$COMPOSE_FILE" ]]; then
   if [[ "$ENVIRONMENT" == "production" ]]; then
@@ -377,7 +469,7 @@ fi
 [[ "$COMPOSE_FILE" == /* ]] || COMPOSE_FILE="$PWD/$COMPOSE_FILE"
 [[ -f "$COMPOSE_FILE" ]] || fail "compose-file-missing"
 
-for required_command in awk dirname docker find flock grep gunzip gzip node realpath rm sha256sum sort stat; do
+for required_command in awk chmod dirname docker find flock grep gunzip gzip mkdir mktemp mv node realpath rm sha256sum sort stat; do
   command -v "$required_command" >/dev/null 2>&1 ||
     fail "missing-command-$required_command"
 done
@@ -449,6 +541,14 @@ if [[ "$ENVIRONMENT" == "test" ]]; then
           WHERE namespace.nspname <> 'information_schema'
             AND namespace.nspname !~ '^pg_'
             AND relation.relkind IN ('r', 'p', 'v', 'm', 'S', 'f')
+            AND NOT EXISTS (
+              SELECT 1
+              FROM pg_catalog.pg_depend AS dependency
+              WHERE dependency.classid = 'pg_class'::regclass
+                AND dependency.objid = relation.oid
+                AND dependency.refclassid = 'pg_extension'::regclass
+                AND dependency.deptype = 'e'
+            )
 
           UNION ALL
 
@@ -459,6 +559,49 @@ if [[ "$ENVIRONMENT" == "test" ]]; then
           WHERE namespace.nspname <> 'information_schema'
             AND namespace.nspname !~ '^pg_'
             AND database_type.typtype IN ('d', 'e')
+            AND NOT EXISTS (
+              SELECT 1
+              FROM pg_catalog.pg_depend AS dependency
+              WHERE dependency.classid = 'pg_type'::regclass
+                AND dependency.objid = database_type.oid
+                AND dependency.refclassid = 'pg_extension'::regclass
+                AND dependency.deptype = 'e'
+            )
+
+          UNION ALL
+
+          SELECT 1 AS evidence
+          FROM pg_catalog.pg_proc AS routine
+          INNER JOIN pg_catalog.pg_namespace AS namespace
+            ON namespace.oid = routine.pronamespace
+          WHERE namespace.nspname <> 'information_schema'
+            AND namespace.nspname !~ '^pg_'
+            AND routine.prokind IN ('f', 'p', 'a', 'w')
+            AND NOT EXISTS (
+              SELECT 1
+              FROM pg_catalog.pg_depend AS dependency
+              WHERE dependency.classid = 'pg_proc'::regclass
+                AND dependency.objid = routine.oid
+                AND dependency.refclassid = 'pg_extension'::regclass
+                AND dependency.deptype = 'e'
+            )
+
+          UNION ALL
+
+          SELECT 1 AS evidence
+          FROM pg_catalog.pg_operator AS database_operator
+          INNER JOIN pg_catalog.pg_namespace AS namespace
+            ON namespace.oid = database_operator.oprnamespace
+          WHERE namespace.nspname <> 'information_schema'
+            AND namespace.nspname !~ '^pg_'
+            AND NOT EXISTS (
+              SELECT 1
+              FROM pg_catalog.pg_depend AS dependency
+              WHERE dependency.classid = 'pg_operator'::regclass
+                AND dependency.objid = database_operator.oid
+                AND dependency.refclassid = 'pg_extension'::regclass
+                AND dependency.deptype = 'e'
+            )
 
           UNION ALL
 
@@ -467,6 +610,14 @@ if [[ "$ENVIRONMENT" == "test" ]]; then
           WHERE namespace.nspname <> 'public'
             AND namespace.nspname <> 'information_schema'
             AND namespace.nspname !~ '^pg_'
+            AND NOT EXISTS (
+              SELECT 1
+              FROM pg_catalog.pg_depend AS dependency
+              WHERE dependency.classid = 'pg_namespace'::regclass
+                AND dependency.objid = namespace.oid
+                AND dependency.refclassid = 'pg_extension'::regclass
+                AND dependency.deptype = 'e'
+            )
         ) AS existing_objects
       ) THEN 'not-empty' ELSE 'empty' END;"
   )" || fail "target-emptiness-check"
@@ -517,7 +668,11 @@ TARGET_USER="$(production_env_value "$ENV_FILE" POSTGRES_USER)" ||
   fail "unsafe-target-user"
 
 [[ -t 0 && -t 1 ]] || fail "production-restore-requires-interactive-tty"
-EXPECTED_CONFIRMATION="RESTORE $TARGET_DATABASE FROM $BACKUP_BASENAME"
+if [[ "$DEGRADED_RECOVERY" -eq 1 ]]; then
+  EXPECTED_CONFIRMATION="DEGRADED RESTORE $TARGET_DATABASE FROM $BACKUP_BASENAME"
+else
+  EXPECTED_CONFIRMATION="RESTORE $TARGET_DATABASE FROM $BACKUP_BASENAME"
+fi
 read -r -p "Type '$EXPECTED_CONFIRMATION' to continue: " CONFIRMATION
 [[ "$CONFIRMATION" == "$EXPECTED_CONFIRMATION" ]] ||
   fail "production-confirmation-mismatch"
@@ -537,26 +692,59 @@ INITIAL_BACKUP_FINGERPRINT="$BACKUP_FINGERPRINT"
 INITIAL_SOURCE_DATABASE="$SOURCE_DATABASE"
 [[ "$INITIAL_SOURCE_DATABASE" == "$TARGET_DATABASE" ]] ||
   fail "backup-source-database-mismatch"
-CURRENT_COMPATIBLE_REVISION="$(
-  verified_database_compatible_revision "$DATABASE_COMPATIBLE_FILE"
-)" || fail "production-compatible-revision-unavailable"
 
 [[ -z "$(compose ps --status running -q app)" ]] ||
   fail "application-writes-not-stopped"
 target_presence="$(database_presence "$TARGET_DATABASE" "$TARGET_USER")" ||
   fail "target-database-state-unavailable"
-[[ "$target_presence" == "exists" ]] || fail "target-database-missing"
+if CURRENT_COMPATIBLE_REVISION="$(
+  verified_database_compatible_revision "$DATABASE_COMPATIBLE_FILE"
+)"; then
+  :
+elif [[ "$DEGRADED_RECOVERY" -eq 0 ]]; then
+  fail "production-compatible-revision-unavailable"
+else
+  CURRENT_COMPATIBLE_REVISION=""
+fi
 
-"$SCRIPT_DIR/backup-db.sh" \
-  --environment production \
-  --env-file "$ENV_FILE" \
-  --compose-file "$COMPOSE_FILE" \
-  --backup-root "$BACKUP_ROOT" \
-  --purpose prerestore \
-  --compatible-app-revision "$CURRENT_COMPATIBLE_REVISION" \
-  --retention-protect-file "$BACKUP_FILE" \
-  --deployment-lock-fd "$LOCK_FD" ||
-  fail "pre-restore-backup"
+if [[ "$target_presence" == "missing" ]]; then
+  [[ "$DEGRADED_RECOVERY" -eq 1 ]] || fail "target-database-missing"
+  printf '%s\n' \
+    "restore:pre-restore-backup=skipped reason=database-missing"
+else
+  pre_restore_backup_arguments=(
+    --environment production
+    --env-file "$ENV_FILE"
+    --compose-file "$COMPOSE_FILE"
+    --backup-root "$BACKUP_ROOT"
+    --purpose prerestore
+    --retention-protect-file "$BACKUP_FILE"
+    --deployment-lock-fd "$LOCK_FD"
+  )
+  if [[ -n "$CURRENT_COMPATIBLE_REVISION" ]]; then
+    pre_restore_backup_arguments+=(
+      --compatible-app-revision "$CURRENT_COMPATIBLE_REVISION"
+    )
+  else
+    pre_restore_backup_arguments+=(
+      --compatible-app-revision unknown-revision
+      --degraded-recovery
+    )
+  fi
+
+  if attempt_pre_restore_backup "${pre_restore_backup_arguments[@]}"; then
+    printf 'restore:pre-restore-backup=completed\n'
+  else
+    pre_restore_backup_status=$?
+    if [[ "$DEGRADED_RECOVERY" -eq 1 &&
+      "$pre_restore_backup_status" -eq 2 ]]; then
+      printf '%s\n' \
+        "restore:pre-restore-backup=skipped reason=database-unavailable"
+    else
+      fail "pre-restore-backup"
+    fi
+  fi
+fi
 
 timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
 STAGING_DATABASE="${TARGET_DATABASE}_restore_test_${timestamp}_$$"
@@ -586,8 +774,21 @@ compose exec -T "$SERVICE" sh -eu -c '
   file="$1"
   user="$2"
   database="$3"
-  gzip -cd "$file" |
-    psql -X -v ON_ERROR_STOP=1 --single-transaction -U "$user" -d "$database"
+  for command in chmod gzip mktemp psql rm; do
+    command -v "$command" >/dev/null 2>&1
+  done
+  restore_sql="$(mktemp /tmp/reset90-production-restore.XXXXXX.sql)"
+  cleanup() {
+    rm -f -- "$restore_sql"
+  }
+  trap cleanup EXIT
+  trap "exit 129" HUP
+  trap "exit 130" INT
+  trap "exit 143" TERM
+  chmod 600 "$restore_sql"
+  gzip -cd "$file" > "$restore_sql"
+  psql -X -v ON_ERROR_STOP=1 --single-transaction \
+    -U "$user" -d "$database" -f "$restore_sql"
 ' sh "$BACKUP_FILE" "$TARGET_USER" "$STAGING_DATABASE" ||
   fail "restore"
 verify_restored_database \
@@ -597,27 +798,39 @@ verify_restored_database \
   "$BACKUP_MIGRATION_SHA256" ||
   fail "restored-database-verification"
 
-compose exec -T "$SERVICE" psql -X -v ON_ERROR_STOP=1 \
-  -U "$TARGET_USER" \
-  -d postgres \
-  -v target_database="$TARGET_DATABASE" \
-  -c "SELECT pg_terminate_backend(pid)
-      FROM pg_stat_activity
-      WHERE datname = :'target_database' AND pid <> pg_backend_pid();" \
-  >/dev/null ||
-  fail "target-connection-stop"
-compose exec -T "$SERVICE" psql -X -v ON_ERROR_STOP=1 \
-  -U "$TARGET_USER" \
-  -d postgres \
-  -c "ALTER DATABASE \"$TARGET_DATABASE\" RENAME TO \"$OLD_DATABASE\";" ||
-  fail "target-rename"
+if [[ "$target_presence" == "exists" ]]; then
+  compose exec -T "$SERVICE" psql -X -v ON_ERROR_STOP=1 \
+    -U "$TARGET_USER" \
+    -d postgres \
+    -v target_database="$TARGET_DATABASE" \
+    -c "SELECT pg_terminate_backend(pid)
+        FROM pg_stat_activity
+        WHERE datname = :'target_database' AND pid <> pg_backend_pid();" \
+    >/dev/null ||
+    fail "target-connection-stop"
+  compose exec -T "$SERVICE" psql -X -v ON_ERROR_STOP=1 \
+    -U "$TARGET_USER" \
+    -d postgres \
+    -c "ALTER DATABASE \"$TARGET_DATABASE\" RENAME TO \"$OLD_DATABASE\";" ||
+    fail "target-rename"
+fi
 compose exec -T "$SERVICE" psql -X -v ON_ERROR_STOP=1 \
   -U "$TARGET_USER" \
   -d postgres \
   -c "ALTER DATABASE \"$STAGING_DATABASE\" RENAME TO \"$TARGET_DATABASE\";" ||
   fail "staging-promote"
-compose exec -T "$SERVICE" dropdb -U "$TARGET_USER" --force "$OLD_DATABASE" ||
-  fail "old-database-remove"
+verify_restored_database \
+  "$TARGET_DATABASE" \
+  "$TARGET_USER" \
+  "$BACKUP_MIGRATION_COUNT" \
+  "$BACKUP_MIGRATION_SHA256" ||
+  fail "final-database-verification"
+if [[ "$target_presence" == "exists" ]]; then
+  compose exec -T "$SERVICE" dropdb -U "$TARGET_USER" --force "$OLD_DATABASE" ||
+    fail "old-database-remove"
+fi
+persist_database_compatible_revision "$BACKUP_COMPATIBLE_REVISION" ||
+  fail_compatibility_state_persistence
 
 printf 'restore:complete mode=production target=%s backup=%s\n' \
   "$TARGET_DATABASE" "$BACKUP_BASENAME"

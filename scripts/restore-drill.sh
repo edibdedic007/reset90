@@ -34,11 +34,15 @@ compose() {
 cleanup() {
   local exit_status=$?
   local cleanup_result="not-started"
+  local verification_result="failed"
 
   if [[ "$CLEANUP_DONE" -eq 1 ]]; then
     return "$exit_status"
   fi
   CLEANUP_DONE=1
+  if [[ "$DRILL_PASSED" -eq 1 ]]; then
+    verification_result="passed"
+  fi
 
   if [[ "$CLEANUP_REQUIRED" -eq 1 ]]; then
     if TEST_DATABASE_PORT=0 timeout --signal=TERM 30s docker compose \
@@ -57,7 +61,11 @@ cleanup() {
   else
     printf 'restore-drill:diagnostics-retained path=%s\n' "$WORK_DIR" >&2
   fi
+  printf 'restore-drill:evidence verification=%s\n' "$verification_result"
   printf 'restore-drill:evidence cleanup=%s\n' "$cleanup_result"
+  if [[ "$cleanup_result" == "failed" && "$exit_status" -eq 0 ]]; then
+    exit_status=1
+  fi
   return "$exit_status"
 }
 

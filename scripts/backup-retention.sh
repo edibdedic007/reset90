@@ -155,15 +155,13 @@ if [[ "$ENVIRONMENT" == "production" ]]; then
   [[ "$ENV_FILE" != "$REPO_ROOT/.env.production.example" ]] ||
     fail "example-env-not-allowed"
   [[ "$BACKUP_ROOT" == "/backups" ]] || fail "production-backup-root-invalid"
-  for required_command in docker flock; do
+  for required_command in docker flock realpath; do
     command -v "$required_command" >/dev/null 2>&1 ||
       fail "missing-command-$required_command"
   done
   if [[ -n "$DEPLOYMENT_LOCK_FD" ]]; then
-    [[ -e "/proc/$$/fd/$DEPLOYMENT_LOCK_FD" ]] ||
-      fail "deployment-lock-fd-unavailable"
-    flock -n "$DEPLOYMENT_LOCK_FD" ||
-      fail "production-lock-held"
+    validate_inherited_production_lock "$DEPLOYMENT_LOCK_FD" "$LOCK_FILE" ||
+      fail "inherited-production-lock-invalid"
   else
     exec 8>>"$LOCK_FILE" || fail "production-lock-unavailable"
     flock -n "$RETENTION_LOCK_FD" || fail "production-lock-held"
@@ -301,10 +299,21 @@ if [[ "$ENVIRONMENT" == "production" ]]; then
           grep -Eq "^[0-9a-f]{64}$" || continue
 
         created="$(
-          date -u -d \
-            "${timestamp:0:4}-${timestamp:4:2}-${timestamp:6:2} ${timestamp:9:2}:${timestamp:11:2}:${timestamp:13:2} UTC" \
-            +%s 2>/dev/null
-        )" || continue
+          date -u -D "%Y%m%dT%H%M%SZ" -d "$timestamp" +%s 2>/dev/null
+        )" || {
+          printf "retention:invalid path=%s reason=timestamp\n" "$file" >&2
+          continue
+        }
+        normalized="$(
+          date -u -d "@$created" +%Y%m%dT%H%M%SZ 2>/dev/null
+        )" || {
+          printf "retention:invalid path=%s reason=timestamp\n" "$file" >&2
+          continue
+        }
+        if [ "$normalized" != "$timestamp" ]; then
+          printf "retention:invalid path=%s reason=timestamp\n" "$file" >&2
+          continue
+        fi
         printf "%s\t%s\n" "$created" "$file" >> "$manifest"
       done
 
@@ -394,7 +403,18 @@ while IFS= read -r -d '' file; do
     date -u -d \
       "${timestamp:0:4}-${timestamp:4:2}-${timestamp:6:2} ${timestamp:9:2}:${timestamp:11:2}:${timestamp:13:2} UTC" \
       +%s 2>/dev/null
-  )" || continue
+  )" || {
+    printf 'retention:invalid path=%s reason=timestamp\n' "$file" >&2
+    continue
+  }
+  normalized="$(date -u -d "@$created" +%Y%m%dT%H%M%SZ 2>/dev/null)" || {
+    printf 'retention:invalid path=%s reason=timestamp\n' "$file" >&2
+    continue
+  }
+  if [[ "$normalized" != "$timestamp" ]]; then
+    printf 'retention:invalid path=%s reason=timestamp\n' "$file" >&2
+    continue
+  fi
   printf '%s\t%s\n' "$created" "$VALIDATED_BACKUP_FILE" >> "$MANIFEST"
 done < <(
   find "$BACKUP_ROOT" -maxdepth 1 -type f -name 'reset90_*.sql.gz' -print0

@@ -113,6 +113,54 @@ migration_contract_from_rows() {
   [[ "$MIGRATION_CONTRACT_SHA256" =~ ^[0-9a-f]{64}$ ]]
 }
 
+checkout_migration_contract() {
+  local repository_root="${1:?repository root is required}"
+  local migrations_root="$repository_root/prisma/migrations"
+  local migration_name sorted_names
+  local -a migration_names=()
+
+  [[ -d "$migrations_root" && ! -L "$migrations_root" ]] || return 1
+  while IFS= read -r migration_name; do
+    [[ "$migration_name" =~ ^[0-9][0-9A-Za-z_]*$ ]] || return 1
+    migration_names+=("$migration_name")
+  done < <(
+    find "$migrations_root" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' |
+      sort
+  )
+  [[ "${#migration_names[@]}" -gt 0 ]] || return 1
+
+  sorted_names="$(printf '%s\n' "${migration_names[@]}")" || return 1
+  CHECKOUT_MIGRATION_CONTRACT_COUNT="${#migration_names[@]}"
+  CHECKOUT_MIGRATION_CONTRACT_SHA256="$(
+    printf '%s\n' "$sorted_names" | sha256sum | awk '{ print $1 }'
+  )" || return 1
+  [[ "$CHECKOUT_MIGRATION_CONTRACT_SHA256" =~ ^[0-9a-f]{64}$ ]]
+}
+
+validate_inherited_production_lock() {
+  local inherited_fd="${1:?inherited lock fd is required}"
+  local lock_file="${2:?production lock file is required}"
+  local inherited_path lock_path probe_fd
+
+  [[ "$inherited_fd" =~ ^[0-9]+$ ]] || return 1
+  [[ -e "/proc/$$/fd/$inherited_fd" ]] || return 1
+  inherited_path="$(realpath -e -- "/proc/$$/fd/$inherited_fd")" || return 1
+  lock_path="$(realpath -e -- "$lock_file")" || return 1
+  [[ "$inherited_path" == "$lock_path" ]] || return 1
+
+  exec {probe_fd}>>"$lock_file" || return 1
+  if flock -n "$probe_fd"; then
+    flock -u "$probe_fd" || true
+    exec {probe_fd}>&-
+    return 1
+  fi
+  if ! flock -n "$inherited_fd"; then
+    exec {probe_fd}>&-
+    return 1
+  fi
+  exec {probe_fd}>&-
+}
+
 verified_database_compatible_revision() {
   local state_file="${1:?database-compatible state file is required}"
   local revision

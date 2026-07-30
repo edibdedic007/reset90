@@ -16,6 +16,11 @@ DATABASE_USER=""
 SERVICE="db"
 RETENTION_PROTECT_FILE=""
 DEPLOYMENT_LOCK_FD=""
+LOCK_FILE="${DEPLOY_LOCK_FILE:-/tmp/reset90-production-deploy.lock}"
+BACKUP_LOCK_FD=9
+BACKUP_LOCK_HELD=0
+DEGRADED_RECOVERY=0
+COMPATIBLE_REVISION_SUPPLIED=0
 STATE_DIR="${DEPLOY_STATE_DIR:-$REPO_ROOT/.runtime/production-deploy}"
 DATABASE_COMPATIBLE_FILE="$STATE_DIR/database-compatible.sha"
 PUBLISHED=0
@@ -41,7 +46,8 @@ usage() {
     "  --backup-root ABSOLUTE_PATH --purpose PURPOSE" \
     "  [--compatible-app-revision SHA] [--deployment-target-revision SHA]" \
     "  [--compose-file FILE] [--project NAME] [--database NAME] [--user NAME]" \
-    "  [--retention-protect-file BACKUP.sql.gz]"
+    "  [--retention-protect-file BACKUP.sql.gz]" \
+    "  [--degraded-recovery --deployment-lock-fd FD]"
 }
 
 cleanup_temporary_backup() {
@@ -55,6 +61,10 @@ cleanup_temporary_backup() {
       "${FINAL_FILE:-}" \
       "${FINAL_CHECKSUM:-}" \
       "${FINAL_METADATA:-}"
+  fi
+  if [[ "$BACKUP_LOCK_HELD" -eq 1 ]]; then
+    flock -u "$BACKUP_LOCK_FD" || true
+    BACKUP_LOCK_HELD=0
   fi
 }
 
@@ -99,6 +109,7 @@ while [[ $# -gt 0 ]]; do
       ;;
     --compatible-app-revision)
       COMPATIBLE_APP_REVISION="${2:-}"
+      COMPATIBLE_REVISION_SUPPLIED=1
       shift 2
       ;;
     --deployment-target-revision)
@@ -133,6 +144,10 @@ while [[ $# -gt 0 ]]; do
       DEPLOYMENT_LOCK_FD="${2:-}"
       shift 2
       ;;
+    --degraded-recovery)
+      DEGRADED_RECOVERY=1
+      shift
+      ;;
     --help)
       usage
       exit 0
@@ -156,6 +171,9 @@ done
 if [[ -n "$DEPLOYMENT_LOCK_FD" ]]; then
   [[ "$DEPLOYMENT_LOCK_FD" =~ ^[0-9]+$ ]] ||
     fail "invalid-deployment-lock-fd"
+fi
+if [[ "$DEGRADED_RECOVERY" -eq 1 && "$ENVIRONMENT" != "production" ]]; then
+  fail "degraded-recovery-production-only"
 fi
 if [[ -n "$RETENTION_PROTECT_FILE" ]]; then
   protected_basename="${RETENTION_PROTECT_FILE##*/}"
@@ -187,13 +205,30 @@ if [[ "$ENVIRONMENT" == "production" ]]; then
   [[ "$BACKUP_ROOT" == "/backups" ]] || fail "production-backup-root-invalid"
 fi
 
-for required_command in awk chmod date docker grep gzip mkdir mv realpath rm sha256sum sort stat; do
+for required_command in awk chmod date docker find grep gzip mkdir mv realpath rm sha256sum sort stat; do
   command -v "$required_command" >/dev/null 2>&1 ||
     fail "missing-command-$required_command"
 done
 docker compose version >/dev/null 2>&1 || fail "missing-docker-compose"
 
 if [[ "$ENVIRONMENT" == "production" ]]; then
+  command -v flock >/dev/null 2>&1 || fail "missing-command-flock"
+  if [[ -n "$DEPLOYMENT_LOCK_FD" ]]; then
+    validate_inherited_production_lock "$DEPLOYMENT_LOCK_FD" "$LOCK_FILE" ||
+      fail "inherited-production-lock-invalid"
+    printf 'backup:production-lock-acquired ownership=inherited\n'
+  else
+    exec 9>>"$LOCK_FILE" || fail "production-lock-unavailable"
+    flock -n "$BACKUP_LOCK_FD" || fail "production-lock-held"
+    BACKUP_LOCK_HELD=1
+    DEPLOYMENT_LOCK_FD="$BACKUP_LOCK_FD"
+    printf 'backup:production-lock-acquired ownership=backup\n'
+  fi
+  trap cleanup_temporary_backup EXIT
+  trap 'handle_signal 129' HUP
+  trap 'handle_signal 130' INT
+  trap 'handle_signal 143' TERM
+
   "$SCRIPT_DIR/production-check.sh" "$ENV_FILE"
   configured_database="$(production_env_value "$ENV_FILE" POSTGRES_DB)" ||
     fail "production-database-unavailable"
@@ -215,13 +250,21 @@ if [[ "$ENVIRONMENT" == "production" ]]; then
   DATABASE_NAME="$configured_database"
   DATABASE_USER="$configured_user"
 
-  verified_compatible_revision="$(
-    verified_database_compatible_revision "$DATABASE_COMPATIBLE_FILE"
-  )" || fail "production-compatible-revision-unavailable"
-  [[ -z "$COMPATIBLE_APP_REVISION" ||
-    "$COMPATIBLE_APP_REVISION" == "$verified_compatible_revision" ]] ||
-    fail "production-compatible-revision-mismatch"
-  COMPATIBLE_APP_REVISION="$verified_compatible_revision"
+  if [[ "$DEGRADED_RECOVERY" -eq 1 ]]; then
+    [[ "$PURPOSE" == "prerestore" ]] ||
+      fail "degraded-recovery-purpose-invalid"
+    [[ "$COMPATIBLE_REVISION_SUPPLIED" -eq 1 &&
+      "$COMPATIBLE_APP_REVISION" == "unknown-revision" ]] ||
+      fail "degraded-recovery-revision-invalid"
+  else
+    verified_compatible_revision="$(
+      verified_database_compatible_revision "$DATABASE_COMPATIBLE_FILE"
+    )" || fail "production-compatible-revision-unavailable"
+    [[ -z "$COMPATIBLE_APP_REVISION" ||
+      "$COMPATIBLE_APP_REVISION" == "$verified_compatible_revision" ]] ||
+      fail "production-compatible-revision-mismatch"
+    COMPATIBLE_APP_REVISION="$verified_compatible_revision"
+  fi
   if [[ "$PURPOSE" == "predeploy" ]]; then
     [[ "$DEPLOYMENT_TARGET_REVISION" == "none" ||
       "$DEPLOYMENT_TARGET_REVISION" == "$configured_target_revision" ]] ||
@@ -231,14 +274,9 @@ if [[ "$ENVIRONMENT" == "production" ]]; then
     fail "deployment-target-revision-not-applicable"
   fi
 else
-  if [[ -z "$COMPATIBLE_APP_REVISION" ]] &&
-    command -v git >/dev/null 2>&1; then
-    COMPATIBLE_APP_REVISION="$(
-      git -C "$REPO_ROOT" rev-parse --verify HEAD 2>/dev/null || true
-    )"
-  fi
-  if [[ ! "$COMPATIBLE_APP_REVISION" =~ ^[0-9a-f]{40}$ ]]; then
-    COMPATIBLE_APP_REVISION="unknown-revision"
+  if [[ "$COMPATIBLE_REVISION_SUPPLIED" -eq 1 &&
+    ! "$COMPATIBLE_APP_REVISION" =~ ^([0-9a-f]{40}|unknown-revision)$ ]]; then
+    fail "invalid-compatible-app-revision"
   fi
   if [[ "$PURPOSE" != "predeploy" &&
     "$DEPLOYMENT_TARGET_REVISION" != "none" ]]; then
@@ -316,6 +354,22 @@ migration_rows="$(
 )" || fail "migration-contract-unavailable"
 migration_contract_from_rows "$migration_rows" ||
   fail "migration-contract-invalid"
+
+if [[ "$ENVIRONMENT" != "production" &&
+  "$COMPATIBLE_REVISION_SUPPLIED" -eq 0 ]]; then
+  COMPATIBLE_APP_REVISION="unknown-revision"
+  if checkout_migration_contract "$REPO_ROOT" &&
+    [[ "$MIGRATION_CONTRACT_COUNT" == "$CHECKOUT_MIGRATION_CONTRACT_COUNT" &&
+      "$MIGRATION_CONTRACT_SHA256" == "$CHECKOUT_MIGRATION_CONTRACT_SHA256" ]] &&
+    command -v git >/dev/null 2>&1; then
+    checkout_revision="$(
+      git -C "$REPO_ROOT" rev-parse --verify HEAD 2>/dev/null || true
+    )"
+    if [[ "$checkout_revision" =~ ^[0-9a-f]{40}$ ]]; then
+      COMPATIBLE_APP_REVISION="$checkout_revision"
+    fi
+  fi
+fi
 
 timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
 filename="reset90_${timestamp}_${PURPOSE}_${COMPATIBLE_APP_REVISION}.sql.gz"

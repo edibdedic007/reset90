@@ -620,6 +620,20 @@ describe("production deployment workflow", () => {
     expect(commandLog).toContain(`deployment_target_revision=$target_revision`);
   });
 
+  it("passes its owned production lock into canonical backup", () => {
+    const deployScript = readFileSync(
+      join(repository, "scripts/deploy-production.sh"),
+      "utf8",
+    );
+    const restoreScript = readFileSync(
+      join(repository, "scripts/restore-db.sh"),
+      "utf8",
+    );
+
+    expect(deployScript).toContain('--deployment-lock-fd "$DEPLOY_LOCK_FD"');
+    expect(restoreScript).toContain('--deployment-lock-fd "$LOCK_FD"');
+  });
+
   it("fails safely when compatible production revision state is unavailable", () => {
     const harness = deploymentHarness();
     rmSync(join(harness.stateDirectory, "database-compatible.sha"));

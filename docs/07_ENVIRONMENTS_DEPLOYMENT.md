@@ -207,20 +207,27 @@ The script stops at the first failed gate:
 14. Show bounded service status and allowlisted recent application logs.
 15. Record the successful revision while retaining the previous known-good SHA.
 
-The same non-blocking host lock protects deployment and production restore. It
-remains held through backup, build, migration, promotion, internal and public
-health verification, and revision recording. Exit cleanup unlocks only the
-owning file descriptor after success or failure; it does not delete the shared
-lock file or override another owner.
+The same non-blocking host lock protects deployment, every production backup,
+production retention, and production restore. A standalone production backup
+acquires it before reading compatibility state, migration history, database
+contents, or backup-volume state. Deployment and restore pass their already
+owned descriptor into backup, and backup passes the same descriptor into
+retention. Each inherited descriptor is accepted only when it names and owns
+the exact shared lock. Exit and signal cleanup unlock only ownership acquired
+by the current process; the shared lock file remains present.
 
 `.runtime/production-deploy/database-compatible.sha` is distinct from
 `attempted.sha` and `successful.sha`. It records the immutable application
-revision compatible with current database state. Backup and restore verify both
-its full SHA and corresponding local immutable image. Missing, malformed,
-unverified, or migration-failure state stops backup/deployment/restore safely.
-An initial live cutover must establish this state from verified deployment and
-database evidence; scripts never guess it from current checkout or incoming
-`GIT_COMMIT`.
+revision compatible with current database state. Normal production backup,
+deployment, and restore verify both its full SHA and corresponding local
+immutable image. Missing, malformed, unverified, or migration-failure state
+stops normal operation safely. Explicit degraded restore is the only exception:
+it trusts the selected fully verified backup's full compatible revision and
+migration contract, never guesses current database compatibility, and
+atomically replaces `database-compatible.sha` only after final promoted-database
+verification. It never updates `successful.sha`. An initial live cutover must
+establish state from verified deployment and database evidence; scripts never
+guess it from current checkout or incoming `GIT_COMMIT`.
 
 Repeated deployment of the same clean revision repeats safety gates and the
 backup, but migrations remain idempotent and no seed, secret rotation, volume
@@ -296,7 +303,11 @@ conflicting size/digest values reject the bundle. Production backup derives
 `POSTGRES_DB` and `POSTGRES_USER` from validated `.env.production`, rejects
 different explicit overrides, and derives compatible revision from verified
 database deployment state. A `predeploy` backup separately records incoming
-target revision. Only complete bundles with valid gzip, checksum, metadata,
+target revision. Local and disposable backups use repository `HEAD` only when
+the captured database migration count/name digest exactly matches the current
+checkout contract. A mismatched database uses `unknown-revision` unless the
+operator supplies a valid explicit full compatible SHA; malformed explicit
+revisions fail. Only complete bundles with valid gzip, checksum, metadata,
 PostgreSQL major, safe source database, migration contract, filename, root
 marker, and `0600` permissions are eligible for restore or retention.
 
@@ -319,7 +330,11 @@ Production retention shares the deployment/restore lock. Restore also passes
 its selected bundle as an exact protected path to automatic retention during
 the pre-restore backup, so that backup cannot prune the restore source. `HUP`,
 `INT`, and `TERM` handlers clean bounded temporary state, release owned locks,
-exit non-zero, and never continue to later candidate deletion.
+exit non-zero, and never continue to later candidate deletion. Production
+timestamp parsing uses BusyBox-supported explicit
+`%Y%m%dT%H%M%SZ` parsing inside declared `postgres:16-alpine`, normalizes back
+to the same UTC timestamp, and reports calendar-invalid timestamps as invalid
+bundles. Policy remains deterministic: 30 days inclusive plus newest seven.
 
 The canonical restore defaults to an explicitly test-only, loopback PostgreSQL
 URL. The target name must contain `test`, must differ from the backup source
@@ -340,7 +355,12 @@ docker compose -p reset90_phase22_restore \
 `restore-db.sh` validates the complete bundle and SQL dump marker before target
 mutation, requires the supported PostgreSQL major, restores in one transaction,
 and rejects missing or unsafe input, inherited `DATABASE_URL`, a populated
-target, or migration history inconsistent with backup metadata. Validation
+target, or migration history inconsistent with backup metadata. Empty-target
+validation rejects user-created relations, sequences, domains, enums, routines
+(including standalone functions and procedures), schemas, and operators while
+excluding system and extension-owned objects. Ambiguous targets are rejected;
+the canonical drill creates a new uniquely named database instead of merging.
+Validation
 compares exact completed migration count and sorted-name digest captured by
 backup. Therefore a complete N−1 history remains restorable when current
 checkout contains migration N. Validation still rejects a missing migration
@@ -373,9 +393,54 @@ equal validated production `POSTGRES_DB`. It proves application writes remain
 stopped and creates a verified `prerestore` backup using compatible revision
 from verified database deployment state, not checkout `GIT_COMMIT`, while
 protecting selected bundle from retention. It revalidates complete bundle and
-fingerprint immediately before streaming it into new staging database. Only a
-verified and unchanged staging database can reach guarded production database
-renames.
+fingerprint immediately before restore. Decompression first completes into a
+private staging file inside the PostgreSQL container; `psql` never receives
+partial output from a failed gzip stream. The staging restore then uses
+`ON_ERROR_STOP` and one transaction. Decompression failure, truncated input,
+or `psql` failure cannot promote staging and never modifies production.
+Only a verified and unchanged staging database can reach guarded production
+database renames.
+
+When current compatibility cannot be established, normal restore remains
+closed. Select degraded recovery explicitly:
+
+```bash
+./scripts/restore-db.sh \
+  --environment production \
+  --env-file "$PWD/.env.production" \
+  --compose-file "$PWD/docker-compose.production.yml" \
+  --backup-root /backups \
+  --file /backups/<verified-full-sha-backup>.sql.gz \
+  --degraded-recovery
+```
+
+This requires distinct exact typed confirmation. Selected bundle still needs
+one valid full compatible Git SHA and valid captured migration contract.
+Degraded mode never derives selected compatibility from current state. If
+production database exists, restore first attempts canonical pre-restore
+backup. It uses verified current SHA when available, otherwise explicitly
+records `unknown-revision` while still requiring a valid current migration
+contract. Such an unknown-revision pre-restore bundle is forensic evidence,
+not an eligible production restore source. Pre-restore backup may be skipped
+only when database is proven missing or canonical backup attempt proves
+database cannot be safely backed up. Output records exactly one result:
+
+```text
+restore:pre-restore-backup=completed
+restore:pre-restore-backup=skipped reason=database-missing
+restore:pre-restore-backup=skipped reason=database-unavailable
+```
+
+Lock, environment, or configuration failures are not degraded into a skip.
+Missing target promotes verified staging directly; existing target uses guarded
+rename replacement.
+
+After staging verification, promotion, and final production-database
+verification, restore atomically publishes selected backup revision to
+`database-compatible.sha`. `successful.sha` remains unchanged because
+application health has not passed. If state publication fails after database
+restore, command exits non-zero, reports exact operator repair revision/file,
+preserves restored database, and neither rolls back nor starts application.
 Failure and signal cleanup inspects actual PostgreSQL database names instead of
 in-memory command flags, restores the original name when that state is
 unambiguous, removes only a clearly disposable staging database, and preserves
@@ -407,9 +472,11 @@ one explicit invalid foreign-key write, verifies Unicode, multiline
 text/timestamps/JSON, performs a Prisma query, and removes only its disposable
 resources. Cleanup responsibility begins before Compose startup, so resources
 created before readiness failure are removed from only unique drill project.
-Signal handlers clean once and exit non-zero. Failed drills retain known
-temporary diagnostic directory; successful drills remove it. Automatic
-scheduling remains deferred.
+Signal handlers clean once and exit non-zero. Verification and cleanup are
+reported separately. Cleanup failure after successful verification also exits
+non-zero and retains known temporary diagnostics; only successful verification
+plus successful cleanup removes them. Cleanup targets only exact unique
+disposable Compose project. Automatic scheduling remains deferred.
 
 Copy a verified production bundle out of the named Docker volume only as a
 three-file unit. Use an operator-owned encrypted destination:
@@ -432,6 +499,168 @@ chmod 600 \
 The checksum must pass again after transfer. Phase 22 does not choose a storage
 provider or install scheduling, replication, WAL archiving, point-in-time
 recovery, or cloud integration.
+
+### Fresh replacement-host recovery
+
+Use this bounded path when trusted backup bundle exists but host may have no
+backup marker, production database, compatible/successful state, application
+image, or prior Compose state:
+
+1. Provision repository and checked-in scripts/Compose files. Supply ignored
+   `.env.production`, run `./scripts/production-check.sh
+   "$PWD/.env.production"`, and do not copy runtime state from an untrusted host.
+2. Check out source containing current approved recovery tooling. Create
+   PostgreSQL container and named backup volume through approved Compose path:
+
+   ```bash
+   RESET90_ENV_FILE="$PWD/.env.production" \
+     ./scripts/production-compose.sh up -d --no-build db
+   ```
+
+3. Initialize trusted backup-root marker inside volume. Existing wrong marker
+   fails instead of being overwritten:
+
+   ```bash
+   RESET90_ENV_FILE="$PWD/.env.production" \
+     ./scripts/production-compose.sh exec -T db sh -eu -c '
+       umask 077
+       root=/backups
+       marker="$root/.reset90-backup-root"
+       mkdir -p "$root"
+       chmod 700 "$root"
+       if [ -e "$marker" ]; then
+         [ -f "$marker" ] && [ ! -L "$marker" ]
+         [ "$(cat "$marker")" = "reset90-backup-root-v1" ]
+       else
+         printf "%s\n" "reset90-backup-root-v1" > "$marker"
+       fi
+       chmod 600 "$marker"
+     '
+   ```
+
+4. Copy selected `.sql.gz`, `.sha256`, and `.meta` together from encrypted
+   operator-owned source, then restrict permissions:
+
+   ```bash
+   RESET90_ENV_FILE="$PWD/.env.production" \
+     ./scripts/production-compose.sh cp \
+     "$off_host_dir/$backup_name" "db:/backups/$backup_name"
+   RESET90_ENV_FILE="$PWD/.env.production" \
+     ./scripts/production-compose.sh cp \
+     "$off_host_dir/$backup_name.sha256" "db:/backups/$backup_name.sha256"
+   RESET90_ENV_FILE="$PWD/.env.production" \
+     ./scripts/production-compose.sh cp \
+     "$off_host_dir/$backup_name.meta" "db:/backups/$backup_name.meta"
+   RESET90_ENV_FILE="$PWD/.env.production" \
+     ./scripts/production-compose.sh exec -T db \
+     chmod 600 \
+     "/backups/$backup_name" \
+     "/backups/$backup_name.sha256" \
+     "/backups/$backup_name.meta"
+   ```
+
+5. With only selected bundle in fresh backup root, verify all three components
+   through production validator. Require `verified=1`, `candidates=0`, and no
+   `retention:invalid` output:
+
+   ```bash
+   ./scripts/backup-retention.sh \
+     --environment production \
+     --env-file "$PWD/.env.production" \
+     --compose-file "$PWD/docker-compose.production.yml" \
+     --backup-root /backups \
+     --dry-run
+   ```
+
+6. Read full compatible SHA from transferred metadata, verify exactly one valid
+   value, and prove matching source/image is available:
+
+   ```bash
+   compatible_revision="$(
+     awk -F= '
+       $1 == "compatible_app_revision" { count += 1; value = $2 }
+       END { if (count != 1) exit 1; print value }
+     ' "$off_host_dir/$backup_name.meta"
+   )"
+   printf '%s\n' "$compatible_revision" |
+     grep -Eq '^[0-9a-f]{40}$'
+   git cat-file -e "$compatible_revision^{commit}"
+   docker image inspect "reset90:$compatible_revision" >/dev/null 2>&1 ||
+     printf '%s\n' \
+       "Image absent: build only from matching checked-out source before start."
+   ```
+
+7. Stop application writes even if app is expected absent, then use explicit
+   degraded recovery because current database/state is not trusted:
+
+   ```bash
+   RESET90_ENV_FILE="$PWD/.env.production" \
+     ./scripts/production-compose.sh stop app
+
+   ./scripts/restore-db.sh \
+     --environment production \
+     --env-file "$PWD/.env.production" \
+     --compose-file "$PWD/docker-compose.production.yml" \
+     --backup-root /backups \
+     --file "/backups/$backup_name" \
+     --degraded-recovery
+   ```
+
+8. Require successful restore, selected SHA in
+   `.runtime/production-deploy/database-compatible.sha`, and application still
+   stopped. `successful.sha` must remain absent or unchanged.
+9. Check out exact compatible source. Set ignored `.env.production`
+   `GIT_COMMIT` to same full SHA. Reuse existing immutable image or build only
+   `reset90:<compatible_revision>` from matching source; do not select
+   `latest`. Start database and that exact app image without migration, seed,
+   reset, or volume deletion:
+
+   ```bash
+   git switch --detach "$compatible_revision"
+   RESET90_ENV_FILE="$PWD/.env.production" \
+     ./scripts/production-compose.sh build app
+   RESET90_ENV_FILE="$PWD/.env.production" \
+     ./scripts/production-compose.sh up -d --no-build db app
+   ```
+
+10. Verify database/application readiness, canonical HTTPS readiness,
+    authentication/login/logout, owner-only access, and representative restored
+    records before declaring recovery successful:
+
+    ```bash
+    RESET90_ENV_FILE="$PWD/.env.production" \
+      ./scripts/production-compose.sh ps
+    ./scripts/healthcheck.sh "$PWD/.env.production"
+    ```
+
+11. Only after all checks pass, atomically record successful application
+    revision. Preserve prior valid successful SHA when present:
+
+    ```bash
+    state_dir="$PWD/.runtime/production-deploy"
+    successful_file="$state_dir/successful.sha"
+    previous_file="$state_dir/previous-successful.sha"
+    mkdir -p "$state_dir"
+    current=""
+    if [ -s "$successful_file" ]; then
+      IFS= read -r current < "$successful_file"
+    fi
+    if printf '%s\n' "$current" | grep -Eq '^[0-9a-f]{40}$' &&
+      [ "$current" != "$compatible_revision" ]; then
+      previous_temp="$(mktemp "$state_dir/.previous-successful.sha.XXXXXX")"
+      printf '%s\n' "$current" > "$previous_temp"
+      chmod 600 "$previous_temp"
+      mv "$previous_temp" "$previous_file"
+    fi
+    successful_temp="$(mktemp "$state_dir/.successful.sha.XXXXXX")"
+    printf '%s\n' "$compatible_revision" > "$successful_temp"
+    chmod 600 "$successful_temp"
+    mv "$successful_temp" "$successful_file"
+    ```
+
+Stop on any failed step. Do not run migration, seed, schema reset, automatic
+rollback, volume deletion, scheduler/provider setup, or Phase 23 deployment
+work in this recovery path.
 
 ## Environment variable rules
 

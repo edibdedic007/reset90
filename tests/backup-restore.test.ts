@@ -92,6 +92,25 @@ async function waitForFile(path: string) {
   throw new Error(`Timed out waiting for ${path}`);
 }
 
+function spawnSharedLockOwner(root: string, lockFile: string, label: string) {
+  const acquiredFile = join(root, `${label}-lock-acquired`);
+  const releaseFile = join(root, `${label}-lock-release`);
+  const owner = join(root, `${label}-lock-owner.sh`);
+  writeExecutable(owner, [
+    "#!/usr/bin/env bash",
+    "set -euo pipefail",
+    `exec 9>>${shellQuote(lockFile)}`,
+    "/usr/bin/flock -n 9",
+    `: > ${shellQuote(acquiredFile)}`,
+    `while [[ ! -f ${shellQuote(releaseFile)} ]]; do /bin/sleep 0.01; done`,
+  ]);
+  const child = spawn(owner, [], {
+    cwd: repository,
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  return { acquiredFile, child, releaseFile };
+}
+
 function writeExecutable(path: string, lines: string[]) {
   writeFileSync(path, `${lines.join("\n")}\n`);
   chmodSync(path, 0o755);
@@ -106,9 +125,13 @@ function shellHarness() {
   const commandLog = join(root, "commands.log");
   const databaseStateFile = join(root, "database-state");
   const artifactValidationCountFile = join(root, "artifact-validations");
+  const databaseVerificationCountFile = join(root, "database-verifications");
+  const migrationQueryCountFile = join(root, "migration-queries");
   mkdirSync(binaries, { recursive: true });
   writeFileSync(databaseStateFile, "postgres\nreset90\n");
   writeFileSync(artifactValidationCountFile, "0\n");
+  writeFileSync(databaseVerificationCountFile, "0\n");
+  writeFileSync(migrationQueryCountFile, "0\n");
   writeFileSync(environmentFile, "TEST_DATABASE_PORT=55432\n");
   writeFileSync(
     composeFile,
@@ -187,19 +210,49 @@ function shellHarness() {
     '  printf "%s\\n" "${FAKE_SERVER_VERSION:-160009}"',
     "  exit 0",
     "fi",
-    'if [[ "$joined" == *"relation.relkind IN"* ]]; then',
-    '  printf "%s\\n" "${FAKE_TARGET_STATE:-empty}"',
+    'if [[ "$joined" == *"AS existing_objects"* ]]; then',
+    '  if [[ -n "${FAKE_TARGET_STATE:-}" ]]; then printf "%s\\n" "$FAKE_TARGET_STATE"; exit 0; fi',
+    '  target_object="${FAKE_TARGET_OBJECT:-empty}"',
+    '  case "$target_object" in',
+    '    empty) printf "empty\\n" ;;',
+    '    function) [[ "$joined" == *"pg_catalog.pg_proc"* && "$joined" == *"routine.prokind IN"* ]] && printf "not-empty\\n" ;;',
+    '    procedure) [[ "$joined" == *"pg_catalog.pg_proc"* && "$joined" == *"routine.prokind IN"* ]] && printf "not-empty\\n" ;;',
+    '    schema) [[ "$joined" == *"pg_catalog.pg_namespace"* ]] && printf "not-empty\\n" ;;',
+    '    enum) [[ "$joined" == *"database_type.typtype IN"* ]] && printf "not-empty\\n" ;;',
+    '    operator) [[ "$joined" == *"pg_catalog.pg_operator"* ]] && printf "not-empty\\n" ;;',
+    "    *) exit 1 ;;",
+    "  esac",
     "  exit 0",
     "fi",
     'if [[ "$joined" == *"to_regclass"* ]]; then',
-    '  printf "%s\\n" "${FAKE_MIGRATION_TABLE_STATE:-present}"',
+    '  migration_query_count="$(/bin/cat "$FAKE_MIGRATION_QUERY_COUNT_FILE")"',
+    "  migration_query_count=$((migration_query_count + 1))",
+    '  printf "%s\\n" "$migration_query_count" > "$FAKE_MIGRATION_QUERY_COUNT_FILE"',
+    '  if [[ "${FAKE_FIRST_MIGRATION_TABLE_STATE_MISSING:-0}" == "1" && "$migration_query_count" -eq 1 ]]; then',
+    '    printf "missing\\n"',
+    '  elif [[ "$joined" == *"-d reset90 -c"* && -n "${FAKE_SOURCE_MIGRATION_TABLE_STATE:-}" ]]; then',
+    '    printf "%s\\n" "$FAKE_SOURCE_MIGRATION_TABLE_STATE"',
+    "  else",
+    '    printf "%s\\n" "${FAKE_MIGRATION_TABLE_STATE:-present}"',
+    "  fi",
     "  exit 0",
     "fi",
     'if [[ "$joined" == *"SELECT migration_name, CASE"* ]]; then',
-    '  printf "%s\\n" "$FAKE_MIGRATION_ROWS"',
+    '  if [[ "$joined" == *"-d reset90 -c"* && -n "${FAKE_SOURCE_MIGRATION_ROWS:-}" ]]; then',
+    '    printf "%s\\n" "$FAKE_SOURCE_MIGRATION_ROWS"',
+    "  else",
+    '    printf "%s\\n" "$FAKE_MIGRATION_ROWS"',
+    "  fi",
     "  exit 0",
     "fi",
-    'if [[ "$joined" == *"SELECT 1;"* ]]; then printf "1\\n"; exit 0; fi',
+    'if [[ "$joined" == *"SELECT 1;"* ]]; then',
+    '  verification_count="$(/bin/cat "$FAKE_DATABASE_VERIFICATION_COUNT_FILE")"',
+    "  verification_count=$((verification_count + 1))",
+    '  printf "%s\\n" "$verification_count" > "$FAKE_DATABASE_VERIFICATION_COUNT_FILE"',
+    '  if [[ "${FAKE_FINAL_VERIFY_FAIL:-0}" == "1" && "$verification_count" -ge 2 ]]; then exit 1; fi',
+    '  printf "1\\n"',
+    "  exit 0",
+    "fi",
     'if [[ "$joined" == *"FROM pg_database WHERE datname"* ]]; then',
     '  database_name=""',
     '  for argument in "$@"; do',
@@ -247,6 +300,7 @@ function shellHarness() {
     "fi",
     'if [[ "$joined" == *"single-transaction"* ]]; then',
     '  if [[ "$joined" == *"exec -T db psql"* ]]; then /bin/cat >/dev/null; fi',
+    '  if [[ -n "${FAKE_RESTORE_DECOMPRESS_FAIL:-}" || "${FAKE_RESTORE_PSQL_FAIL:-0}" == "1" ]]; then exit 1; fi',
     "  finish_injected_command",
     "  exit 0",
     "fi",
@@ -295,6 +349,7 @@ function shellHarness() {
     "#!/usr/bin/env bash",
     "set -euo pipefail",
     'destination="${!#}"',
+    'if [[ -n "${FAKE_MV_FAIL_SUFFIX:-}" && "$destination" == *"$FAKE_MV_FAIL_SUFFIX" ]]; then exit 1; fi',
     'if [[ -n "${FAKE_MV_BLOCK_SUFFIX:-}" && "$destination" == *"$FAKE_MV_BLOCK_SUFFIX" ]]; then',
     '  if [[ "${FAKE_MV_BLOCK_MODE:-after}" == "before" ]]; then',
     '    : > "$FAKE_PUBLICATION_BLOCKED_FILE"',
@@ -342,7 +397,9 @@ function shellHarness() {
     FAKE_ARTIFACT_VALIDATION_COUNT_FILE: artifactValidationCountFile,
     FAKE_COMMAND_LOG: commandLog,
     FAKE_DATABASE_STATE_FILE: databaseStateFile,
+    FAKE_DATABASE_VERIFICATION_COUNT_FILE: databaseVerificationCountFile,
     FAKE_MIGRATION_ROWS: completedMigrationRows,
+    FAKE_MIGRATION_QUERY_COUNT_FILE: migrationQueryCountFile,
     PATH: `${binaries}:/usr/bin:/bin`,
   };
   const backupArgs = [
@@ -388,8 +445,10 @@ function shellHarness() {
     commandLog,
     composeFile,
     databaseStateFile,
+    databaseVerificationCountFile,
     environment,
     environmentFile,
+    migrationQueryCountFile,
     restoreArgs,
     root,
   };
@@ -498,6 +557,23 @@ function productionEnvironment() {
   ].join("\n");
 }
 
+function productionBackupArgs(
+  invocation: ReturnType<typeof productionRestoreInvocation>,
+) {
+  return [
+    "--environment",
+    "production",
+    "--env-file",
+    invocation.productionEnv,
+    "--compose-file",
+    join(repository, "docker-compose.production.yml"),
+    "--backup-root",
+    "/backups",
+    "--purpose",
+    "manual",
+  ];
+}
+
 function shellQuote(value: string) {
   return `'${value.replaceAll("'", `'\\''`)}'`;
 }
@@ -506,6 +582,7 @@ function productionRestoreInvocation(
   harness: ReturnType<typeof shellHarness>,
   backupRevision = previousRevision,
   currentCompatibleRevision = revision,
+  degradedRecovery = false,
 ) {
   const productionEnv = join(harness.root, ".env.production");
   const lockFile = join(harness.root, "production.lock");
@@ -519,18 +596,30 @@ function productionRestoreInvocation(
     join(stateDirectory, "database-compatible.sha"),
     `${currentCompatibleRevision}\n`,
   );
+  writeFileSync(
+    join(stateDirectory, "successful.sha"),
+    `${databaseCompatibleRevision}\n`,
+  );
   writeFileSync(harness.databaseStateFile, "postgres\nreset90\n");
   writeFileSync(harness.artifactValidationCountFile, "0\n");
+  writeFileSync(harness.databaseVerificationCountFile, "0\n");
+  writeFileSync(harness.migrationQueryCountFile, "0\n");
+  const restoreArguments = [
+    "  --environment production \\",
+    `  --env-file ${shellQuote(productionEnv)} \\`,
+    `  --compose-file ${shellQuote(join(repository, "docker-compose.production.yml"))} \\`,
+    "  --backup-root /backups \\",
+    `  --file ${shellQuote(backupFile)}${degradedRecovery ? " \\" : ""}`,
+  ];
+  if (degradedRecovery) {
+    restoreArguments.push("  --degraded-recovery");
+  }
   writeExecutable(wrapper, [
     "#!/usr/bin/env bash",
     "set -euo pipefail",
     `printf '%s\\n' "$$" > ${shellQuote(restorePidFile)}`,
     `exec ${shellQuote(join(repository, "scripts/restore-db.sh"))} \\`,
-    "  --environment production \\",
-    `  --env-file ${shellQuote(productionEnv)} \\`,
-    `  --compose-file ${shellQuote(join(repository, "docker-compose.production.yml"))} \\`,
-    "  --backup-root /backups \\",
-    `  --file ${shellQuote(backupFile)}`,
+    ...restoreArguments,
   ]);
 
   return {
@@ -549,11 +638,13 @@ function runInteractiveProductionRestore(
   environment: EnvironmentOverrides = {},
   backupRevision = previousRevision,
   currentCompatibleRevision = revision,
+  degradedRecovery = false,
 ) {
   const invocation = productionRestoreInvocation(
     harness,
     backupRevision,
     currentCompatibleRevision,
+    degradedRecovery,
   );
 
   return {
@@ -573,6 +664,28 @@ function runInteractiveProductionRestore(
       },
     ),
   };
+}
+
+function runPreparedInteractiveProductionRestore(
+  harness: ReturnType<typeof shellHarness>,
+  invocation: ReturnType<typeof productionRestoreInvocation>,
+  confirmation: string,
+  environment: EnvironmentOverrides = {},
+) {
+  return run(
+    "script",
+    ["-q", "-e", "-c", shellQuote(invocation.wrapper), "/dev/null"],
+    {
+      env: {
+        ...harness.environment,
+        DEPLOY_LOCK_FILE: invocation.lockFile,
+        DEPLOY_STATE_DIR: invocation.stateDirectory,
+        FAKE_RESTORE_PID_FILE: invocation.restorePidFile,
+        ...environment,
+      },
+      input: `${confirmation}\n`,
+    },
+  );
 }
 
 function spawnInteractiveProductionRestore(
@@ -632,10 +745,43 @@ function restoreDrillHarness() {
     "  exit",
     "fi",
     'if [[ "$joined" == *" down --volumes --remove-orphans"* ]]; then',
+    '  if [[ "${FAKE_DRILL_FAIL_DOWN:-0}" == "1" ]]; then exit 1; fi',
     '  /bin/rm -f "$FAKE_DRILL_RESOURCE_STATE"',
     "  exit 0",
     "fi",
+    'if [[ "$joined" == *" port db 5432"* ]]; then printf "127.0.0.1:55432\\n"; exit 0; fi',
+    'if [[ "$joined" == *" ps -q db"* ]]; then printf "drill-db\\n"; exit 0; fi',
+    'if [[ "$joined" == "inspect "* ]]; then printf "healthy\\n"; exit 0; fi',
+    'if [[ "$joined" == *"pg_dump --version"* ]]; then printf "pg_dump (PostgreSQL) 16.9\\n"; exit 0; fi',
+    'if [[ "$joined" == *"psql --version"* ]]; then printf "psql (PostgreSQL) 16.9\\n"; exit 0; fi',
+    'if [[ "$joined" == *"SHOW server_version_num"* ]]; then printf "160009\\n"; exit 0; fi',
+    'if [[ "$joined" == *"AS existing_objects"* ]]; then printf "empty\\n"; exit 0; fi',
+    'if [[ "$joined" == *"to_regclass"* ]]; then printf "present\\n"; exit 0; fi',
+    'if [[ "$joined" == *"SELECT migration_name, CASE"* ]]; then',
+    `  printf "%s\\n" ${shellQuote(completedMigrationRows)}`,
+    "  exit 0",
+    "fi",
+    'if [[ "$joined" == *"pg_dump --no-owner"* ]]; then',
+    '  printf "%s\\n" "-- PostgreSQL database dump" "CREATE TABLE restored_test(id integer);"',
+    "  exit 0",
+    "fi",
+    'if [[ "$joined" == *"single-transaction"* ]]; then /bin/cat >/dev/null; exit 0; fi',
+    'if [[ "$joined" == *"SELECT count(*) FROM \\"_prisma_migrations\\""* ]]; then',
+    `  printf "%s\\n" "${checkedInMigrations.length}"`,
+    "  exit 0",
+    "fi",
+    'if [[ "$joined" == *"(SELECT count(*) FROM users) = 2"* ]]; then printf "valid\\n"; exit 0; fi',
+    'if [[ "$joined" == *"INSERT INTO users"* || "$joined" == *"Invalid foreign key"* ]]; then exit 1; fi',
+    'if [[ "$joined" == *"SELECT 1;"* ]]; then printf "1\\n"; exit 0; fi',
+    'if [[ "$joined" == *" createdb "* ]]; then exit 0; fi',
+    'if [[ "$joined" == *" psql "* ]]; then /bin/cat >/dev/null || true; exit 0; fi',
     "exit 1",
+  ]);
+  writeExecutable(join(binaries, "pnpm"), [
+    "#!/usr/bin/env bash",
+    "set -euo pipefail",
+    'printf "pnpm %s\\n" "$*" >> "$FAKE_DRILL_COMMAND_LOG"',
+    "exit 0",
   ]);
 
   return {
@@ -832,6 +978,81 @@ describe("canonical database backup", () => {
     ).toContain("compatible_app_revision=unknown-revision");
   });
 
+  it("uses checkout HEAD only when database and checkout migration contracts match", () => {
+    const harness = shellHarness();
+    const revisionIndex = harness.backupArgs.indexOf(
+      "--compatible-app-revision",
+    );
+    const args = [...harness.backupArgs];
+    args.splice(revisionIndex, 2);
+    const checkoutRevision = run("git", [
+      "rev-parse",
+      "--verify",
+      "HEAD",
+    ]).stdout.trim();
+    const result = run("scripts/backup-db.sh", args, {
+      env: harness.environment,
+    });
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain(`_${checkoutRevision}.sql.gz`);
+  });
+
+  it("uses unknown-revision when database migration contract is one behind checkout", () => {
+    const harness = shellHarness();
+    const revisionIndex = harness.backupArgs.indexOf(
+      "--compatible-app-revision",
+    );
+    const args = [...harness.backupArgs];
+    args.splice(revisionIndex, 2);
+    const olderRows = checkedInMigrations
+      .slice(0, -1)
+      .map((name) => `${name}\tcompleted`)
+      .join("\n");
+    const result = run("scripts/backup-db.sh", args, {
+      env: {
+        ...harness.environment,
+        FAKE_MIGRATION_ROWS: olderRows,
+      },
+    });
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain("_unknown-revision.sql.gz");
+  });
+
+  it("accepts an explicit full compatible revision despite checkout contract mismatch", () => {
+    const harness = shellHarness();
+    const olderRows = checkedInMigrations
+      .slice(0, -1)
+      .map((name) => `${name}\tcompleted`)
+      .join("\n");
+    const result = run("scripts/backup-db.sh", harness.backupArgs, {
+      env: {
+        ...harness.environment,
+        FAKE_MIGRATION_ROWS: olderRows,
+      },
+    });
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain(`_${revision}.sql.gz`);
+  });
+
+  it("rejects a malformed explicit compatible revision", () => {
+    const harness = shellHarness();
+    const args = harness.backupArgs.map((value) =>
+      value === revision ? "abc123" : value,
+    );
+    const result = run("scripts/backup-db.sh", args, {
+      env: harness.environment,
+    });
+
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain(
+      "backup:failed:invalid-compatible-app-revision",
+    );
+    expect(readFileSync(harness.commandLog, "utf8")).not.toContain("pg_dump");
+  });
+
   it("cleans partial files and exits non-zero when backup is interrupted", async () => {
     const harness = shellHarness();
     const blockedFile = join(harness.root, "backup-blocked");
@@ -977,6 +1198,265 @@ describe("canonical database backup", () => {
       expect(commandLog).not.toContain("ps -q db");
     },
   );
+
+  it("acquires and releases the shared lock for standalone production backup", () => {
+    const harness = shellHarness();
+    const invocation = productionRestoreInvocation(harness);
+    const result = run(
+      "scripts/backup-db.sh",
+      productionBackupArgs(invocation),
+      {
+        env: {
+          ...harness.environment,
+          DEPLOY_LOCK_FILE: invocation.lockFile,
+          DEPLOY_STATE_DIR: invocation.stateDirectory,
+        },
+      },
+    );
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain(
+      "backup:production-lock-acquired ownership=backup",
+    );
+    expect(existsSync(invocation.lockFile)).toBe(true);
+    expect(
+      run("/usr/bin/flock", ["-n", invocation.lockFile, "-c", "true"]).status,
+    ).toBe(0);
+  });
+
+  it.each(["deployment", "restore"])(
+    "fails standalone production backup while %s owns the shared lock",
+    async (ownerLabel) => {
+      const harness = shellHarness();
+      const invocation = productionRestoreInvocation(harness);
+      const owner = spawnSharedLockOwner(
+        harness.root,
+        invocation.lockFile,
+        ownerLabel,
+      );
+      const ownerResultPromise = collectProcess(owner.child);
+
+      await waitForFile(owner.acquiredFile);
+      const result = run(
+        "scripts/backup-db.sh",
+        productionBackupArgs(invocation),
+        {
+          env: {
+            ...harness.environment,
+            DEPLOY_LOCK_FILE: invocation.lockFile,
+            DEPLOY_STATE_DIR: invocation.stateDirectory,
+          },
+        },
+      );
+      writeFileSync(owner.releaseFile, "release\n");
+      const ownerResult = await ownerResultPromise;
+
+      expect(result.status).not.toBe(0);
+      expect(result.stderr).toContain("backup:failed:production-lock-held");
+      expect(ownerResult.status).toBe(0);
+      expect(readFileSync(harness.commandLog, "utf8")).not.toContain(
+        "pg_dump --version",
+      );
+    },
+  );
+
+  it("holds the shared lock through production retention", async () => {
+    const harness = shellHarness();
+    const invocation = productionRestoreInvocation(harness);
+    const blockedFile = join(harness.root, "production-backup-blocked");
+    const releaseFile = join(harness.root, "production-backup-release");
+    const child = spawn(
+      "scripts/backup-db.sh",
+      productionBackupArgs(invocation),
+      {
+        cwd: repository,
+        env: {
+          ...harness.environment,
+          DEPLOY_LOCK_FILE: invocation.lockFile,
+          DEPLOY_STATE_DIR: invocation.stateDirectory,
+          FAKE_DOCKER_BLOCK_MATCH: "pg_dump --version",
+          FAKE_DOCKER_BLOCKED_FILE: blockedFile,
+          FAKE_DOCKER_RELEASE_FILE: releaseFile,
+        },
+        stdio: ["ignore", "pipe", "pipe"],
+      },
+    );
+    const backupResultPromise = collectProcess(child);
+
+    await waitForFile(blockedFile);
+    const retention = run(
+      "scripts/backup-retention.sh",
+      [
+        "--environment",
+        "production",
+        "--env-file",
+        invocation.productionEnv,
+        "--compose-file",
+        join(repository, "docker-compose.production.yml"),
+        "--backup-root",
+        "/backups",
+        "--apply",
+      ],
+      {
+        env: {
+          ...harness.environment,
+          DEPLOY_LOCK_FILE: invocation.lockFile,
+        },
+      },
+    );
+    writeFileSync(releaseFile, "release\n");
+    const backupResult = await backupResultPromise;
+
+    expect(retention.status).not.toBe(0);
+    expect(retention.stderr).toContain("retention:failed:production-lock-held");
+    expect(backupResult.status).toBe(0);
+  });
+
+  it("releases only its acquired production lock after signal interruption", async () => {
+    const harness = shellHarness();
+    const invocation = productionRestoreInvocation(harness);
+    const blockedFile = join(harness.root, "signalled-backup-blocked");
+    const releaseFile = join(harness.root, "signalled-backup-release");
+    const child = spawn(
+      "scripts/backup-db.sh",
+      productionBackupArgs(invocation),
+      {
+        cwd: repository,
+        env: {
+          ...harness.environment,
+          DEPLOY_LOCK_FILE: invocation.lockFile,
+          DEPLOY_STATE_DIR: invocation.stateDirectory,
+          FAKE_DOCKER_BLOCK_MATCH: "pg_dump --version",
+          FAKE_DOCKER_BLOCKED_FILE: blockedFile,
+          FAKE_DOCKER_RELEASE_FILE: releaseFile,
+        },
+        stdio: ["ignore", "pipe", "pipe"],
+      },
+    );
+    const resultPromise = collectProcess(child);
+
+    await waitForFile(blockedFile);
+    child.kill("SIGTERM");
+    writeFileSync(releaseFile, "release\n");
+    const result = await resultPromise;
+
+    expect(result.status).not.toBe(0);
+    expect(
+      run("/usr/bin/flock", ["-n", invocation.lockFile, "-c", "true"]).status,
+    ).toBe(0);
+  });
+
+  it("does not release an inherited production lock owned by its caller", async () => {
+    const harness = shellHarness();
+    const invocation = productionRestoreInvocation(harness);
+    const callerReady = join(harness.root, "caller-still-holds-lock");
+    const callerRelease = join(harness.root, "caller-lock-release");
+    const wrapper = join(harness.root, "inherited-backup-owner.sh");
+    writeExecutable(wrapper, [
+      "#!/usr/bin/env bash",
+      "set -euo pipefail",
+      `exec 9>>${shellQuote(invocation.lockFile)}`,
+      "/usr/bin/flock -n 9",
+      `${shellQuote(join(repository, "scripts/backup-db.sh"))} \\`,
+      ...[...productionBackupArgs(invocation), "--deployment-lock-fd", "9"].map(
+        (argument, index, argumentsList) =>
+          `  ${shellQuote(argument)}${index < argumentsList.length - 1 ? " \\" : ""}`,
+      ),
+      `: > ${shellQuote(callerReady)}`,
+      `while [[ ! -f ${shellQuote(callerRelease)} ]]; do /bin/sleep 0.01; done`,
+    ]);
+    const child = spawn(wrapper, [], {
+      cwd: repository,
+      env: {
+        ...harness.environment,
+        DEPLOY_LOCK_FILE: invocation.lockFile,
+        DEPLOY_STATE_DIR: invocation.stateDirectory,
+      },
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    const resultPromise = collectProcess(child);
+
+    await waitForFile(callerReady);
+    expect(
+      run("/usr/bin/flock", ["-n", invocation.lockFile, "-c", "true"]).status,
+    ).not.toBe(0);
+    writeFileSync(callerRelease, "release\n");
+    const result = await resultPromise;
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain(
+      "backup:production-lock-acquired ownership=inherited",
+    );
+  });
+
+  it("rejects an inherited descriptor that does not own the shared lock", () => {
+    const harness = shellHarness();
+    const invocation = productionRestoreInvocation(harness);
+    const wrapper = join(harness.root, "unlocked-inherited-fd.sh");
+    writeExecutable(wrapper, [
+      "#!/usr/bin/env bash",
+      "set -euo pipefail",
+      `exec 9>>${shellQuote(invocation.lockFile)}`,
+      `${shellQuote(join(repository, "scripts/backup-db.sh"))} \\`,
+      ...[...productionBackupArgs(invocation), "--deployment-lock-fd", "9"].map(
+        (argument, index, argumentsList) =>
+          `  ${shellQuote(argument)}${index < argumentsList.length - 1 ? " \\" : ""}`,
+      ),
+    ]);
+    const result = run(wrapper, [], {
+      env: {
+        ...harness.environment,
+        DEPLOY_LOCK_FILE: invocation.lockFile,
+        DEPLOY_STATE_DIR: invocation.stateDirectory,
+      },
+    });
+
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain(
+      "backup:failed:inherited-production-lock-invalid",
+    );
+    expect(readFileSync(harness.commandLog, "utf8")).not.toContain(
+      "pg_dump --version",
+    );
+  });
+
+  it("keeps local backup and disposable restore independent from production lock", async () => {
+    const harness = shellHarness();
+    const lockFile = join(harness.root, "production.lock");
+    const owner = spawnSharedLockOwner(harness.root, lockFile, "production");
+    const ownerResultPromise = collectProcess(owner.child);
+    await waitForFile(owner.acquiredFile);
+
+    const backup = run("scripts/backup-db.sh", harness.backupArgs, {
+      env: {
+        ...harness.environment,
+        DEPLOY_LOCK_FILE: lockFile,
+      },
+    });
+    const artifact = join(
+      harness.backupRoot,
+      `reset90_${fixedTimestamp}_manual_${revision}.sql.gz`,
+    );
+    const restore = run(
+      "scripts/restore-db.sh",
+      harness.restoreArgs(artifact),
+      {
+        env: {
+          ...harness.environment,
+          DATABASE_URL: undefined,
+          DEPLOY_LOCK_FILE: lockFile,
+          TEST_DATABASE_URL:
+            "postgresql://reset90_test:password@127.0.0.1:55432/reset90_target_test",
+        },
+      },
+    );
+    writeFileSync(owner.releaseFile, "release\n");
+    const ownerResult = await ownerResultPromise;
+
+    expect(backup.status).toBe(0);
+    expect(restore.status).toBe(0);
+    expect(ownerResult.status).toBe(0);
+  });
 });
 
 describe("verified backup retention", () => {
@@ -991,6 +1471,9 @@ describe("verified backup retention", () => {
     expect(retentionScript).toContain('trap "handle_signal 130" INT');
     expect(retentionScript).toContain('trap "handle_signal 143" TERM');
     expect(retentionScript).toContain("trap - EXIT HUP INT TERM");
+    expect(retentionScript).toContain(
+      'date -u -D "%Y%m%dT%H%M%SZ" -d "$timestamp" +%s',
+    );
   });
 
   it("ignores an in-progress backup while concurrent retention runs", async () => {
@@ -1220,6 +1703,35 @@ describe("verified backup retention", () => {
     expect(existsSync(boundary)).toBe(true);
     expect(existsSync(expired)).toBe(false);
     expect(result.stdout).toContain("candidates=1");
+  });
+
+  it("reports a calendar-invalid timestamp as an invalid bundle", () => {
+    const harness = shellHarness();
+    const invalid = createArtifact(harness.backupRoot, {
+      timestamp: "20260230T120000Z",
+    });
+    const result = run(
+      "scripts/backup-retention.sh",
+      [
+        "--environment",
+        "test",
+        "--env-file",
+        harness.environmentFile,
+        "--compose-file",
+        harness.composeFile,
+        "--backup-root",
+        harness.backupRoot,
+        "--dry-run",
+      ],
+      { env: harness.environment },
+    );
+
+    expect(result.status).toBe(0);
+    expect(result.stderr).toContain(
+      `retention:invalid path=${invalid} reason=timestamp`,
+    );
+    expect(result.stdout).toContain("verified=0 candidates=0");
+    expect(existsSync(invalid)).toBe(true);
   });
 
   it("stops after an interrupt without deleting a later retention candidate", async () => {
@@ -1737,6 +2249,34 @@ describe("guarded database restore", () => {
     );
   });
 
+  it.each(["function", "procedure", "schema", "enum", "operator"])(
+    "rejects a disposable target containing only a user-created %s",
+    (kind) => {
+      const harness = shellHarness();
+      const artifact = createArtifact(harness.backupRoot);
+      const result = run(
+        "scripts/restore-db.sh",
+        harness.restoreArgs(artifact),
+        {
+          env: {
+            ...harness.environment,
+            DATABASE_URL: undefined,
+            FAKE_TARGET_OBJECT: kind,
+            TEST_DATABASE_URL: testDatabaseUrl,
+          },
+        },
+      );
+
+      expect(result.status).not.toBe(0);
+      expect(result.stderr).toContain(
+        "restore:failed:target-database-not-empty",
+      );
+      expect(readFileSync(harness.commandLog, "utf8")).not.toContain(
+        "--single-transaction",
+      );
+    },
+  );
+
   it("rolls back a header-valid dump when PostgreSQL rejects its SQL", () => {
     const harness = shellHarness();
     const artifact = createArtifact(harness.backupRoot, {
@@ -1843,6 +2383,200 @@ describe("guarded database restore", () => {
     expect(existsSync(attempt.lockFile)).toBe(false);
   });
 
+  it("requires distinct exact confirmation for degraded recovery", () => {
+    const harness = shellHarness();
+    const invocation = productionRestoreInvocation(
+      harness,
+      previousRevision,
+      revision,
+      true,
+    );
+    const backupName = basename(invocation.backupFile);
+    const result = runPreparedInteractiveProductionRestore(
+      harness,
+      invocation,
+      `RESTORE reset90 FROM ${backupName}`,
+    );
+
+    expect(result.status).not.toBe(0);
+    expect(`${result.stdout}${result.stderr}`).toContain(
+      "restore:failed:production-confirmation-mismatch",
+    );
+    expect(existsSync(invocation.lockFile)).toBe(false);
+  });
+
+  it.each(["missing", "malformed", "unknown"])(
+    "restores from selected verified metadata when compatible state is %s",
+    (stateScenario) => {
+      const harness = shellHarness();
+      const invocation = productionRestoreInvocation(
+        harness,
+        previousRevision,
+        revision,
+        true,
+      );
+      const compatibleState = join(
+        invocation.stateDirectory,
+        "database-compatible.sha",
+      );
+      if (stateScenario === "missing") {
+        rmSync(compatibleState);
+      } else {
+        writeFileSync(
+          compatibleState,
+          stateScenario === "unknown" ? "unknown\n" : "not-a-revision\n",
+        );
+      }
+      const backupName = basename(invocation.backupFile);
+      const result = runPreparedInteractiveProductionRestore(
+        harness,
+        invocation,
+        `DEGRADED RESTORE reset90 FROM ${backupName}`,
+      );
+      const combined = `${result.stdout}${result.stderr}`;
+
+      expect(result.status).toBe(0);
+      expect(combined).toContain("restore:pre-restore-backup=completed");
+      expect(combined).toContain(
+        `restore:application-remains-stopped select-revision=${previousRevision}`,
+      );
+      expect(combined).not.toContain(`select-revision=${revision}`);
+      expect(readFileSync(compatibleState, "utf8")).toBe(
+        `${previousRevision}\n`,
+      );
+      expect(
+        readFileSync(join(invocation.stateDirectory, "successful.sha"), "utf8"),
+      ).toBe(`${databaseCompatibleRevision}\n`);
+      expect(readFileSync(harness.commandLog, "utf8")).toContain(
+        "unknown-revision",
+      );
+    },
+  );
+
+  it("restores a missing production database only through degraded recovery", () => {
+    const harness = shellHarness();
+    const invocation = productionRestoreInvocation(
+      harness,
+      previousRevision,
+      revision,
+      true,
+    );
+    writeFileSync(harness.databaseStateFile, "postgres\n");
+    rmSync(join(invocation.stateDirectory, "database-compatible.sha"));
+    const backupName = basename(invocation.backupFile);
+    const result = runPreparedInteractiveProductionRestore(
+      harness,
+      invocation,
+      `DEGRADED RESTORE reset90 FROM ${backupName}`,
+    );
+    const combined = `${result.stdout}${result.stderr}`;
+
+    expect(result.status).toBe(0);
+    expect(combined).toContain(
+      "restore:pre-restore-backup=skipped reason=database-missing",
+    );
+    expect(databaseNames(harness)).toEqual(["postgres", "reset90"]);
+    expect(
+      readFileSync(
+        join(invocation.stateDirectory, "database-compatible.sha"),
+        "utf8",
+      ),
+    ).toBe(`${previousRevision}\n`);
+  });
+
+  it.each([
+    [
+      "fresh empty target with no migration contract",
+      { FAKE_FIRST_MIGRATION_TABLE_STATE_MISSING: "1" },
+    ],
+    [
+      "existing target whose backup tooling is unavailable",
+      { FAKE_DOCKER_FAIL_MATCH: "pg_dump --version" },
+    ],
+  ])(
+    "reports skipped unavailable pre-restore backup for %s",
+    (_name, environment: EnvironmentOverrides) => {
+      const harness = shellHarness();
+      const invocation = productionRestoreInvocation(
+        harness,
+        previousRevision,
+        revision,
+        true,
+      );
+      writeFileSync(
+        join(invocation.stateDirectory, "database-compatible.sha"),
+        "unknown\n",
+      );
+      const backupName = basename(invocation.backupFile);
+      const result = runPreparedInteractiveProductionRestore(
+        harness,
+        invocation,
+        `DEGRADED RESTORE reset90 FROM ${backupName}`,
+        environment,
+      );
+      const combined = `${result.stdout}${result.stderr}`;
+
+      expect(result.status).toBe(0);
+      expect(combined).toContain(
+        "restore:pre-restore-backup=skipped reason=database-unavailable",
+      );
+      expect(combined).toContain("restore:complete mode=production");
+      expect(databaseNames(harness)).toEqual(["postgres", "reset90"]);
+    },
+  );
+
+  it.each(["missing", "malformed", "unknown"])(
+    "normal production recovery fails when compatible state is %s",
+    (stateScenario) => {
+      const harness = shellHarness();
+      const invocation = productionRestoreInvocation(harness);
+      const compatibleState = join(
+        invocation.stateDirectory,
+        "database-compatible.sha",
+      );
+      if (stateScenario === "missing") {
+        rmSync(compatibleState);
+      } else {
+        writeFileSync(
+          compatibleState,
+          stateScenario === "unknown" ? "unknown\n" : "not-a-revision\n",
+        );
+      }
+      const backupName = basename(invocation.backupFile);
+      const result = runPreparedInteractiveProductionRestore(
+        harness,
+        invocation,
+        `RESTORE reset90 FROM ${backupName}`,
+      );
+
+      expect(result.status).not.toBe(0);
+      expect(`${result.stdout}${result.stderr}`).toContain(
+        "restore:failed:production-compatible-revision-unavailable",
+      );
+      expect(readFileSync(harness.commandLog, "utf8")).not.toContain(
+        "createdb",
+      );
+    },
+  );
+
+  it("normal production recovery refuses a missing target database", () => {
+    const harness = shellHarness();
+    const invocation = productionRestoreInvocation(harness);
+    writeFileSync(harness.databaseStateFile, "postgres\n");
+    const backupName = basename(invocation.backupFile);
+    const result = runPreparedInteractiveProductionRestore(
+      harness,
+      invocation,
+      `RESTORE reset90 FROM ${backupName}`,
+    );
+
+    expect(result.status).not.toBe(0);
+    expect(`${result.stdout}${result.stderr}`).toContain(
+      "restore:failed:target-database-missing",
+    );
+    expect(databaseNames(harness)).toEqual(["postgres"]);
+  });
+
   it("creates a verified pre-restore backup, replaces through staging, and retains the shared lock file", () => {
     const harness = shellHarness();
     const backupName = `reset90_${fixedTimestamp}_manual_${previousRevision}.sql.gz`;
@@ -1860,6 +2594,9 @@ describe("guarded database restore", () => {
     expect(first.result.status).toBe(0);
     expect(second.result.status).toBe(0);
     expect(first.result.stdout).toContain("restore:production-lock-acquired");
+    expect(first.result.stdout).toContain(
+      "restore:pre-restore-backup=completed",
+    );
     expect(first.result.stdout).toContain(
       `restore:complete mode=production target=reset90 backup=${backupName}`,
     );
@@ -1880,6 +2617,15 @@ describe("guarded database restore", () => {
     expect(commandLog).not.toContain("seed");
     expect(commandLog).not.toContain("down -v");
     expect(commandLog).not.toContain("up -d");
+    expect(
+      readFileSync(
+        join(first.stateDirectory, "database-compatible.sha"),
+        "utf8",
+      ),
+    ).toBe(`${previousRevision}\n`);
+    expect(
+      readFileSync(join(first.stateDirectory, "successful.sha"), "utf8"),
+    ).toBe(`${databaseCompatibleRevision}\n`);
   });
 
   it("rejects a wrong-source production backup before pre-restore backup or target mutation", () => {
@@ -1939,6 +2685,12 @@ describe("guarded database restore", () => {
       expect(
         run("/usr/bin/flock", ["-n", attempt.lockFile, "-c", "true"]).status,
       ).toBe(0);
+      expect(
+        readFileSync(
+          join(attempt.stateDirectory, "database-compatible.sha"),
+          "utf8",
+        ),
+      ).toBe(`${revision}\n`);
     },
   );
 
@@ -1987,6 +2739,58 @@ describe("guarded database restore", () => {
     expect(restoreResult.status).toBe(0);
     expect(restoreResult.stdout).toContain("restore:complete mode=production");
   });
+
+  it.each([
+    [
+      "decompression fails before SQL",
+      { FAKE_RESTORE_DECOMPRESS_FAIL: "before" },
+    ],
+    [
+      "decompression emits valid initial SQL then fails while psql would succeed",
+      { FAKE_RESTORE_DECOMPRESS_FAIL: "partial" },
+    ],
+    [
+      "psql fails after successful decompression",
+      { FAKE_RESTORE_PSQL_FAIL: "1" },
+    ],
+    [
+      "decompression and psql both fail",
+      {
+        FAKE_RESTORE_DECOMPRESS_FAIL: "partial",
+        FAKE_RESTORE_PSQL_FAIL: "1",
+      },
+    ],
+  ])(
+    "does not promote staging when %s",
+    (_name, environment: EnvironmentOverrides) => {
+      const harness = shellHarness();
+      const backupName = `reset90_${fixedTimestamp}_manual_${previousRevision}.sql.gz`;
+      const attempt = runInteractiveProductionRestore(
+        harness,
+        `RESTORE reset90 FROM ${backupName}`,
+        environment,
+      );
+      const combined = `${attempt.result.stdout}${attempt.result.stderr}`;
+      const restoreScript = readFileSync(
+        join(repository, "scripts/restore-db.sh"),
+        "utf8",
+      );
+
+      expect(attempt.result.status).not.toBe(0);
+      expect(combined).toContain("restore:failed:restore");
+      expect(combined).not.toContain("restore:complete mode=production");
+      expect(databaseNames(harness)).toEqual(["postgres", "reset90"]);
+      expect(restoreScript).toContain('gzip -cd "$file" > "$restore_sql"');
+      expect(restoreScript).toContain('-d "$database" -f "$restore_sql"');
+      expect(restoreScript).not.toContain('gzip -cd "$file" |\n    psql');
+      expect(
+        readFileSync(
+          join(attempt.stateDirectory, "database-compatible.sha"),
+          "utf8",
+        ),
+      ).toBe(`${revision}\n`);
+    },
+  );
 
   it.each([
     [
@@ -2050,8 +2854,66 @@ describe("guarded database restore", () => {
       expect(
         run("/usr/bin/flock", ["-n", attempt.lockFile, "-c", "true"]).status,
       ).toBe(0);
+      expect(
+        readFileSync(
+          join(attempt.stateDirectory, "database-compatible.sha"),
+          "utf8",
+        ),
+      ).toBe(`${revision}\n`);
     },
   );
+
+  it("keeps compatibility state unchanged after failed final database verification", () => {
+    const harness = shellHarness();
+    const backupName = `reset90_${fixedTimestamp}_manual_${previousRevision}.sql.gz`;
+    const attempt = runInteractiveProductionRestore(
+      harness,
+      `RESTORE reset90 FROM ${backupName}`,
+      { FAKE_FINAL_VERIFY_FAIL: "1" },
+    );
+    const names = databaseNames(harness);
+
+    expect(attempt.result.status).not.toBe(0);
+    expect(`${attempt.result.stdout}${attempt.result.stderr}`).toContain(
+      "restore:failed:final-database-verification",
+    );
+    expect(
+      readFileSync(
+        join(attempt.stateDirectory, "database-compatible.sha"),
+        "utf8",
+      ),
+    ).toBe(`${revision}\n`);
+    expect(names).toContain("reset90");
+    expect(names.some((name) => name.includes("_prerestore_"))).toBe(true);
+  });
+
+  it("fails after preserving restored database when compatible-state publication fails", () => {
+    const harness = shellHarness();
+    const backupName = `reset90_${fixedTimestamp}_manual_${previousRevision}.sql.gz`;
+    const attempt = runInteractiveProductionRestore(
+      harness,
+      `RESTORE reset90 FROM ${backupName}`,
+      { FAKE_MV_FAIL_SUFFIX: "database-compatible.sha" },
+    );
+    const combined = `${attempt.result.stdout}${attempt.result.stderr}`;
+
+    expect(attempt.result.status).not.toBe(0);
+    expect(combined).toContain(
+      "restore:database-restored compatibility-state=operator-repair-required",
+    );
+    expect(combined).toContain("restore:failed:compatible-state-persistence");
+    expect(databaseNames(harness)).toEqual(["postgres", "reset90"]);
+    expect(
+      readFileSync(
+        join(attempt.stateDirectory, "database-compatible.sha"),
+        "utf8",
+      ),
+    ).toBe(`${revision}\n`);
+    expect(
+      readFileSync(join(attempt.stateDirectory, "successful.sha"), "utf8"),
+    ).toBe(`${databaseCompatibleRevision}\n`);
+    expect(combined).not.toContain("restore:complete mode=production");
+  });
 
   it.each([
     [
@@ -2087,10 +2949,73 @@ describe("guarded database restore", () => {
     expect(attempt.result.status).not.toBe(0);
     expect(combined).toContain(`restore:failed:${failure}`);
     expect(combined).not.toContain("restore:complete mode=production");
+    expect(
+      readFileSync(
+        join(attempt.stateDirectory, "database-compatible.sha"),
+        "utf8",
+      ),
+    ).toBe(`${revision}\n`);
   });
 });
 
 describe("disposable restore drill cleanup", () => {
+  it("reports successful verification and cleanup separately", () => {
+    const harness = restoreDrillHarness();
+    const result = run("scripts/restore-drill.sh", [], {
+      env: harness.environment,
+    });
+    const commandLog = readFileSync(harness.commandLog, "utf8");
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain(
+      "restore-drill:evidence verification=passed",
+    );
+    expect(result.stdout).toContain("restore-drill:evidence cleanup=passed");
+    expect(result.stderr).not.toContain("diagnostics-retained");
+    expect(existsSync(harness.resourceState)).toBe(false);
+    expect(existsSync(harness.unrelatedState)).toBe(true);
+    expect(
+      commandLog
+        .split("\n")
+        .filter((line) => line.includes(" down --volumes --remove-orphans")),
+    ).toHaveLength(1);
+  });
+
+  it("returns non-zero and retains diagnostics when cleanup fails after verification", () => {
+    const harness = restoreDrillHarness();
+    const result = run("scripts/restore-drill.sh", [], {
+      env: {
+        ...harness.environment,
+        FAKE_DRILL_FAIL_DOWN: "1",
+      },
+    });
+    const commandLog = readFileSync(harness.commandLog, "utf8");
+    const upLine = commandLog
+      .split("\n")
+      .find((line) => line.includes(" up -d --wait db"));
+    const downLines = commandLog
+      .split("\n")
+      .filter((line) => line.includes(" down --volumes --remove-orphans"));
+    const diagnosticsMatch = result.stderr.match(
+      /restore-drill:diagnostics-retained path=(.+)/,
+    );
+
+    expect(result.status).not.toBe(0);
+    expect(result.stdout).toContain(
+      "restore-drill:evidence verification=passed",
+    );
+    expect(result.stdout).toContain("restore-drill:evidence cleanup=failed");
+    expect(existsSync(harness.resourceState)).toBe(true);
+    expect(existsSync(harness.unrelatedState)).toBe(true);
+    expect(downLines).toHaveLength(1);
+    expect(downLines[0].match(/-p ([^ ]+)/)?.[1]).toBe(
+      upLine?.match(/-p ([^ ]+)/)?.[1],
+    );
+    expect(diagnosticsMatch?.[1]).toBeDefined();
+    expect(existsSync(diagnosticsMatch![1])).toBe(true);
+    temporaryDirectories.push(diagnosticsMatch![1]);
+  });
+
   it("removes partial project resources after Compose readiness fails", () => {
     const harness = restoreDrillHarness();
     const result = run("scripts/restore-drill.sh", [], {
