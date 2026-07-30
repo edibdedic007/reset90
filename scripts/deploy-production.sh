@@ -10,11 +10,14 @@ LOCK_FILE="${DEPLOY_LOCK_FILE:-/tmp/reset90-production-deploy.lock}"
 ATTEMPTED_FILE="$STATE_DIR/attempted.sha"
 SUCCESSFUL_FILE="$STATE_DIR/successful.sha"
 PREVIOUS_FILE="$STATE_DIR/previous-successful.sha"
+DATABASE_COMPATIBLE_FILE="$STATE_DIR/database-compatible.sha"
 REVISION=""
+CURRENT_COMPATIBLE_REVISION=""
 DEPLOY_LOCK_FD=9
 DEPLOY_LOCK_HELD=0
 
 source "$SCRIPT_DIR/lib/production-env.sh"
+source "$SCRIPT_DIR/lib/backup-restore.sh"
 
 log() {
   printf '%s service=reset90 revision=%s step=%s\n' \
@@ -86,6 +89,16 @@ record_success() {
   mv "$successful_temp" "$SUCCESSFUL_FILE"
 }
 
+record_database_compatible_revision() {
+  local revision="$1"
+  local compatible_temp="${DATABASE_COMPATIBLE_FILE}.$$"
+
+  [[ "$revision" == "unknown" || "$revision" =~ ^[0-9a-f]{40}$ ]] ||
+    return 1
+  printf '%s\n' "$revision" > "$compatible_temp"
+  mv "$compatible_temp" "$DATABASE_COMPATIBLE_FILE"
+}
+
 command -v flock >/dev/null 2>&1 || fail "missing-command-flock"
 exec 9>>"$LOCK_FILE" || fail "deployment-lock-unavailable"
 flock -n "$DEPLOY_LOCK_FD" || fail "deployment-lock-held"
@@ -151,6 +164,10 @@ log "preflight:traefik-network"
 docker network inspect "$traefik_network" >/dev/null 2>&1 ||
   fail "traefik-network-missing"
 
+CURRENT_COMPATIBLE_REVISION="$(
+  verified_database_compatible_revision "$DATABASE_COMPATIBLE_FILE"
+)" || fail "database-compatible-revision-unavailable"
+
 log "backup:start-database"
 compose up -d --no-build db || fail "database-start"
 wait_for_health db 30 || fail "database-health-before-backup"
@@ -164,7 +181,8 @@ database_name="$(production_env_value "$ENV_FILE" POSTGRES_DB)"
   --compose-file "$COMPOSE_FILE" \
   --backup-root /backups \
   --purpose predeploy \
-  --git-sha "$REVISION" \
+  --compatible-app-revision "$CURRENT_COMPATIBLE_REVISION" \
+  --deployment-target-revision "$REVISION" \
   --user "$database_user" \
   --database "$database_name" \
   --deployment-lock-fd "$DEPLOY_LOCK_FD" ||
@@ -174,9 +192,13 @@ log "image:build"
 compose build app || fail "image-build"
 
 log "database:migrate"
+record_database_compatible_revision unknown ||
+  fail "database-compatible-state"
 compose run --rm --no-deps app \
   node node_modules/prisma/build/index.js migrate deploy ||
   fail "migration"
+record_database_compatible_revision "$REVISION" ||
+  fail "database-compatible-state"
 
 log "services:promote"
 compose up -d --no-build db app || fail "service-start"

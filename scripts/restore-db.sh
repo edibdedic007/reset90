@@ -13,6 +13,8 @@ SERVICE="db"
 LOCK_FILE="${DEPLOY_LOCK_FILE:-/tmp/reset90-production-deploy.lock}"
 LOCK_FD=9
 LOCK_HELD=0
+STATE_DIR="${DEPLOY_STATE_DIR:-$REPO_ROOT/.runtime/production-deploy}"
+DATABASE_COMPATIBLE_FILE="$STATE_DIR/database-compatible.sha"
 VALIDATION_TEMP=""
 STAGING_DATABASE=""
 OLD_DATABASE=""
@@ -135,21 +137,12 @@ handle_signal() {
 verify_prisma_migration_state() {
   local database_name="$1"
   local database_user="$2"
-  local table_state migration_rows migration_name migration_state
-  local expected_name
-  declare -A expected=()
-  declare -A successful=()
-  declare -A rolled_back=()
+  local expected_count="$3"
+  local expected_sha256="$4"
+  local table_state migration_rows
 
-  while IFS= read -r expected_name; do
-    [[ "$expected_name" =~ ^[0-9][0-9A-Za-z_]*$ ]] || return 1
-    expected["$expected_name"]=1
-  done < <(
-    find "$REPO_ROOT/prisma/migrations" \
-      -mindepth 1 -maxdepth 1 -type d -printf '%f\n' |
-      sort
-  )
-  [[ "${#expected[@]}" -gt 0 ]] || return 1
+  [[ "$expected_count" =~ ^[1-9][0-9]*$ ]] || return 1
+  [[ "$expected_sha256" =~ ^[0-9a-f]{64}$ ]] || return 1
 
   table_state="$(
     compose exec -T "$SERVICE" psql -X -A -t \
@@ -183,50 +176,27 @@ verify_prisma_migration_state() {
       ORDER BY migration_name, started_at, id;'
   )" || return 1
 
-  while IFS=$'\t' read -r migration_name migration_state; do
-    [[ -n "$migration_name" || -n "$migration_state" ]] || continue
-    [[ "$migration_name" =~ ^[0-9][0-9A-Za-z_]*$ ]] || return 1
-    case "$migration_state" in
-      completed)
-        successful["$migration_name"]=$((
-          ${successful["$migration_name"]:-0} + 1
-        ))
-        ;;
-      rolled-back)
-        rolled_back["$migration_name"]=1
-        ;;
-      unfinished | failed | inconsistent)
-        return 1
-        ;;
-      *)
-        return 1
-        ;;
-    esac
-  done <<< "$migration_rows"
-
-  for migration_name in "${!successful[@]}"; do
-    [[ -n "${expected[$migration_name]:-}" ]] || return 1
-    [[ "${successful[$migration_name]}" -eq 1 ]] || return 1
-  done
-  for migration_name in "${!rolled_back[@]}"; do
-    [[ -n "${expected[$migration_name]:-}" ]] || return 1
-    [[ "${successful[$migration_name]:-0}" -eq 1 ]] || return 1
-  done
-  for migration_name in "${!expected[@]}"; do
-    [[ "${successful[$migration_name]:-0}" -eq 1 ]] || return 1
-  done
+  migration_contract_from_rows "$migration_rows" || return 1
+  [[ "$MIGRATION_CONTRACT_COUNT" == "$expected_count" ]] || return 1
+  [[ "$MIGRATION_CONTRACT_SHA256" == "$expected_sha256" ]]
 }
 
 verify_restored_database() {
   local database_name="$1"
   local database_user="$2"
+  local expected_migration_count="$3"
+  local expected_migration_sha256="$4"
 
   compose exec -T "$SERVICE" psql -X -A -t \
     -U "$database_user" \
       -d "$database_name" \
       -c "SELECT 1;" >/dev/null ||
     return 1
-  verify_prisma_migration_state "$database_name" "$database_user"
+  verify_prisma_migration_state \
+    "$database_name" \
+    "$database_user" \
+    "$expected_migration_count" \
+    "$expected_migration_sha256"
 }
 
 validate_production_backup() {
@@ -254,10 +224,21 @@ validate_production_backup() {
       gzip -t "$file" >/dev/null 2>&1 || exit 52
       digest="$(sha256sum "$file" | awk "{ print \$1 }")"
       printf "%s\n" "$digest" | grep -Eq "^[0-9a-f]{64}$" || exit 53
+      size_bytes="$(stat -c "%s" "$file")"
+      printf "%s\n" "$size_bytes" | grep -Eq "^[1-9][0-9]*$" || exit 53
+      [ "$(awk "END { print NR }" "$file.sha256")" -eq 1 ] || exit 53
+      checksum_digest="$(
+        awk -v expected="$base" '"'"'
+          NF == 2 && length($1) == 64 && $1 ~ /^[0-9a-f]+$/ &&
+            $2 == expected { print $1; found = 1 }
+          END { if (!found) exit 1 }
+        '"'"' "$file.sha256"
+      )" || exit 53
       (
         cd "$root"
         sha256sum -c "$base.sha256" >/dev/null 2>&1
       ) || exit 53
+      [ "$checksum_digest" = "$digest" ] || exit 53
 
       timestamp="$(printf "%s" "$base" | cut -d_ -f2)"
       purpose="$(printf "%s" "$base" | cut -d_ -f3)"
@@ -265,23 +246,55 @@ validate_production_backup() {
       revision="${revision%.sql.gz}"
       printf "%s\n" "$revision" | grep -Eq "^[0-9a-f]{40}$" || exit 54
       metadata="$file.meta"
-      grep -qx "metadata_version=$metadata_version" "$metadata" || exit 54
-      grep -qx "filename=$base" "$metadata" || exit 54
-      grep -qx "created_utc=$timestamp" "$metadata" || exit 54
-      grep -qx "purpose=$purpose" "$metadata" || exit 54
-      grep -qx "git_sha=$revision" "$metadata" || exit 54
-      grep -qx "postgres_major=$expected_major" "$metadata" || exit 55
-      source_database="$(
-        awk -F= '"'"'$1 == "source_database" { count += 1; value = substr($0, 17) }
-          END { if (count != 1) exit 1; printf "%s", value }'"'"' "$metadata"
-      )" || exit 54
+      metadata_value() {
+        key="$1"
+        awk -F= -v target="$key" '"'"'
+          index($0, target "=") == 1 {
+            count += 1
+            value = substr($0, length(target) + 2)
+          }
+          END {
+            if (count != 1) exit 1
+            printf "%s", value
+          }
+        '"'"' "$metadata"
+      }
+      [ "$(metadata_value metadata_version)" = "$metadata_version" ] ||
+        exit 54
+      [ "$(metadata_value filename)" = "$base" ] || exit 54
+      [ "$(metadata_value created_utc)" = "$timestamp" ] || exit 54
+      [ "$(metadata_value purpose)" = "$purpose" ] || exit 54
+      compatible_revision="$(metadata_value compatible_app_revision)" ||
+        exit 54
+      [ "$compatible_revision" = "$revision" ] || exit 54
+      target_revision="$(metadata_value deployment_target_revision)" ||
+        exit 54
+      printf "%s\n" "$target_revision" |
+        grep -Eq "^(none|[0-9a-f]{40})$" || exit 54
+      [ "$(metadata_value postgres_major)" = "$expected_major" ] || exit 55
+      source_database="$(metadata_value source_database)" || exit 54
       printf "%s\n" "$source_database" |
         grep -Eq "^[A-Za-z_][A-Za-z0-9_]{0,62}$" || exit 54
+      [ "$(metadata_value artifact_size_bytes)" = "$size_bytes" ] || exit 53
+      [ "$(metadata_value artifact_sha256)" = "$digest" ] || exit 53
+      migration_count="$(metadata_value migration_count)" || exit 54
+      migration_sha256="$(metadata_value migration_names_sha256)" || exit 54
+      printf "%s\n" "$migration_count" |
+        grep -Eq "^[1-9][0-9]*$" || exit 54
+      printf "%s\n" "$migration_sha256" |
+        grep -Eq "^[0-9a-f]{64}$" || exit 54
       gzip -cd "$file" |
         awk '"'"'index($0, "PostgreSQL database dump") { found = 1 }
           END { exit(found ? 0 : 1) }'"'"' || exit 56
-      printf "%s\t%s\t%s\t%s" \
-        "$source_database" "$revision" "$expected_major" "$digest"
+      printf "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s" \
+        "$source_database" \
+        "$compatible_revision" \
+        "$expected_major" \
+        "$digest" \
+        "$size_bytes" \
+        "$migration_count" \
+        "$migration_sha256" \
+        "$target_revision"
     ' sh \
       "$BACKUP_ROOT" \
       "$BACKUP_FILE" \
@@ -291,11 +304,16 @@ validate_production_backup() {
       "$RESET90_BACKUP_METADATA_VERSION" \
       "$RESET90_POSTGRES_MAJOR"
   )" || return 1
-  IFS=$'\t' read -r SOURCE_DATABASE BACKUP_REVISION BACKUP_MAJOR \
-    BACKUP_DIGEST <<< "$metadata_result"
-  [[ "$BACKUP_REVISION" =~ ^[0-9a-f]{40}$ ]] || return 1
+  IFS=$'\t' read -r SOURCE_DATABASE BACKUP_COMPATIBLE_REVISION BACKUP_MAJOR \
+    BACKUP_DIGEST BACKUP_SIZE_BYTES BACKUP_MIGRATION_COUNT \
+    BACKUP_MIGRATION_SHA256 BACKUP_DEPLOYMENT_TARGET_REVISION \
+    <<< "$metadata_result"
+  [[ "$BACKUP_COMPATIBLE_REVISION" =~ ^[0-9a-f]{40}$ ]] || return 1
   [[ "$BACKUP_DIGEST" =~ ^[0-9a-f]{64}$ ]] || return 1
-  BACKUP_FINGERPRINT="$SOURCE_DATABASE"$'\t'"$BACKUP_REVISION"$'\t'"$BACKUP_MAJOR"$'\t'"$BACKUP_DIGEST"
+  [[ "$BACKUP_SIZE_BYTES" =~ ^[1-9][0-9]*$ ]] || return 1
+  [[ "$BACKUP_MIGRATION_COUNT" =~ ^[1-9][0-9]*$ ]] || return 1
+  [[ "$BACKUP_MIGRATION_SHA256" =~ ^[0-9a-f]{64}$ ]] || return 1
+  BACKUP_FINGERPRINT="$SOURCE_DATABASE"$'\t'"$BACKUP_COMPATIBLE_REVISION"$'\t'"$BACKUP_MAJOR"$'\t'"$BACKUP_DIGEST"$'\t'"$BACKUP_SIZE_BYTES"$'\t'"$BACKUP_MIGRATION_COUNT"$'\t'"$BACKUP_MIGRATION_SHA256"$'\t'"$BACKUP_DEPLOYMENT_TARGET_REVISION"
 }
 
 while [[ $# -gt 0 ]]; do
@@ -460,10 +478,16 @@ if [[ "$ENVIRONMENT" == "test" ]]; then
       -U "$TARGET_USER" \
       -d "$TARGET_DATABASE" ||
     fail "restore"
-  verify_restored_database "$TARGET_DATABASE" "$TARGET_USER" ||
+  verify_restored_database \
+    "$TARGET_DATABASE" \
+    "$TARGET_USER" \
+    "$VALIDATED_BACKUP_MIGRATION_COUNT" \
+    "$VALIDATED_BACKUP_MIGRATION_SHA256" ||
     fail "restored-database-verification"
   printf 'restore:complete mode=test target=%s backup=%s\n' \
     "$TARGET_DATABASE" "$VALIDATED_BACKUP_BASENAME"
+  printf 'restore:compatible-app-revision=%s\n' \
+    "$VALIDATED_BACKUP_COMPATIBLE_REVISION"
   exit 0
 fi
 
@@ -487,14 +511,10 @@ TARGET_DATABASE="$(production_env_value "$ENV_FILE" POSTGRES_DB)" ||
   fail "production-database-unavailable"
 TARGET_USER="$(production_env_value "$ENV_FILE" POSTGRES_USER)" ||
   fail "production-user-unavailable"
-CURRENT_REVISION="$(production_env_value "$ENV_FILE" GIT_COMMIT)" ||
-  fail "production-revision-unavailable"
 [[ "$TARGET_DATABASE" =~ $RESET90_SAFE_DATABASE_REGEX ]] ||
   fail "unsafe-target-database"
 [[ "$TARGET_USER" =~ $RESET90_SAFE_DATABASE_REGEX ]] ||
   fail "unsafe-target-user"
-[[ "$CURRENT_REVISION" =~ ^[0-9a-f]{40}$ ]] ||
-  fail "production-revision-invalid"
 
 [[ -t 0 && -t 1 ]] || fail "production-restore-requires-interactive-tty"
 EXPECTED_CONFIRMATION="RESTORE $TARGET_DATABASE FROM $BACKUP_BASENAME"
@@ -515,6 +535,11 @@ printf 'restore:production-lock-acquired\n'
 validate_production_backup || fail "backup-artifact-invalid"
 INITIAL_BACKUP_FINGERPRINT="$BACKUP_FINGERPRINT"
 INITIAL_SOURCE_DATABASE="$SOURCE_DATABASE"
+[[ "$INITIAL_SOURCE_DATABASE" == "$TARGET_DATABASE" ]] ||
+  fail "backup-source-database-mismatch"
+CURRENT_COMPATIBLE_REVISION="$(
+  verified_database_compatible_revision "$DATABASE_COMPATIBLE_FILE"
+)" || fail "production-compatible-revision-unavailable"
 
 [[ -z "$(compose ps --status running -q app)" ]] ||
   fail "application-writes-not-stopped"
@@ -528,7 +553,7 @@ target_presence="$(database_presence "$TARGET_DATABASE" "$TARGET_USER")" ||
   --compose-file "$COMPOSE_FILE" \
   --backup-root "$BACKUP_ROOT" \
   --purpose prerestore \
-  --git-sha "$CURRENT_REVISION" \
+  --compatible-app-revision "$CURRENT_COMPATIBLE_REVISION" \
   --retention-protect-file "$BACKUP_FILE" \
   --deployment-lock-fd "$LOCK_FD" ||
   fail "pre-restore-backup"
@@ -565,7 +590,11 @@ compose exec -T "$SERVICE" sh -eu -c '
     psql -X -v ON_ERROR_STOP=1 --single-transaction -U "$user" -d "$database"
 ' sh "$BACKUP_FILE" "$TARGET_USER" "$STAGING_DATABASE" ||
   fail "restore"
-verify_restored_database "$STAGING_DATABASE" "$TARGET_USER" ||
+verify_restored_database \
+  "$STAGING_DATABASE" \
+  "$TARGET_USER" \
+  "$BACKUP_MIGRATION_COUNT" \
+  "$BACKUP_MIGRATION_SHA256" ||
   fail "restored-database-verification"
 
 compose exec -T "$SERVICE" psql -X -v ON_ERROR_STOP=1 \
@@ -593,4 +622,4 @@ compose exec -T "$SERVICE" dropdb -U "$TARGET_USER" --force "$OLD_DATABASE" ||
 printf 'restore:complete mode=production target=%s backup=%s\n' \
   "$TARGET_DATABASE" "$BACKUP_BASENAME"
 printf 'restore:application-remains-stopped select-revision=%s\n' \
-  "$BACKUP_REVISION"
+  "$BACKUP_COMPATIBLE_REVISION"

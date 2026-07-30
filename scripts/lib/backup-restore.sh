@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-RESET90_BACKUP_METADATA_VERSION=1
+RESET90_BACKUP_METADATA_VERSION=2
 RESET90_POSTGRES_MAJOR=16
 RESET90_BACKUP_ROOT_MARKER=".reset90-backup-root"
 RESET90_BACKUP_ROOT_MARKER_VALUE="reset90-backup-root-v1"
@@ -65,12 +65,74 @@ backup_metadata_value() {
   ' "$metadata_file"
 }
 
+migration_contract_from_rows() {
+  local migration_rows="${1:-}"
+  local migration_name migration_state sorted_names
+  declare -A successful=()
+  declare -A rolled_back=()
+
+  while IFS=$'\t' read -r migration_name migration_state; do
+    [[ -n "$migration_name" || -n "$migration_state" ]] || continue
+    [[ "$migration_name" =~ ^[0-9][0-9A-Za-z_]*$ ]] || return 1
+    case "$migration_state" in
+      completed)
+        successful["$migration_name"]=$((
+          ${successful["$migration_name"]:-0} + 1
+        ))
+        ;;
+      rolled-back)
+        rolled_back["$migration_name"]=$((
+          ${rolled_back["$migration_name"]:-0} + 1
+        ))
+        ;;
+      unfinished | failed | inconsistent)
+        return 1
+        ;;
+      *)
+        return 1
+        ;;
+    esac
+  done <<< "$migration_rows"
+
+  [[ "${#successful[@]}" -gt 0 ]] || return 1
+  for migration_name in "${!successful[@]}"; do
+    [[ "${successful[$migration_name]}" -eq 1 ]] || return 1
+  done
+  for migration_name in "${!rolled_back[@]}"; do
+    [[ "${rolled_back[$migration_name]}" -eq 1 ]] || return 1
+    [[ "${successful[$migration_name]:-0}" -eq 1 ]] || return 1
+  done
+
+  sorted_names="$(
+    printf '%s\n' "${!successful[@]}" | sort
+  )" || return 1
+  MIGRATION_CONTRACT_COUNT="${#successful[@]}"
+  MIGRATION_CONTRACT_SHA256="$(
+    printf '%s\n' "$sorted_names" | sha256sum | awk '{ print $1 }'
+  )" || return 1
+  [[ "$MIGRATION_CONTRACT_SHA256" =~ ^[0-9a-f]{64}$ ]]
+}
+
+verified_database_compatible_revision() {
+  local state_file="${1:?database-compatible state file is required}"
+  local revision
+
+  [[ -f "$state_file" && ! -L "$state_file" ]] || return 1
+  revision="$(<"$state_file")"
+  [[ "$revision" =~ ^[0-9a-f]{40}$ ]] || return 1
+  docker image inspect "reset90:$revision" >/dev/null 2>&1 || return 1
+  printf '%s' "$revision"
+}
+
 validate_backup_artifact() {
   local requested_file="${1:?backup file is required}"
   local requested_root="${2:?backup root is required}"
   local root file base checksum_file metadata_file checksum_line mode
+  local checksum_digest actual_digest actual_size
   local metadata_version metadata_filename metadata_timestamp metadata_purpose
-  local metadata_revision metadata_major metadata_source
+  local metadata_compatible_revision metadata_target_revision metadata_major
+  local metadata_source metadata_size metadata_digest metadata_migration_count
+  local metadata_migration_sha256
 
   require_existing_backup_root "$requested_root" || return 1
   root="$(realpath -e -- "$requested_root")" || return 1
@@ -98,12 +160,18 @@ validate_backup_artifact() {
   done
 
   gzip -t -- "$file" >/dev/null 2>&1 || return 1
+  awk 'END { exit(NR == 1 ? 0 : 1) }' "$checksum_file" || return 1
   IFS= read -r checksum_line < "$checksum_file" || return 1
   [[ "$checksum_line" =~ ^[0-9a-f]{64}"  "$base$ ]] || return 1
+  checksum_digest="${checksum_line%%  *}"
   (
     cd -- "$root"
     sha256sum -c -- "$base.sha256" >/dev/null 2>&1
   ) || return 1
+  actual_digest="$(sha256sum -- "$file" | awk '{ print $1 }')" || return 1
+  actual_size="$(stat -c '%s' -- "$file")" || return 1
+  [[ "$actual_digest" =~ ^[0-9a-f]{64}$ ]] || return 1
+  [[ "$actual_size" =~ ^[1-9][0-9]*$ ]] || return 1
 
   metadata_version="$(backup_metadata_value "$metadata_file" metadata_version)" ||
     return 1
@@ -113,25 +181,57 @@ validate_backup_artifact() {
     return 1
   metadata_purpose="$(backup_metadata_value "$metadata_file" purpose)" ||
     return 1
-  metadata_revision="$(backup_metadata_value "$metadata_file" git_sha)" ||
-    return 1
+  metadata_compatible_revision="$(
+    backup_metadata_value "$metadata_file" compatible_app_revision
+  )" || return 1
+  metadata_target_revision="$(
+    backup_metadata_value "$metadata_file" deployment_target_revision
+  )" || return 1
   metadata_major="$(backup_metadata_value "$metadata_file" postgres_major)" ||
     return 1
   metadata_source="$(backup_metadata_value "$metadata_file" source_database)" ||
     return 1
+  metadata_size="$(
+    backup_metadata_value "$metadata_file" artifact_size_bytes
+  )" || return 1
+  metadata_digest="$(
+    backup_metadata_value "$metadata_file" artifact_sha256
+  )" || return 1
+  metadata_migration_count="$(
+    backup_metadata_value "$metadata_file" migration_count
+  )" || return 1
+  metadata_migration_sha256="$(
+    backup_metadata_value "$metadata_file" migration_names_sha256
+  )" || return 1
 
   [[ "$metadata_version" == "$RESET90_BACKUP_METADATA_VERSION" ]] || return 1
   [[ "$metadata_filename" == "$base" ]] || return 1
   [[ "$metadata_timestamp" == "$VALIDATED_BACKUP_TIMESTAMP" ]] || return 1
   [[ "$metadata_purpose" == "$VALIDATED_BACKUP_PURPOSE" ]] || return 1
-  [[ "$metadata_revision" == "$VALIDATED_BACKUP_REVISION" ]] || return 1
+  [[ "$metadata_compatible_revision" == "$VALIDATED_BACKUP_REVISION" ]] ||
+    return 1
+  [[ "$metadata_target_revision" == "none" ||
+    "$metadata_target_revision" =~ ^[0-9a-f]{40}$ ]] || return 1
   [[ "$metadata_major" == "$RESET90_POSTGRES_MAJOR" ]] || return 1
   [[ "$metadata_source" =~ $RESET90_SAFE_DATABASE_REGEX ]] || return 1
+  [[ "$metadata_size" =~ ^[1-9][0-9]*$ ]] || return 1
+  [[ "$metadata_digest" =~ ^[0-9a-f]{64}$ ]] || return 1
+  [[ "$metadata_migration_count" =~ ^[1-9][0-9]*$ ]] || return 1
+  [[ "$metadata_migration_sha256" =~ ^[0-9a-f]{64}$ ]] || return 1
+  [[ "$metadata_size" == "$actual_size" ]] || return 1
+  [[ "$metadata_digest" == "$checksum_digest" ]] || return 1
+  [[ "$metadata_digest" == "$actual_digest" ]] || return 1
 
   VALIDATED_BACKUP_FILE="$file"
   VALIDATED_BACKUP_BASENAME="$base"
   VALIDATED_BACKUP_SOURCE_DATABASE="$metadata_source"
   VALIDATED_BACKUP_POSTGRES_MAJOR="$metadata_major"
+  VALIDATED_BACKUP_COMPATIBLE_REVISION="$metadata_compatible_revision"
+  VALIDATED_BACKUP_DEPLOYMENT_TARGET_REVISION="$metadata_target_revision"
+  VALIDATED_BACKUP_SIZE_BYTES="$metadata_size"
+  VALIDATED_BACKUP_SHA256="$metadata_digest"
+  VALIDATED_BACKUP_MIGRATION_COUNT="$metadata_migration_count"
+  VALIDATED_BACKUP_MIGRATION_SHA256="$metadata_migration_sha256"
 }
 
 parse_test_database_url() {

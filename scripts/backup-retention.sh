@@ -18,6 +18,7 @@ RETENTION_DAYS=30
 MINIMUM_KEEP=7
 MANIFEST=""
 SORTED_MANIFEST=""
+CLEANUP_DONE=0
 
 source "$SCRIPT_DIR/lib/backup-restore.sh"
 
@@ -34,6 +35,8 @@ usage() {
 }
 
 cleanup() {
+  [[ "$CLEANUP_DONE" -eq 0 ]] || return 0
+  CLEANUP_DONE=1
   [[ -z "${MANIFEST:-}" ]] || rm -f -- "$MANIFEST"
   [[ -z "${SORTED_MANIFEST:-}" ]] || rm -f -- "$SORTED_MANIFEST"
   if [[ "$RETENTION_LOCK_HELD" -eq 1 ]]; then
@@ -203,10 +206,22 @@ if [[ "$ENVIRONMENT" == "production" ]]; then
 
     manifest="$root/.retention.$$.manifest.partial"
     sorted="$root/.retention.$$.sorted.partial"
+    cleanup_done=0
     cleanup() {
+      [ "$cleanup_done" -eq 0 ] || return 0
+      cleanup_done=1
       rm -f -- "$manifest" "$sorted"
     }
-    trap cleanup EXIT HUP INT TERM
+    handle_signal() {
+      status="$1"
+      trap - EXIT HUP INT TERM
+      cleanup
+      exit "$status"
+    }
+    trap cleanup EXIT
+    trap "handle_signal 129" HUP
+    trap "handle_signal 130" INT
+    trap "handle_signal 143" TERM
     : > "$manifest"
     chmod 600 -- "$manifest"
     verified=0
@@ -226,6 +241,19 @@ if [[ "$ENVIRONMENT" == "production" ]]; then
           [ "$(stat -c "%a" "$checksum")" = "600" ] &&
           [ "$(stat -c "%a" "$metadata")" = "600" ] || continue
         gzip -t "$file" >/dev/null 2>&1 || continue
+        [ "$(awk "END { print NR }" "$checksum")" -eq 1 ] || continue
+        digest="$(sha256sum "$file" | awk "{ print \$1 }")"
+        printf "%s\n" "$digest" | grep -Eq "^[0-9a-f]{64}$" || continue
+        checksum_digest="$(
+          awk -v expected="$base" '"'"'
+            NF == 2 && length($1) == 64 && $1 ~ /^[0-9a-f]+$/ &&
+              $2 == expected { print $1; found = 1 }
+            END { if (!found) exit 1 }
+          '"'"' "$checksum"
+        )" || continue
+        [ "$checksum_digest" = "$digest" ] || continue
+        size_bytes="$(stat -c "%s" "$file")"
+        printf "%s\n" "$size_bytes" | grep -Eq "^[1-9][0-9]*$" || continue
         (
           cd "$root"
           sha256sum -c "$base.sha256" >/dev/null 2>&1
@@ -235,14 +263,42 @@ if [[ "$ENVIRONMENT" == "production" ]]; then
         purpose="$(printf "%s" "$base" | cut -d_ -f3)"
         revision="${base#reset90_${timestamp}_${purpose}_}"
         revision="${revision%.sql.gz}"
-        grep -qx "metadata_version=$metadata_version" "$metadata" || continue
-        grep -qx "filename=$base" "$metadata" || continue
-        grep -qx "created_utc=$timestamp" "$metadata" || continue
-        grep -qx "purpose=$purpose" "$metadata" || continue
-        grep -qx "git_sha=$revision" "$metadata" || continue
-        grep -qx "postgres_major=$expected_major" "$metadata" || continue
-        grep -Eq "^source_database=[A-Za-z_][A-Za-z0-9_]{0,62}$" "$metadata" ||
+        metadata_value() {
+          key="$1"
+          awk -F= -v target="$key" '"'"'
+            index($0, target "=") == 1 {
+              count += 1
+              value = substr($0, length(target) + 2)
+            }
+            END {
+              if (count != 1) exit 1
+              printf "%s", value
+            }
+          '"'"' "$metadata"
+        }
+        [ "$(metadata_value metadata_version)" = "$metadata_version" ] ||
           continue
+        [ "$(metadata_value filename)" = "$base" ] || continue
+        [ "$(metadata_value created_utc)" = "$timestamp" ] || continue
+        [ "$(metadata_value purpose)" = "$purpose" ] || continue
+        [ "$(metadata_value compatible_app_revision)" = "$revision" ] ||
+          continue
+        target_revision="$(metadata_value deployment_target_revision)" ||
+          continue
+        printf "%s\n" "$target_revision" |
+          grep -Eq "^(none|[0-9a-f]{40})$" || continue
+        [ "$(metadata_value postgres_major)" = "$expected_major" ] || continue
+        source_database="$(metadata_value source_database)" || continue
+        printf "%s\n" "$source_database" |
+          grep -Eq "^[A-Za-z_][A-Za-z0-9_]{0,62}$" || continue
+        [ "$(metadata_value artifact_size_bytes)" = "$size_bytes" ] || continue
+        [ "$(metadata_value artifact_sha256)" = "$digest" ] || continue
+        migration_count="$(metadata_value migration_count)" || continue
+        migration_sha256="$(metadata_value migration_names_sha256)" || continue
+        printf "%s\n" "$migration_count" |
+          grep -Eq "^[1-9][0-9]*$" || continue
+        printf "%s\n" "$migration_sha256" |
+          grep -Eq "^[0-9a-f]{64}$" || continue
 
         created="$(
           date -u -d \

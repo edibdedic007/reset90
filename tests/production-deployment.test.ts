@@ -137,6 +137,11 @@ function deploymentHarness() {
   const stateDirectory = join(root, "deployment state");
 
   mkdirSync(binaries, { recursive: true });
+  mkdirSync(stateDirectory, { recursive: true });
+  writeFileSync(
+    join(stateDirectory, "database-compatible.sha"),
+    `${previousRevision}\n`,
+  );
   for (const script of [
     "backup-db.sh",
     "backup-retention.sh",
@@ -222,6 +227,18 @@ function deploymentHarness() {
       "fi",
       'if [[ "$joined" == *"pg_dump --version"* ]]; then',
       '  printf "pg_dump (PostgreSQL) 16.9\\n"',
+      "  exit 0",
+      "fi",
+      'if [[ "$joined" == *"psql --version"* ]]; then',
+      '  printf "psql (PostgreSQL) 16.9\\n"',
+      "  exit 0",
+      "fi",
+      'if [[ "$joined" == *"to_regclass"* ]]; then',
+      '  printf "present\\n"',
+      "  exit 0",
+      "fi",
+      'if [[ "$joined" == *"SELECT migration_name, CASE"* ]]; then',
+      '  printf "20260701000000_initial\\tcompleted\\n"',
       "  exit 0",
       "fi",
       'if [[ "$joined" == *" ps -q db" ]]; then',
@@ -565,6 +582,8 @@ describe("production deployment workflow", () => {
     expect(commandLog).not.toContain("down -v");
     expect(commandLog).not.toContain("db:seed");
     expect(commandLog).not.toContain("latest");
+    expect(commandLog).toContain(previousRevision);
+    expect(commandLog).toContain(fullRevision);
     for (const secret of Object.values(secretSentinels)) {
       expect(`${first.stdout}${first.stderr}${commandLog}`).not.toContain(
         secret,
@@ -582,6 +601,38 @@ describe("production deployment workflow", () => {
         "utf8",
       ),
     ).toBe(`${previousRevision}\n`);
+    expect(
+      readFileSync(
+        join(harness.stateDirectory, "database-compatible.sha"),
+        "utf8",
+      ),
+    ).toBe(`${fullRevision}\n`);
+  });
+
+  it("records previous compatible revision for migration-bearing pre-deploy backup", () => {
+    const harness = deploymentHarness();
+    const result = harness.run();
+    const commandLog = readFileSync(harness.commandLog, "utf8");
+
+    expect(result.status).toBe(0);
+    expect(commandLog).toContain(`_predeploy_${previousRevision}.sql.gz`);
+    expect(commandLog).not.toContain(`_predeploy_${fullRevision}.sql.gz`);
+    expect(commandLog).toContain(`deployment_target_revision=$target_revision`);
+  });
+
+  it("fails safely when compatible production revision state is unavailable", () => {
+    const harness = deploymentHarness();
+    rmSync(join(harness.stateDirectory, "database-compatible.sha"));
+    const result = harness.run();
+    const commandLog = readFileSync(harness.commandLog, "utf8");
+
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain(
+      "failed:database-compatible-revision-unavailable",
+    );
+    expect(commandLog).not.toContain("up -d --no-build db");
+    expect(commandLog).not.toContain("build app");
+    expect(commandLog).not.toContain("migrate deploy");
   });
 
   it.each([
@@ -670,6 +721,22 @@ describe("production deployment workflow", () => {
     expect(() =>
       readFileSync(join(harness.stateDirectory, "successful.sha"), "utf8"),
     ).toThrow();
+  });
+
+  it("marks compatible database revision unknown when migration fails", () => {
+    const harness = deploymentHarness();
+    const result = harness.run({
+      FAKE_DOCKER_FAIL_MATCH:
+        "run --rm --no-deps app node node_modules/prisma/build/index.js migrate deploy",
+    });
+
+    expect(result.status).not.toBe(0);
+    expect(
+      readFileSync(
+        join(harness.stateDirectory, "database-compatible.sha"),
+        "utf8",
+      ),
+    ).toBe("unknown\n");
   });
 
   it.each([

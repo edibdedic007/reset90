@@ -9,12 +9,15 @@ COMPOSE_FILE=""
 COMPOSE_PROJECT=""
 BACKUP_ROOT=""
 PURPOSE=""
-GIT_SHA=""
+COMPATIBLE_APP_REVISION=""
+DEPLOYMENT_TARGET_REVISION="none"
 DATABASE_NAME=""
 DATABASE_USER=""
 SERVICE="db"
 RETENTION_PROTECT_FILE=""
 DEPLOYMENT_LOCK_FD=""
+STATE_DIR="${DEPLOY_STATE_DIR:-$REPO_ROOT/.runtime/production-deploy}"
+DATABASE_COMPATIBLE_FILE="$STATE_DIR/database-compatible.sha"
 PUBLISHED=0
 RAW_TEMP=""
 COMPRESSED_TEMP=""
@@ -25,6 +28,7 @@ FINAL_CHECKSUM=""
 FINAL_METADATA=""
 
 source "$SCRIPT_DIR/lib/backup-restore.sh"
+source "$SCRIPT_DIR/lib/production-env.sh"
 
 fail() {
   printf 'backup:failed:%s\n' "$1" >&2
@@ -34,7 +38,8 @@ fail() {
 usage() {
   printf '%s\n' \
     "Usage: backup-db.sh --environment local|test|production --env-file FILE" \
-    "  --backup-root ABSOLUTE_PATH --purpose PURPOSE [--git-sha SHA]" \
+    "  --backup-root ABSOLUTE_PATH --purpose PURPOSE" \
+    "  [--compatible-app-revision SHA] [--deployment-target-revision SHA]" \
     "  [--compose-file FILE] [--project NAME] [--database NAME] [--user NAME]" \
     "  [--retention-protect-file BACKUP.sql.gz]"
 }
@@ -46,7 +51,10 @@ cleanup_temporary_backup() {
     "${CHECKSUM_TEMP:-}" \
     "${METADATA_TEMP:-}"
   if [[ "$PUBLISHED" -ne 1 ]]; then
-    rm -f -- "${FINAL_CHECKSUM:-}" "${FINAL_METADATA:-}"
+    rm -f -- \
+      "${FINAL_FILE:-}" \
+      "${FINAL_CHECKSUM:-}" \
+      "${FINAL_METADATA:-}"
   fi
 }
 
@@ -89,8 +97,12 @@ while [[ $# -gt 0 ]]; do
       PURPOSE="${2:-}"
       shift 2
       ;;
-    --git-sha)
-      GIT_SHA="${2:-}"
+    --compatible-app-revision)
+      COMPATIBLE_APP_REVISION="${2:-}"
+      shift 2
+      ;;
+    --deployment-target-revision)
+      DEPLOYMENT_TARGET_REVISION="${2:-}"
       shift 2
       ;;
     --compose-file)
@@ -175,11 +187,67 @@ if [[ "$ENVIRONMENT" == "production" ]]; then
   [[ "$BACKUP_ROOT" == "/backups" ]] || fail "production-backup-root-invalid"
 fi
 
-for required_command in awk chmod date docker grep gzip mkdir mv realpath rm sha256sum stat; do
+for required_command in awk chmod date docker grep gzip mkdir mv realpath rm sha256sum sort stat; do
   command -v "$required_command" >/dev/null 2>&1 ||
     fail "missing-command-$required_command"
 done
 docker compose version >/dev/null 2>&1 || fail "missing-docker-compose"
+
+if [[ "$ENVIRONMENT" == "production" ]]; then
+  "$SCRIPT_DIR/production-check.sh" "$ENV_FILE"
+  configured_database="$(production_env_value "$ENV_FILE" POSTGRES_DB)" ||
+    fail "production-database-unavailable"
+  configured_user="$(production_env_value "$ENV_FILE" POSTGRES_USER)" ||
+    fail "production-user-unavailable"
+  configured_target_revision="$(
+    production_env_value "$ENV_FILE" GIT_COMMIT
+  )" || fail "production-target-revision-unavailable"
+  [[ "$configured_database" =~ $RESET90_SAFE_DATABASE_REGEX ]] ||
+    fail "unsafe-database-name"
+  [[ "$configured_user" =~ $RESET90_SAFE_DATABASE_REGEX ]] ||
+    fail "unsafe-database-user"
+  [[ "$configured_target_revision" =~ ^[0-9a-f]{40}$ ]] ||
+    fail "production-target-revision-invalid"
+  [[ -z "$DATABASE_NAME" || "$DATABASE_NAME" == "$configured_database" ]] ||
+    fail "production-database-override-mismatch"
+  [[ -z "$DATABASE_USER" || "$DATABASE_USER" == "$configured_user" ]] ||
+    fail "production-user-override-mismatch"
+  DATABASE_NAME="$configured_database"
+  DATABASE_USER="$configured_user"
+
+  verified_compatible_revision="$(
+    verified_database_compatible_revision "$DATABASE_COMPATIBLE_FILE"
+  )" || fail "production-compatible-revision-unavailable"
+  [[ -z "$COMPATIBLE_APP_REVISION" ||
+    "$COMPATIBLE_APP_REVISION" == "$verified_compatible_revision" ]] ||
+    fail "production-compatible-revision-mismatch"
+  COMPATIBLE_APP_REVISION="$verified_compatible_revision"
+  if [[ "$PURPOSE" == "predeploy" ]]; then
+    [[ "$DEPLOYMENT_TARGET_REVISION" == "none" ||
+      "$DEPLOYMENT_TARGET_REVISION" == "$configured_target_revision" ]] ||
+      fail "production-target-revision-mismatch"
+    DEPLOYMENT_TARGET_REVISION="$configured_target_revision"
+  elif [[ "$DEPLOYMENT_TARGET_REVISION" != "none" ]]; then
+    fail "deployment-target-revision-not-applicable"
+  fi
+else
+  if [[ -z "$COMPATIBLE_APP_REVISION" ]] &&
+    command -v git >/dev/null 2>&1; then
+    COMPATIBLE_APP_REVISION="$(
+      git -C "$REPO_ROOT" rev-parse --verify HEAD 2>/dev/null || true
+    )"
+  fi
+  if [[ ! "$COMPATIBLE_APP_REVISION" =~ ^[0-9a-f]{40}$ ]]; then
+    COMPATIBLE_APP_REVISION="unknown-revision"
+  fi
+  if [[ "$PURPOSE" != "predeploy" &&
+    "$DEPLOYMENT_TARGET_REVISION" != "none" ]]; then
+    fail "deployment-target-revision-not-applicable"
+  fi
+  [[ "$DEPLOYMENT_TARGET_REVISION" == "none" ||
+    "$DEPLOYMENT_TARGET_REVISION" =~ ^[0-9a-f]{40}$ ]] ||
+    fail "invalid-deployment-target-revision"
+fi
 
 container_id="$(compose ps -q "$SERVICE")"
 [[ -n "$container_id" ]] || fail "postgres-service-missing"
@@ -193,6 +261,8 @@ container_health="$(
 
 compose exec -T "$SERVICE" pg_dump --version >/dev/null 2>&1 ||
   fail "postgres-tooling-missing"
+compose exec -T "$SERVICE" psql --version >/dev/null 2>&1 ||
+  fail "postgres-tooling-missing"
 postgres_major="$(
   compose exec -T "$SERVICE" pg_dump --version |
     awk '{ for (field = 1; field <= NF; field += 1) if ($field ~ /^[0-9]+(\.[0-9]+)*$/) { split($field, version, "."); print version[1]; exit } }'
@@ -200,7 +270,8 @@ postgres_major="$(
 [[ "$postgres_major" == "$RESET90_POSTGRES_MAJOR" ]] ||
   fail "postgres-major-version-unsupported"
 
-if [[ -z "$DATABASE_NAME" || -z "$DATABASE_USER" ]]; then
+if [[ "$ENVIRONMENT" != "production" &&
+  (-z "$DATABASE_NAME" || -z "$DATABASE_USER") ]]; then
   database_identity="$(
     compose exec -T "$SERVICE" sh -eu -c \
       'printf "%s\t%s" "$POSTGRES_USER" "$POSTGRES_DB"'
@@ -212,20 +283,42 @@ fi
 [[ "$DATABASE_USER" =~ $RESET90_SAFE_DATABASE_REGEX ]] || fail "unsafe-database-user"
 [[ "$DATABASE_NAME" =~ $RESET90_SAFE_DATABASE_REGEX ]] || fail "unsafe-database-name"
 
-if [[ -z "$GIT_SHA" ]] && command -v git >/dev/null 2>&1; then
-  GIT_SHA="$(
-    git -C "$REPO_ROOT" rev-parse --verify HEAD 2>/dev/null || true
-  )"
-fi
-if [[ ! "$GIT_SHA" =~ ^[0-9a-f]{40}$ ]]; then
-  if [[ "$ENVIRONMENT" == "production" ]]; then
-    fail "production-git-sha-required"
-  fi
-  GIT_SHA="unknown-revision"
-fi
+migration_table_state="$(
+  compose exec -T "$SERVICE" psql -X -A -t \
+    -U "$DATABASE_USER" \
+    -d "$DATABASE_NAME" \
+    -c "SELECT CASE
+      WHEN to_regclass('public._prisma_migrations') IS NULL
+        THEN 'missing'
+      ELSE 'present'
+    END;"
+)" || fail "migration-contract-unavailable"
+[[ "$migration_table_state" == "present" ]] ||
+  fail "migration-contract-unavailable"
+migration_rows="$(
+  compose exec -T "$SERVICE" psql -X -A -t -F $'\t' \
+    -U "$DATABASE_USER" \
+    -d "$DATABASE_NAME" \
+    -c 'SELECT migration_name, CASE
+      WHEN finished_at IS NOT NULL AND rolled_back_at IS NULL
+        THEN '"'completed'"'
+      WHEN finished_at IS NULL AND rolled_back_at IS NULL
+        AND COALESCE(logs, '"''"') = '"''"'
+        THEN '"'unfinished'"'
+      WHEN finished_at IS NULL AND rolled_back_at IS NULL
+        THEN '"'failed'"'
+      WHEN finished_at IS NULL AND rolled_back_at IS NOT NULL
+        THEN '"'rolled-back'"'
+      ELSE '"'inconsistent'"'
+    END
+    FROM "_prisma_migrations"
+    ORDER BY migration_name, started_at, id;'
+)" || fail "migration-contract-unavailable"
+migration_contract_from_rows "$migration_rows" ||
+  fail "migration-contract-invalid"
 
 timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
-filename="reset90_${timestamp}_${PURPOSE}_${GIT_SHA}.sql.gz"
+filename="reset90_${timestamp}_${PURPOSE}_${COMPATIBLE_APP_REVISION}.sql.gz"
 
 if [[ "$ENVIRONMENT" == "production" ]]; then
   compose exec -T "$SERVICE" sh -eu -c '
@@ -233,13 +326,16 @@ if [[ "$ENVIRONMENT" == "production" ]]; then
     filename="$2"
     timestamp="$3"
     purpose="$4"
-    revision="$5"
-    database_name="$6"
-    database_user="$7"
-    expected_major="$8"
-    marker_name="$9"
-    marker_value="${10}"
-    metadata_version="${11}"
+    compatible_revision="$5"
+    target_revision="$6"
+    database_name="$7"
+    database_user="$8"
+    expected_major="$9"
+    marker_name="${10}"
+    marker_value="${11}"
+    metadata_version="${12}"
+    migration_count="${13}"
+    migration_sha256="${14}"
 
     case "$root" in
       /*backup*) ;;
@@ -249,6 +345,7 @@ if [[ "$ENVIRONMENT" == "production" ]]; then
     command -v pg_dump >/dev/null 2>&1 || exit 31
     command -v gzip >/dev/null 2>&1 || exit 32
     command -v sha256sum >/dev/null 2>&1 || exit 33
+    command -v stat >/dev/null 2>&1 || exit 33
 
     umask 077
     mkdir -p -- "$root"
@@ -276,7 +373,7 @@ if [[ "$ENVIRONMENT" == "production" ]]; then
     cleanup() {
       rm -f -- "$raw" "$compressed" "$checksum" "$metadata"
       if [ "$published" -ne 1 ]; then
-        rm -f -- "$final_checksum" "$final_metadata"
+        rm -f -- "$final" "$final_checksum" "$final_metadata"
       fi
     }
     handle_signal() {
@@ -302,32 +399,36 @@ if [[ "$ENVIRONMENT" == "production" ]]; then
     gzip -t -- "$compressed"
     digest="$(sha256sum "$compressed" | awk "{print \$1}")"
     [ "${#digest}" -eq 64 ] || exit 39
+    size_bytes="$(stat -c "%s" "$compressed")"
+    printf "%s\n" "$size_bytes" | grep -Eq "^[1-9][0-9]*$" || exit 39
     printf "%s  %s\n" "$digest" "$filename" > "$checksum"
     printf "%s\n" \
       "metadata_version=$metadata_version" \
       "filename=$filename" \
       "created_utc=$timestamp" \
       "purpose=$purpose" \
-      "git_sha=$revision" \
+      "compatible_app_revision=$compatible_revision" \
+      "deployment_target_revision=$target_revision" \
       "postgres_major=$detected_major" \
-      "source_database=$database_name" > "$metadata"
+      "source_database=$database_name" \
+      "artifact_size_bytes=$size_bytes" \
+      "artifact_sha256=$digest" \
+      "migration_count=$migration_count" \
+      "migration_names_sha256=$migration_sha256" > "$metadata"
     chmod 600 -- "$compressed" "$checksum" "$metadata"
-    mv -- "$checksum" "$final_checksum"
-    mv -- "$metadata" "$final_metadata"
     mv -- "$compressed" "$final"
-    published=1
+    mv -- "$checksum" "$final_checksum"
     if ! (
       cd -- "$root"
       gzip -t -- "$filename"
       sha256sum -c -- "$filename.sha256" >/dev/null
+      [ "$(stat -c "%s" "$filename")" = "$size_bytes" ]
+      [ "$(sha256sum "$filename" | awk "{ print \$1 }")" = "$digest" ]
     ); then
-      mv -- "$final" "$final.$$.failed" 2>/dev/null || rm -f -- "$final"
-      mv -- "$final_checksum" "$final_checksum.$$.failed" 2>/dev/null ||
-        rm -f -- "$final_checksum"
-      mv -- "$final_metadata" "$final_metadata.$$.failed" 2>/dev/null ||
-        rm -f -- "$final_metadata"
       exit 40
     fi
+    mv -- "$metadata" "$final_metadata"
+    published=1
     cleanup
     trap - EXIT HUP INT TERM
   ' sh \
@@ -335,13 +436,16 @@ if [[ "$ENVIRONMENT" == "production" ]]; then
     "$filename" \
     "$timestamp" \
     "$PURPOSE" \
-    "$GIT_SHA" \
+    "$COMPATIBLE_APP_REVISION" \
+    "$DEPLOYMENT_TARGET_REVISION" \
     "$DATABASE_NAME" \
     "$DATABASE_USER" \
     "$RESET90_POSTGRES_MAJOR" \
     "$RESET90_BACKUP_ROOT_MARKER" \
     "$RESET90_BACKUP_ROOT_MARKER_VALUE" \
-    "$RESET90_BACKUP_METADATA_VERSION" ||
+    "$RESET90_BACKUP_METADATA_VERSION" \
+    "$MIGRATION_CONTRACT_COUNT" \
+    "$MIGRATION_CONTRACT_SHA256" ||
     fail "creation-or-validation"
 else
   prepare_backup_root "$BACKUP_ROOT" || fail "backup-root-invalid"
@@ -375,6 +479,8 @@ else
   digest="$(sha256sum "$COMPRESSED_TEMP" | awk '{print $1}')" ||
     fail "checksum"
   [[ "$digest" =~ ^[0-9a-f]{64}$ ]] || fail "checksum"
+  size_bytes="$(stat -c '%s' -- "$COMPRESSED_TEMP")" || fail "metadata"
+  [[ "$size_bytes" =~ ^[1-9][0-9]*$ ]] || fail "metadata"
   printf '%s  %s\n' "$digest" "$filename" > "$CHECKSUM_TEMP" ||
     fail "checksum"
   printf '%s\n' \
@@ -382,27 +488,35 @@ else
     "filename=$filename" \
     "created_utc=$timestamp" \
     "purpose=$PURPOSE" \
-    "git_sha=$GIT_SHA" \
+    "compatible_app_revision=$COMPATIBLE_APP_REVISION" \
+    "deployment_target_revision=$DEPLOYMENT_TARGET_REVISION" \
     "postgres_major=$postgres_major" \
-    "source_database=$DATABASE_NAME" > "$METADATA_TEMP" ||
+    "source_database=$DATABASE_NAME" \
+    "artifact_size_bytes=$size_bytes" \
+    "artifact_sha256=$digest" \
+    "migration_count=$MIGRATION_CONTRACT_COUNT" \
+    "migration_names_sha256=$MIGRATION_CONTRACT_SHA256" > "$METADATA_TEMP" ||
     fail "metadata"
   chmod 600 -- "$COMPRESSED_TEMP" "$CHECKSUM_TEMP" "$METADATA_TEMP" ||
     fail "permissions"
-  mv -- "$CHECKSUM_TEMP" "$FINAL_CHECKSUM" || fail "publish-checksum"
-  mv -- "$METADATA_TEMP" "$FINAL_METADATA" || fail "publish-metadata"
   mv -- "$COMPRESSED_TEMP" "$FINAL_FILE" || fail "publish-backup"
-  PUBLISHED=1
-  cleanup_temporary_backup
-  if ! validate_backup_artifact "$FINAL_FILE" "$BACKUP_ROOT"; then
-    mv -- "$FINAL_FILE" "$FINAL_FILE.$$.failed" 2>/dev/null ||
-      rm -f -- "$FINAL_FILE"
-    mv -- "$FINAL_CHECKSUM" "$FINAL_CHECKSUM.$$.failed" 2>/dev/null ||
-      rm -f -- "$FINAL_CHECKSUM"
-    mv -- "$FINAL_METADATA" "$FINAL_METADATA.$$.failed" 2>/dev/null ||
-      rm -f -- "$FINAL_METADATA"
+  mv -- "$CHECKSUM_TEMP" "$FINAL_CHECKSUM" || fail "publish-checksum"
+  gzip -t -- "$FINAL_FILE" >/dev/null 2>&1 ||
+    fail "final-publication-validation"
+  (
+    cd -- "$BACKUP_ROOT"
+    sha256sum -c -- "$filename.sha256" >/dev/null 2>&1
+  ) || fail "final-publication-validation"
+  [[ "$(stat -c '%s' -- "$FINAL_FILE")" == "$size_bytes" ]] ||
+    fail "final-publication-validation"
+  [[ "$(sha256sum -- "$FINAL_FILE" | awk '{ print $1 }')" == "$digest" ]] ||
+    fail "final-publication-validation"
+  mv -- "$METADATA_TEMP" "$FINAL_METADATA" || fail "publish-metadata"
+  validate_backup_artifact "$FINAL_FILE" "$BACKUP_ROOT" ||
     fail "published-artifact-invalid"
-  fi
+  PUBLISHED=1
   trap - EXIT HUP INT TERM
+  cleanup_temporary_backup
 fi
 
 printf 'backup:verified filename=%s\n' "$filename"

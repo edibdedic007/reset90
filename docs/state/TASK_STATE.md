@@ -1,6 +1,6 @@
 # Task State
 
-Last updated: 2026-07-26
+Last updated: 2026-07-30
 
 ## Current phase
 
@@ -18,14 +18,14 @@ product-domain status.
 ## Active task
 
 `scripts/backup-db.sh` remains the canonical backup entry point and `make
-db-backup` remains the canonical Make target. Backup requires explicit
-environment, environment file, Compose file, absolute approved backup root, and
-purpose. The matching PostgreSQL 16 container supplies `pg_dump`. Local/test
-backups use restrictive uniquely named temporary files; production performs the
-same guarded algorithm inside the named backup volume. Final `.sql.gz`,
-`.sha256`, and `.meta` files are published only after non-empty dump,
-compression, gzip validation, checksum, metadata, and permission checks pass.
-Production deployment now calls this canonical path before migration.
+db-backup` remains the canonical Make target. Metadata version 2 separates
+backup-compatible application revision, incoming deployment target revision,
+and purpose; captures source database, final byte size/SHA-256, and exact
+completed-migration count/name digest; and removes ambiguous `git_sha`.
+Production derives database/user from validated environment and compatible
+revision from verified `database-compatible.sha` plus immutable image. Bundle
+components remain cleanup-owned through final validation, with metadata
+published last, so signals/failures leave no accepted final bundle.
 
 `scripts/backup-retention.sh` selects only verified final bundles under a marked
 absolute Reset90 backup root. It keeps 30 days and at least the newest seven,
@@ -33,37 +33,43 @@ supports exact-path dry-run/apply output, removes bundle files as one unit, and
 ignores unknown, malformed, symlinked, and `.partial` files. Production
 retention shares the deployment/restore lock and supports one exact protected
 bundle so automatic pre-restore backup retention cannot prune its restore
-source.
+source. Production subprocess and host handlers clean once and terminate
+non-zero on `HUP`, `INT`, or `TERM`.
 
 `scripts/restore-db.sh` defaults to guarded test mode. It rejects inherited
 `DATABASE_URL`, non-loopback or non-test targets, populated or source-equal
 targets, unsafe paths/symlinks, unsupported filenames/metadata/PostgreSQL
-majors, malformed gzip/SQL markers, missing or mismatched checksums, and
-failed/inconsistent Prisma migration state. Test restore uses one transaction.
+majors, malformed gzip/SQL markers, size/digest disagreement, and migration
+state inconsistent with backup metadata. Exact captured migration contract
+allows a complete older N−1 backup when checkout contains N while still
+rejecting missing, unfinished, unresolved failed, duplicate, unexpected, or
+contract-mismatched records. Test restore uses one transaction and reports
+backup-compatible revision.
 
 Production restore requires explicit production mode/environment, a selected
-verified backup inside `/backups` with a full 40-character Git SHA, an
-interactive terminal, and exact confirmation naming both target database and
-backup. It acquires the same non-blocking host lock as deployment before
-artifact validation, protects the selection during its verified `prerestore`
-backup, and revalidates the selected digest immediately before staging. It
-proves application writes are stopped, verifies staging against current
-checked-in migration history, and replaces production contents through guarded
-database renames. Failure/signal cleanup reconciles actual PostgreSQL names,
-restores only unambiguous prior state, preserves ambiguous recoverable
-databases, releases the lock, and retains the shared lock file. It leaves the
-application stopped and does not migrate, seed, reset schema, delete volumes,
-select an image, or restart the app.
+verified backup inside `/backups` with full compatible SHA, interactive
+terminal, and exact confirmation. Under shared lock it requires backup source
+database to equal validated production target before pre-restore backup,
+staging, or mutation. Pre-restore backup derives current compatible revision
+from verified deployment state, not checkout `GIT_COMMIT`; selected backup
+fingerprint includes identity, compatible/target revisions, size/digest, and
+migration contract. Restore reports selected backup-compatible revision, leaves
+application stopped, and never migrates forward automatically.
+
+Deployment pre-migration backup records verified previous database-compatible
+revision and separate incoming target. Deployment marks compatible state
+`unknown` immediately before migration and records target only after migration
+succeeds. Missing, malformed, or unverified compatible state stops safely.
 
 `scripts/restore-drill.sh` creates one unique disposable Compose project with
 separate source and target databases, applies all migrations, inserts
 representative ownership-sensitive data, uses canonical backup/restore, verifies
 current migration history/data/relationships/uniqueness/explicit foreign-key
 rejection/serialization fidelity and a Prisma query, then removes only
-disposable resources. The application service no longer mounts the database
-backup volume; only PostgreSQL/operator paths mount it at `/backups`.
-Documentation classifies that named volume as local recovery storage and gives
-a checksum-preserving three-file copy procedure for encrypted off-host storage.
+disposable resources. Cleanup ownership starts before Compose startup, uses a
+bounded down, and signal handlers clean once then terminate. Failed drills retain
+diagnostic work directory; successful drills remove it. The application service
+does not mount database backup volume; only PostgreSQL/operator paths do.
 
 ## Next phase
 
@@ -82,12 +88,11 @@ integration was changed.
 ## Verification evidence
 
 - Focused backup/restore plus production-deployment coverage passes 2 files with
-  92 tests. Correction coverage includes exact 30-day retention, concurrent
-  backup/retention, backup and production-restore signals, selected-artifact
-  retention protection and locked revalidation, concurrent production
-  retention exclusion, full-SHA production restore rules, current Prisma
-  migration-state fixtures, actual-name rename recovery/failure states, lock
-  release/file retention, and app backup-volume isolation.
+  117 tests. Added correction coverage proves previous compatible revision on
+  migration-bearing deploy, N−1 restore with checkout at N, compatible revision
+  output independent of checkout, production database/user/source identity,
+  metadata size/digest agreement and malformed cases, all publication
+  interruption windows, retention termination, and partial/signal drill cleanup.
 - The real disposable PostgreSQL drill passed. It applied all 9 checked-in
   migrations to a unique source, inserted two users/two owned cycles plus
   imported/normalized/task/check-in data, created and checksummed a canonical
@@ -96,32 +101,24 @@ integration was changed.
   Unicode, multiline text, timestamps, JSON, and a Prisma ownership query, then
   removed its container, network, tmpfs databases, and successful backup
   directory.
-- The first drill invocation was blocked by sandbox Docker-socket permissions.
-  The first host-side drill reached the final application query and exposed a
-  harness-only top-level-await incompatibility; wrapping the query in an async
-  function corrected it. The next complete drill passed. Both known failed
-  disposable temp directories were removed after diagnosis.
-- Bash syntax, focused Prettier, the final focused 2-file/92-test rerun, Make
-  target/alias inspection, executable modes, and Git diff whitespace pass.
-- The single final `make check` passed with tracked-sensitive-path validation,
-  frozen dependencies, formatting, lint, TypeScript, 27 unit/component files
-  with 542 tests, payload/schema drift, Prisma validation, all 9 migrations, 2
-  PostgreSQL files with 12 tests, production Next.js build, shell syntax, and
-  Git diff whitespace.
+- The corrected real drill passed after final script edits with metadata v2,
+  compatible-revision output, all 9 migrations, representative data/constraints,
+  Prisma access, and bounded disposable project cleanup.
+- Bash syntax, focused Prettier, focused 2-file/117-test rerun, and Git diff
+  whitespace pass.
 
 ## Migration, deployment, rollback, and risk
 
 - No `prisma/schema.prisma`, checked-in migration, seed, or normalized data
   behavior changed. The drill used only disposable PostgreSQL resources.
 - No live deployment or production data operation occurred.
-- Deployment still stops before migration when canonical pre-deploy backup or
-  retention fails. Restore is never triggered by deployment failure.
-- Script rollback is reverting this correction diff. Reintroducing the app
-  backup mount would weaken the operator-only boundary. Any future real
-  production restore is intentionally manual, destructive, lock-protected, and
-  requires independent off-host backup readiness plus explicit immutable image
-  choice. Ambiguous post-promotion failure intentionally retains both
-  recoverable database names for operator resolution.
+- Deployment stops before migration when compatible revision, canonical backup,
+  or retention is unverified. Migration failure leaves compatibility unknown and
+  requires operator recovery from pre-deploy bundle; restore is never automatic.
+- Script rollback is reverting this correction diff, but metadata v2 bundles and
+  `database-compatible.sha` must remain paired with corrected scripts. Future
+  production restore remains manual, destructive, lock-protected, and requires
+  independent off-host bundle plus explicit compatible immutable image choice.
 - Production backup/restore mutation paths are covered with command stubs, not
   live production data. Real production readiness remains unconfirmed until an
   authorised operator makes and transfers a verified production backup and
@@ -129,6 +126,12 @@ integration was changed.
 
 ## Latest handoff
 
+- 2026-07-30T21:23:00Z — `feature/backup-restore` — bounded Phase 22 correction
+  implements metadata v2, verified compatible-revision state, captured migration
+  contracts, production database identity, interruption-safe publication,
+  terminating retention/drill signals, and partial-start drill cleanup; focused
+  2-file/117-test coverage and real 9-migration disposable restore drill pass;
+  no live production, schema/migration/seed, dependency, UI, or Phase 23 change
 - 2026-07-26T22:19:54Z — `feature/backup-restore` — bounded Phase 22 correction
   protects selected restore bundles from automatic/concurrent retention,
   revalidates under the shared lock, reconciles cleanup from actual PostgreSQL

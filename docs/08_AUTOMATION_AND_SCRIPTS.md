@@ -98,9 +98,20 @@ make docs-bundle
   database URLs, secrets, tokens, cookies, authorization headers, or private
   application data.
 - Do not hide destructive actions.
-- Publish backup filenames only after dump, compression, gzip validation,
-  checksum, versioned metadata, and restrictive permissions succeed.
+- Keep backup artifact/checksum/metadata under temporary names until content is
+  complete. Publish metadata last, retain cleanup ownership through final
+  validation, and remove every final component after interruption or failure.
 - Treat the compressed SQL file, checksum, and metadata as one backup bundle.
+- Record artifact byte size and SHA-256 in metadata; require both to match
+  checksum sidecar and actual artifact.
+- Record backup-compatible application revision separately from incoming
+  deployment target revision and backup purpose. Production derives compatible
+  revision from verified database deployment state, never current checkout.
+- Capture exact completed migration count and sorted-name digest with backup;
+  restore validates this contract without requiring newer checked-in migrations.
+- Derive production backup database/user from validated production environment
+  and require production restore source database to match target identity before
+  any backup or target mutation.
 - Retain verified bundles for 30 days while always keeping the newest seven;
   ignore unknown, malformed, symlinked, and temporary files.
 - Require exact interactive typed confirmation for production restore.
@@ -108,6 +119,9 @@ make docs-bundle
 - Use the shared non-blocking host lock for production deployment and restore.
 - Keep application writes stopped throughout production restore. Restore into
   a verified staging database before replacing production contents.
+- Stateful signal handlers must disable traps, perform idempotent bounded
+  cleanup once, and terminate non-zero. Disposable Compose cleanup ownership
+  begins before startup.
 - Run `prisma migrate deploy` as one explicit deployment step with the exact
   immutable image being promoted; never seed or migrate in normal app startup.
 - Never migrate, seed, reset, delete volumes, select an image, or restart the

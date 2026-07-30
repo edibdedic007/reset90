@@ -13,7 +13,8 @@ SOURCE_DATABASE="reset90_source_test_${RUN_ID,,}"
 TARGET_DATABASE="reset90_target_test_${RUN_ID,,}"
 DATABASE_USER="reset90_test"
 DATABASE_PASSWORD="reset90_test_password"
-STARTED=0
+CLEANUP_REQUIRED=0
+CLEANUP_DONE=0
 DRILL_PASSED=0
 BACKUP_FILE=""
 
@@ -34,8 +35,17 @@ cleanup() {
   local exit_status=$?
   local cleanup_result="not-started"
 
-  if [[ "$STARTED" -eq 1 ]]; then
-    if compose down --volumes --remove-orphans >/dev/null 2>&1; then
+  if [[ "$CLEANUP_DONE" -eq 1 ]]; then
+    return "$exit_status"
+  fi
+  CLEANUP_DONE=1
+
+  if [[ "$CLEANUP_REQUIRED" -eq 1 ]]; then
+    if TEST_DATABASE_PORT=0 timeout --signal=TERM 30s docker compose \
+      -p "$PROJECT" \
+      --env-file "$ENV_FILE" \
+      -f "$COMPOSE_FILE" \
+      down --volumes --remove-orphans >/dev/null 2>&1; then
       cleanup_result="passed"
     else
       cleanup_result="failed"
@@ -50,9 +60,21 @@ cleanup() {
   printf 'restore-drill:evidence cleanup=%s\n' "$cleanup_result"
   return "$exit_status"
 }
-trap cleanup EXIT INT TERM
 
-for required_command in date docker find git gzip mktemp pnpm sha256sum; do
+handle_signal() {
+  local status="$1"
+
+  trap - EXIT HUP INT TERM
+  cleanup
+  exit "$status"
+}
+
+trap cleanup EXIT
+trap 'handle_signal 129' HUP
+trap 'handle_signal 130' INT
+trap 'handle_signal 143' TERM
+
+for required_command in date docker find git gzip mktemp pnpm sha256sum timeout; do
   command -v "$required_command" >/dev/null 2>&1 ||
     fail "missing-command-$required_command"
 done
@@ -65,8 +87,8 @@ mkdir -m 700 -- "$BACKUP_ROOT"
 
 printf 'restore-drill:start source=%s target=%s\n' \
   "$SOURCE_DATABASE" "$TARGET_DATABASE"
-compose up -d --wait db
-STARTED=1
+CLEANUP_REQUIRED=1
+compose up -d --wait db || fail "database-start"
 mapped_port="$(compose port db 5432)"
 host_port="${mapped_port##*:}"
 [[ "$host_port" =~ ^[0-9]+$ ]] || fail "database-port-unavailable"
@@ -170,7 +192,7 @@ revision="$(git -C "$REPO_ROOT" rev-parse --verify HEAD)"
   --project "$PROJECT" \
   --backup-root "$BACKUP_ROOT" \
   --purpose drill \
-  --git-sha "$revision" \
+  --compatible-app-revision "$revision" \
   --database "$SOURCE_DATABASE" \
   --user "$DATABASE_USER"
 

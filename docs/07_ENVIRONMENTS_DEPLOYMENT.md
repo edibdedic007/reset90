@@ -193,9 +193,13 @@ The script stops at the first failed gate:
 6. Validate fully interpolated Compose without printing it.
 7. Require the configured external Traefik network.
 8. Start/wait for PostgreSQL and invoke the canonical backup script to create a
-   verified pre-migration backup bundle on the persistent backup volume;
+   verified pre-migration backup bundle on the persistent backup volume. Its
+   compatible application revision is the verified currently deployed
+   revision, while its separate deployment target is the incoming revision.
 9. Build `reset90:<full-commit-sha>`.
-10. Run `prisma migrate deploy` once in that exact image.
+10. Mark database compatibility unknown, run `prisma migrate deploy` once in
+    that exact image, then record that incoming revision as database-compatible
+    only after migration succeeds.
 11. Start/update services without building or deleting volumes.
 12. Wait separately for database and application readiness.
 13. Verify the canonical public HTTPS readiness URL with certificate validation
@@ -208,6 +212,15 @@ remains held through backup, build, migration, promotion, internal and public
 health verification, and revision recording. Exit cleanup unlocks only the
 owning file descriptor after success or failure; it does not delete the shared
 lock file or override another owner.
+
+`.runtime/production-deploy/database-compatible.sha` is distinct from
+`attempted.sha` and `successful.sha`. It records the immutable application
+revision compatible with current database state. Backup and restore verify both
+its full SHA and corresponding local immutable image. Missing, malformed,
+unverified, or migration-failure state stops backup/deployment/restore safely.
+An initial live cutover must establish this state from verified deployment and
+database evidence; scripts never guess it from current checkout or incoming
+`GIT_COMMIT`.
 
 Repeated deployment of the same clean revision repeats safety gates and the
 backup, but migrations remain idempotent and no seed, secret rotation, volume
@@ -257,18 +270,35 @@ override those settings.
 Each verified backup is a restrictive-permission bundle:
 
 ```text
-reset90_<UTC>_<purpose>_<full-git-sha-or-unknown-revision>.sql.gz
-reset90_<UTC>_<purpose>_<full-git-sha-or-unknown-revision>.sql.gz.sha256
-reset90_<UTC>_<purpose>_<full-git-sha-or-unknown-revision>.sql.gz.meta
+reset90_<UTC>_<purpose>_<compatible-app-revision-or-unknown-revision>.sql.gz
+reset90_<UTC>_<purpose>_<compatible-app-revision-or-unknown-revision>.sql.gz.sha256
+reset90_<UTC>_<purpose>_<compatible-app-revision-or-unknown-revision>.sql.gz.meta
 ```
 
 The matching PostgreSQL 16 container supplies `pg_dump`. Creation uses
-uniquely named `.partial` files and publishes the final compressed SQL filename
-only after non-empty output, `gzip -t`, SHA-256 generation, and versioned
-metadata succeed. Production backups require a full Git SHA. Only final bundles
-with valid gzip, checksum, metadata version, PostgreSQL major, safe source
-database identifier, filename, root marker, and `0600` permissions are eligible
-for restore or retention.
+uniquely named `.partial` files. Artifact and checksum publication remain owned
+by cleanup until final validation passes; metadata is the last bundle component
+published. Any failure or signal before completed verification removes final
+names, so restore and retention never accept an interrupted bundle.
+
+Metadata version 2 records exactly one value for:
+
+- filename, creation time, and backup purpose;
+- backup-compatible application revision;
+- incoming deployment target revision, or `none` when not applicable;
+- PostgreSQL major and source database;
+- final artifact size in bytes and SHA-256 digest;
+- completed migration count and SHA-256 of sorted completed migration names.
+
+The checksum sidecar, metadata digest, and actual artifact digest must agree;
+metadata size must match actual size. Missing, duplicate, malformed, or
+conflicting size/digest values reject the bundle. Production backup derives
+`POSTGRES_DB` and `POSTGRES_USER` from validated `.env.production`, rejects
+different explicit overrides, and derives compatible revision from verified
+database deployment state. A `predeploy` backup separately records incoming
+target revision. Only complete bundles with valid gzip, checksum, metadata,
+PostgreSQL major, safe source database, migration contract, filename, root
+marker, and `0600` permissions are eligible for restore or retention.
 
 Retention runs only after a verified backup. It keeps backups for 30 days and
 always preserves the newest seven verified bundles. Unknown, malformed,
@@ -287,7 +317,9 @@ make db-backup-retention RETENTION_MODE=--apply
 
 Production retention shares the deployment/restore lock. Restore also passes
 its selected bundle as an exact protected path to automatic retention during
-the pre-restore backup, so that backup cannot prune the restore source.
+the pre-restore backup, so that backup cannot prune the restore source. `HUP`,
+`INT`, and `TERM` handlers clean bounded temporary state, release owned locks,
+exit non-zero, and never continue to later candidate deletion.
 
 The canonical restore defaults to an explicitly test-only, loopback PostgreSQL
 URL. The target name must contain `test`, must differ from the backup source
@@ -308,11 +340,14 @@ docker compose -p reset90_phase22_restore \
 `restore-db.sh` validates the complete bundle and SQL dump marker before target
 mutation, requires the supported PostgreSQL major, restores in one transaction,
 and rejects missing or unsafe input, inherited `DATABASE_URL`, a populated
-target, or invalid current Prisma migration history. Validation requires every
-checked-in migration to have exactly one completed current record, rejects a
-missing migration table, unfinished or unresolved failed migrations, and
-unexpected current migration names, and permits a historical rolled-back record
-only when the same checked-in migration has a completed current record.
+target, or migration history inconsistent with backup metadata. Validation
+compares exact completed migration count and sorted-name digest captured by
+backup. Therefore a complete N−1 history remains restorable when current
+checkout contains migration N. Validation still rejects a missing migration
+table, missing required names, unfinished or unresolved failed migrations,
+duplicate completed records, unexpected names, and contract mismatches. A
+historical rolled-back record is allowed only when same migration has exactly
+one completed current record. Restore never applies newer migrations.
 
 Production restore is an exceptional operator action. First stop application
 writes explicitly; the script never stops or restarts the application for the
@@ -329,22 +364,27 @@ operator. Then invoke it from an interactive terminal:
   --file /backups/<verified-backup>.sql.gz
 ```
 
-Production mode requires the selected filename and metadata to record one full
-40-character Git SHA; `unknown-revision` and abbreviated or malformed revisions
-are rejected. After exact typed confirmation, it acquires the shared deployment
-lock before validating the selected bundle, proves application writes remain
-stopped, and creates a verified `prerestore` backup while protecting the
-selected bundle from retention. It revalidates the bundle and its digest again
-immediately before streaming it into a new staging database. Only a verified
-and unchanged staging database can reach guarded production database renames.
+Production mode requires selected filename and compatible-revision metadata to
+record one full 40-character Git SHA; `unknown-revision` and abbreviated or
+malformed revisions are rejected. After exact typed confirmation, it acquires
+shared deployment lock and validates selected bundle. Before pre-restore backup,
+staging creation, or target mutation, it requires backup `source_database` to
+equal validated production `POSTGRES_DB`. It proves application writes remain
+stopped and creates a verified `prerestore` backup using compatible revision
+from verified database deployment state, not checkout `GIT_COMMIT`, while
+protecting selected bundle from retention. It revalidates complete bundle and
+fingerprint immediately before streaming it into new staging database. Only a
+verified and unchanged staging database can reach guarded production database
+renames.
 Failure and signal cleanup inspects actual PostgreSQL database names instead of
 in-memory command flags, restores the original name when that state is
 unambiguous, removes only a clearly disposable staging database, and preserves
 old/promoted databases when both remain recoverable. Cleanup is repeat-safe,
 releases the lock, and retains the shared lock file. The application remains
-stopped. The operator must select and verify the exact immutable Git revision
-recorded by the restored backup before starting it. Forward migration to a newer
-revision is a separate explicit action.
+stopped. Restore output identifies exact backup-compatible immutable application
+revision, regardless of current checkout revision. Operator must select and
+verify that revision before starting it. Forward migration to newer revision is
+separate explicit action.
 
 Production restore never runs Prisma migrations, seeds, schema reset, `db
 push`, volume deletion, `docker compose down -v`, image selection, or
@@ -365,14 +405,17 @@ data, creates a canonical backup, restores a separate empty target, verifies
 gzip/checksum/current migration history/data/relationships/uniqueness, rejects
 one explicit invalid foreign-key write, verifies Unicode, multiline
 text/timestamps/JSON, performs a Prisma query, and removes only its disposable
-resources. Failed drills retain their known temporary diagnostic directory;
-successful drills remove it. Automatic scheduling remains deferred.
+resources. Cleanup responsibility begins before Compose startup, so resources
+created before readiness failure are removed from only unique drill project.
+Signal handlers clean once and exit non-zero. Failed drills retain known
+temporary diagnostic directory; successful drills remove it. Automatic
+scheduling remains deferred.
 
 Copy a verified production bundle out of the named Docker volume only as a
 three-file unit. Use an operator-owned encrypted destination:
 
 ```bash
-backup_name='reset90_<UTC>_<purpose>_<full-git-sha>.sql.gz'
+backup_name='reset90_<UTC>_<purpose>_<compatible-app-revision>.sql.gz'
 off_host_dir='/path/on/encrypted-off-host-storage/reset90'
 
 install -d -m 700 "$off_host_dir"
