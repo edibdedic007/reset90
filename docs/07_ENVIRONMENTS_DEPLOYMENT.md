@@ -194,12 +194,14 @@ The script stops at the first failed gate:
 7. Require the configured external Traefik network.
 8. Start/wait for PostgreSQL and invoke the canonical backup script to create a
    verified pre-migration backup bundle on the persistent backup volume. Its
-   compatible application revision is the verified currently deployed
-   revision, while its separate deployment target is the incoming revision.
+   compatible application revision and migration contract must match the live
+   database compatibility record, while its separate deployment target is the
+   incoming revision.
 9. Build `reset90:<full-commit-sha>`.
-10. Mark database compatibility unknown, run `prisma migrate deploy` once in
-    that exact image, then record that incoming revision as database-compatible
-    only after migration succeeds.
+10. Atomically invalidate database compatibility, run `prisma migrate deploy`
+    once in that exact image, capture the resulting live migration contract,
+    then atomically publish the incoming revision, completed-migration count,
+    and migration-name digest together.
 11. Start/update services without building or deleting volumes.
 12. Wait separately for database and application readiness.
 13. Verify the canonical public HTTPS readiness URL with certificate validation
@@ -217,17 +219,21 @@ the exact shared lock. Exit and signal cleanup unlock only ownership acquired
 by the current process; the shared lock file remains present.
 
 `.runtime/production-deploy/database-compatible.sha` is distinct from
-`attempted.sha` and `successful.sha`. It records the immutable application
-revision compatible with current database state. Normal production backup,
-deployment, and restore verify both its full SHA and corresponding local
-immutable image. Missing, malformed, unverified, or migration-failure state
-stops normal operation safely. Explicit degraded restore is the only exception:
-it trusts the selected fully verified backup's full compatible revision and
-migration contract, never guesses current database compatibility, and
-atomically replaces `database-compatible.sha` only after final promoted-database
-verification. It never updates `successful.sha`. An initial live cutover must
-establish state from verified deployment and database evidence; scripts never
-guess it from current checkout or incoming `GIT_COMMIT`.
+`attempted.sha` and `successful.sha`. Despite retained path name, it is a
+versioned key/value compatibility record containing format version, immutable
+application revision, effective completed-migration count, and sorted
+migration-name digest. Revision-only legacy content is rejected safely.
+Normal production backup, deployment, and restore require a valid record,
+corresponding local immutable image, and exact record/live-database migration
+contract match. Image existence alone never proves compatibility. Missing,
+malformed, invalidated, unverified, contract-mismatched, or migration-failure
+state stops normal operation safely. Explicit degraded restore trusts only the
+selected verified backup's full compatible revision and migration contract,
+labels any pre-restore forensic backup `unknown-revision`, and never guesses
+current database compatibility. Restore never updates `successful.sha`. An
+initial live cutover must establish the record from verified deployment and
+database evidence; scripts never infer it from checkout or incoming
+`GIT_COMMIT`.
 
 Repeated deployment of the same clean revision repeats safety gates and the
 backup, but migrations remain idempotent and no seed, secret rotation, volume
@@ -301,13 +307,15 @@ The checksum sidecar, metadata digest, and actual artifact digest must agree;
 metadata size must match actual size. Missing, duplicate, malformed, or
 conflicting size/digest values reject the bundle. Production backup derives
 `POSTGRES_DB` and `POSTGRES_USER` from validated `.env.production`, rejects
-different explicit overrides, and derives compatible revision from verified
-database deployment state. A `predeploy` backup separately records incoming
-target revision. Local and disposable backups use repository `HEAD` only when
-the captured database migration count/name digest exactly matches the current
-checkout contract. A mismatched database uses `unknown-revision` unless the
-operator supplies a valid explicit full compatible SHA; malformed explicit
-revisions fail. Only complete bundles with valid gzip, checksum, metadata,
+different explicit overrides, and requires the compatibility record's revision,
+migration count, and migration-name digest to match the live database before
+publication. A `predeploy` backup separately records incoming target revision.
+Local and disposable backups use repository `HEAD` only when captured database
+migration count/name digest exactly matches current checkout contract. A
+mismatched database uses `unknown-revision` unless operator supplies a valid
+explicit full compatible SHA; malformed explicit revisions fail. Degraded
+forensic backup always records `unknown-revision`, never a verified compatible
+application. Only complete bundles with valid gzip, checksum, metadata,
 PostgreSQL major, safe source database, migration contract, filename, root
 marker, and `0600` permissions are eligible for restore or retention.
 
@@ -356,18 +364,25 @@ docker compose -p reset90_phase22_restore \
 mutation, requires the supported PostgreSQL major, restores in one transaction,
 and rejects missing or unsafe input, inherited `DATABASE_URL`, a populated
 target, or migration history inconsistent with backup metadata. Empty-target
-validation rejects user-created relations, sequences, domains, enums, routines
+validation first rejects every installed extension except PostgreSQL's required
+`plpgsql`; Reset90 migrations currently allowlist no additional extension. It
+then rejects user-created relations, sequences, domains, enums, routines
 (including standalone functions and procedures), schemas, and operators while
-excluding system and extension-owned objects. Ambiguous targets are rejected;
-the canonical drill creates a new uniquely named database instead of merging.
-Validation
+excluding objects owned by an already approved extension. Extension rejection
+occurs before restore input and leaves target unchanged. Ambiguous targets are
+rejected; canonical drill creates a new uniquely named database instead of
+merging. Validation
 compares exact completed migration count and sorted-name digest captured by
 backup. Therefore a complete N−1 history remains restorable when current
 checkout contains migration N. Validation still rejects a missing migration
 table, missing required names, unfinished or unresolved failed migrations,
 duplicate completed records, unexpected names, and contract mismatches. A
-historical rolled-back record is allowed only when same migration has exactly
-one completed current record. Restore never applies newer migrations.
+historical failed attempt is resolved only when it has an explicit rollback
+timestamp and a distinct later attempt started and completed successfully.
+Completion before a later rollback, equal/indeterminate ordering, unfinished
+later attempts, duplicate unresolved attempts, or rollback without later
+completion is rejected. Effective contract contains each successfully resolved
+migration name once. Restore never applies newer migrations.
 
 Production restore is an exceptional operator action. First stop application
 writes explicitly; the script never stops or restarts the application for the
@@ -418,38 +433,51 @@ This requires distinct exact typed confirmation. Selected bundle still needs
 one valid full compatible Git SHA and valid captured migration contract.
 Degraded mode never derives selected compatibility from current state. If
 production database exists, restore first attempts canonical pre-restore
-backup. It uses verified current SHA when available, otherwise explicitly
-records `unknown-revision` while still requiring a valid current migration
-contract. Such an unknown-revision pre-restore bundle is forensic evidence,
-not an eligible production restore source. Pre-restore backup may be skipped
-only when database is proven missing or canonical backup attempt proves
-database cannot be safely backed up. Output records exactly one result:
+backup. Explicit degraded mode always records `unknown-revision` while still
+requiring a valid current migration contract when database is readable. Such a
+bundle is forensic evidence, not eligible production restore source.
+Pre-restore backup uses explicit result codes rather than log parsing. It may be
+skipped only when target is positively missing or target-specific reads fail
+while PostgreSQL control database remains readable. Unknown connection or dump
+failure defaults to stop. Output records exact outcome:
 
 ```text
-restore:pre-restore-backup=completed
-restore:pre-restore-backup=skipped reason=database-missing
-restore:pre-restore-backup=skipped reason=database-unavailable
+restore:pre-restore-backup=completed-and-verified
+restore:pre-restore-backup=completed-and-verified retention=failed bundle=preserved
+restore:pre-restore-backup=skipped reason=target-database-missing
+restore:pre-restore-backup=skipped reason=target-database-positively-unreadable
+restore:pre-restore-backup=blocked reason=backup-infrastructure-or-publication-failure
 ```
 
-Lock, environment, or configuration failures are not degraded into a skip.
+Backup-root permission/trust, storage, collision, temporary creation,
+compression, checksum, metadata, publication, validation, lock, environment,
+configuration, and unsupported-tooling failures are infrastructure failures
+and never waive pre-restore backup. If bundle publication and independent
+verification completed but retention later fails, restore preserves bundle,
+reports retention failure, and continues under same production lock.
 Missing target promotes verified staging directly; existing target uses guarded
 rename replacement.
 
-After staging verification, promotion, and final production-database
-verification, restore atomically publishes selected backup revision to
-`database-compatible.sha`. `successful.sha` remains unchanged because
-application health has not passed. If state publication fails after database
-restore, command exits non-zero, reports exact operator repair revision/file,
-preserves restored database, and neither rolls back nor starts application.
-Failure and signal cleanup inspects actual PostgreSQL database names instead of
-in-memory command flags, restores the original name when that state is
-unambiguous, removes only a clearly disposable staging database, and preserves
-old/promoted databases when both remain recoverable. Cleanup is repeat-safe,
-releases the lock, and retains the shared lock file. The application remains
-stopped. Restore output identifies exact backup-compatible immutable application
-revision, regardless of current checkout revision. Operator must select and
-verify that revision before starting it. Forward migration to newer revision is
-separate explicit action.
+Before promotion, restore atomically invalidates old compatibility record.
+After promotion command returns—success or failure—it queries actual database
+names and OIDs. Target is accepted as promoted only when target OID equals
+verified staging OID, staging name is gone, connectivity succeeds, and effective
+migration contract matches selected backup. Restore then atomically publishes
+selected revision and migration contract before any old-database deletion.
+`successful.sha` remains unchanged because application health has not passed.
+Old cleanup success reported as client failure is reconciled from actual state;
+an old database still present is retained for operator cleanup.
+
+Unknown target state, unexpected OID/name combination, or promoted contract
+mismatch invalidates compatibility, preserves every recoverable old/staging
+database, emits exact names/states/OIDs and expected backup contract, leaves
+application stopped, and returns non-zero. Post-promotion reconciliation and
+record publication are repeat-safe. Clearly disposable staging may be removed
+only before any rename attempt. Exit cleanup releases lock but retains shared
+lock file. Restore output identifies exact backup-compatible immutable
+application revision, regardless of checkout revision. Operator must select and
+verify that revision before starting it. Forward migration remains separate
+explicit action.
 
 Production restore never runs Prisma migrations, seeds, schema reset, `db
 push`, volume deletion, `docker compose down -v`, image selection, or
@@ -606,9 +634,10 @@ image, or prior Compose state:
      --degraded-recovery
    ```
 
-8. Require successful restore, selected SHA in
-   `.runtime/production-deploy/database-compatible.sha`, and application still
-   stopped. `successful.sha` must remain absent or unchanged.
+8. Require successful restore, selected SHA plus backup migration count/digest
+   in versioned `.runtime/production-deploy/database-compatible.sha` record,
+   and application still stopped. `successful.sha` must remain absent or
+   unchanged.
 9. Check out exact compatible source. Set ignored `.env.production`
    `GIT_COMMIT` to same full SHA. Reuse existing immutable image or build only
    `reset90:<compatible_revision>` from matching source; do not select

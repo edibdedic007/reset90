@@ -89,16 +89,6 @@ record_success() {
   mv "$successful_temp" "$SUCCESSFUL_FILE"
 }
 
-record_database_compatible_revision() {
-  local revision="$1"
-  local compatible_temp="${DATABASE_COMPATIBLE_FILE}.$$"
-
-  [[ "$revision" == "unknown" || "$revision" =~ ^[0-9a-f]{40}$ ]] ||
-    return 1
-  printf '%s\n' "$revision" > "$compatible_temp"
-  mv "$compatible_temp" "$DATABASE_COMPATIBLE_FILE"
-}
-
 command -v flock >/dev/null 2>&1 || fail "missing-command-flock"
 exec 9>>"$LOCK_FILE" || fail "deployment-lock-unavailable"
 flock -n "$DEPLOY_LOCK_FD" || fail "deployment-lock-held"
@@ -164,9 +154,9 @@ log "preflight:traefik-network"
 docker network inspect "$traefik_network" >/dev/null 2>&1 ||
   fail "traefik-network-missing"
 
-CURRENT_COMPATIBLE_REVISION="$(
-  verified_database_compatible_revision "$DATABASE_COMPATIBLE_FILE"
-)" || fail "database-compatible-revision-unavailable"
+verified_database_compatibility_record "$DATABASE_COMPATIBLE_FILE" ||
+  fail "database-compatible-record-unavailable"
+CURRENT_COMPATIBLE_REVISION="$DATABASE_COMPATIBILITY_REVISION"
 
 log "backup:start-database"
 compose up -d --no-build db || fail "database-start"
@@ -192,12 +182,26 @@ log "image:build"
 compose build app || fail "image-build"
 
 log "database:migrate"
-record_database_compatible_revision unknown ||
+invalidate_database_compatibility_record \
+  "$DATABASE_COMPATIBLE_FILE" \
+  migration-in-progress ||
   fail "database-compatible-state"
 compose run --rm --no-deps app \
   node node_modules/prisma/build/index.js migrate deploy ||
   fail "migration"
-record_database_compatible_revision "$REVISION" ||
+if capture_prisma_migration_contract \
+  db \
+  "$database_user" \
+  "$database_name"; then
+  :
+else
+  fail "database-compatible-contract"
+fi
+publish_database_compatibility_record \
+  "$DATABASE_COMPATIBLE_FILE" \
+  "$REVISION" \
+  "$MIGRATION_CONTRACT_COUNT" \
+  "$MIGRATION_CONTRACT_SHA256" ||
   fail "database-compatible-state"
 
 log "services:promote"

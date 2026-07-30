@@ -1,4 +1,5 @@
 import { spawn, spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import {
   chmodSync,
   copyFileSync,
@@ -17,6 +18,18 @@ import { afterEach, describe, expect, it } from "vitest";
 const repository = resolve(import.meta.dirname, "..");
 const fullRevision = "a".repeat(40);
 const previousRevision = "b".repeat(40);
+const migrationName = "20260701000000_initial";
+const migrationDigest = createHash("sha256")
+  .update(`${migrationName}\n`)
+  .digest("hex");
+const migrationRows = [
+  migrationName,
+  "completed",
+  "20260701000000000001",
+  "20260701000100000001",
+  "none",
+  "completed-1",
+].join("\t");
 const secretSentinels = {
   auth: "AUTH_SECRET_SENTINEL_12345678901234567890",
   database: "DATABASE_PASSWORD_SENTINEL_12345",
@@ -25,6 +38,16 @@ const secretSentinels = {
 };
 const temporaryDirectories: string[] = [];
 type EnvironmentOverrides = Record<string, string | undefined>;
+
+function compatibilityRecord(revision: string) {
+  return [
+    "compatibility_version=1",
+    `application_revision=${revision}`,
+    "migration_count=1",
+    `migration_names_sha256=${migrationDigest}`,
+    "",
+  ].join("\n");
+}
 
 function productionEnvironment(revision = fullRevision) {
   return [
@@ -140,7 +163,7 @@ function deploymentHarness() {
   mkdirSync(stateDirectory, { recursive: true });
   writeFileSync(
     join(stateDirectory, "database-compatible.sha"),
-    `${previousRevision}\n`,
+    compatibilityRecord(previousRevision),
   );
   for (const script of [
     "backup-db.sh",
@@ -233,12 +256,26 @@ function deploymentHarness() {
       '  printf "psql (PostgreSQL) 16.9\\n"',
       "  exit 0",
       "fi",
+      'if [[ "$joined" == *"FROM pg_database WHERE datname"* ]]; then',
+      '  printf "exists\\n"',
+      "  exit 0",
+      "fi",
+      'if [[ "$joined" == *"SELECT current_database();"* ]]; then',
+      '  selected_database=""',
+      '  previous_argument=""',
+      '  for argument in "$@"; do',
+      '    if [[ "$previous_argument" == "-d" ]]; then selected_database="$argument"; fi',
+      '    previous_argument="$argument"',
+      "  done",
+      '  printf "%s\\n" "$selected_database"',
+      "  exit 0",
+      "fi",
       'if [[ "$joined" == *"to_regclass"* ]]; then',
       '  printf "present\\n"',
       "  exit 0",
       "fi",
       'if [[ "$joined" == *"SELECT migration_name, CASE"* ]]; then',
-      '  printf "20260701000000_initial\\tcompleted\\n"',
+      `  printf "%b\\n" ${JSON.stringify(migrationRows)}`,
       "  exit 0",
       "fi",
       'if [[ "$joined" == *" ps -q db" ]]; then',
@@ -606,7 +643,7 @@ describe("production deployment workflow", () => {
         join(harness.stateDirectory, "database-compatible.sha"),
         "utf8",
       ),
-    ).toBe(`${fullRevision}\n`);
+    ).toBe(compatibilityRecord(fullRevision));
   });
 
   it("records previous compatible revision for migration-bearing pre-deploy backup", () => {
@@ -642,7 +679,7 @@ describe("production deployment workflow", () => {
 
     expect(result.status).not.toBe(0);
     expect(result.stderr).toContain(
-      "failed:database-compatible-revision-unavailable",
+      "failed:database-compatible-record-unavailable",
     );
     expect(commandLog).not.toContain("up -d --no-build db");
     expect(commandLog).not.toContain("build app");
@@ -737,7 +774,7 @@ describe("production deployment workflow", () => {
     ).toThrow();
   });
 
-  it("marks compatible database revision unknown when migration fails", () => {
+  it("invalidates compatibility record when migration fails", () => {
     const harness = deploymentHarness();
     const result = harness.run({
       FAKE_DOCKER_FAIL_MATCH:
@@ -745,12 +782,12 @@ describe("production deployment workflow", () => {
     });
 
     expect(result.status).not.toBe(0);
-    expect(
-      readFileSync(
-        join(harness.stateDirectory, "database-compatible.sha"),
-        "utf8",
-      ),
-    ).toBe("unknown\n");
+    const compatibilityState = readFileSync(
+      join(harness.stateDirectory, "database-compatible.sha"),
+      "utf8",
+    );
+    expect(compatibilityState).toContain("status=invalid");
+    expect(compatibilityState).not.toContain("application_revision=");
   });
 
   it.each([

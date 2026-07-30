@@ -36,8 +36,10 @@ source "$SCRIPT_DIR/lib/backup-restore.sh"
 source "$SCRIPT_DIR/lib/production-env.sh"
 
 fail() {
+  local result_code="${2:-$RESET90_BACKUP_RESULT_INFRASTRUCTURE}"
+
   printf 'backup:failed:%s\n' "$1" >&2
-  exit 1
+  exit "$result_code"
 }
 
 usage() {
@@ -257,9 +259,11 @@ if [[ "$ENVIRONMENT" == "production" ]]; then
       "$COMPATIBLE_APP_REVISION" == "unknown-revision" ]] ||
       fail "degraded-recovery-revision-invalid"
   else
-    verified_compatible_revision="$(
-      verified_database_compatible_revision "$DATABASE_COMPATIBLE_FILE"
-    )" || fail "production-compatible-revision-unavailable"
+    verified_database_compatibility_record "$DATABASE_COMPATIBLE_FILE" ||
+      fail "production-compatible-record-unavailable"
+    verified_compatible_revision="$DATABASE_COMPATIBILITY_REVISION"
+    verified_compatible_migration_count="$DATABASE_COMPATIBILITY_MIGRATION_COUNT"
+    verified_compatible_migration_sha256="$DATABASE_COMPATIBILITY_MIGRATION_SHA256"
     [[ -z "$COMPATIBLE_APP_REVISION" ||
       "$COMPATIBLE_APP_REVISION" == "$verified_compatible_revision" ]] ||
       fail "production-compatible-revision-mismatch"
@@ -321,39 +325,61 @@ fi
 [[ "$DATABASE_USER" =~ $RESET90_SAFE_DATABASE_REGEX ]] || fail "unsafe-database-user"
 [[ "$DATABASE_NAME" =~ $RESET90_SAFE_DATABASE_REGEX ]] || fail "unsafe-database-name"
 
-migration_table_state="$(
-  compose exec -T "$SERVICE" psql -X -A -t \
-    -U "$DATABASE_USER" \
-    -d "$DATABASE_NAME" \
-    -c "SELECT CASE
-      WHEN to_regclass('public._prisma_migrations') IS NULL
-        THEN 'missing'
-      ELSE 'present'
-    END;"
-)" || fail "migration-contract-unavailable"
-[[ "$migration_table_state" == "present" ]] ||
+if [[ "$ENVIRONMENT" == "production" ]]; then
+  database_presence_result="$(
+    compose exec -T "$SERVICE" psql -X -A -t \
+      -U "$DATABASE_USER" \
+      -d postgres \
+      -v database_name="$DATABASE_NAME" \
+      -c "SELECT CASE WHEN EXISTS (
+        SELECT 1 FROM pg_database WHERE datname = :'database_name'
+      ) THEN 'exists' ELSE 'missing' END;"
+  )" || fail "database-state-unavailable"
+  case "$database_presence_result" in
+    exists)
+      ;;
+    missing)
+      fail "database-missing" "$RESET90_BACKUP_RESULT_DATABASE_UNAVAILABLE"
+      ;;
+    *)
+      fail "database-state-unavailable"
+      ;;
+  esac
+  if ! database_read_result="$(
+    compose exec -T "$SERVICE" psql -X -A -t \
+      -U "$DATABASE_USER" \
+      -d "$DATABASE_NAME" \
+      -c "SELECT current_database();"
+  )"; then
+    compose exec -T "$SERVICE" psql -X -A -t \
+      -U "$DATABASE_USER" \
+      -d postgres \
+      -c "SELECT current_database();" >/dev/null ||
+      fail "database-state-unavailable"
+    fail "database-unreadable" "$RESET90_BACKUP_RESULT_DATABASE_UNAVAILABLE"
+  fi
+  [[ "$database_read_result" == "$DATABASE_NAME" ]] ||
+    fail "database-state-unavailable"
+fi
+
+if capture_prisma_migration_contract \
+  "$SERVICE" \
+  "$DATABASE_USER" \
+  "$DATABASE_NAME"; then
+  :
+else
+  migration_contract_status=$?
+  if [[ "$migration_contract_status" -eq 2 ]]; then
+    fail "migration-contract-invalid"
+  fi
   fail "migration-contract-unavailable"
-migration_rows="$(
-  compose exec -T "$SERVICE" psql -X -A -t -F $'\t' \
-    -U "$DATABASE_USER" \
-    -d "$DATABASE_NAME" \
-    -c 'SELECT migration_name, CASE
-      WHEN finished_at IS NOT NULL AND rolled_back_at IS NULL
-        THEN '"'completed'"'
-      WHEN finished_at IS NULL AND rolled_back_at IS NULL
-        AND COALESCE(logs, '"''"') = '"''"'
-        THEN '"'unfinished'"'
-      WHEN finished_at IS NULL AND rolled_back_at IS NULL
-        THEN '"'failed'"'
-      WHEN finished_at IS NULL AND rolled_back_at IS NOT NULL
-        THEN '"'rolled-back'"'
-      ELSE '"'inconsistent'"'
-    END
-    FROM "_prisma_migrations"
-    ORDER BY migration_name, started_at, id;'
-)" || fail "migration-contract-unavailable"
-migration_contract_from_rows "$migration_rows" ||
-  fail "migration-contract-invalid"
+fi
+
+if [[ "$ENVIRONMENT" == "production" && "$DEGRADED_RECOVERY" -eq 0 ]]; then
+  [[ "$MIGRATION_CONTRACT_COUNT" == "$verified_compatible_migration_count" &&
+    "$MIGRATION_CONTRACT_SHA256" == "$verified_compatible_migration_sha256" ]] ||
+    fail "production-compatible-migration-contract-mismatch"
+fi
 
 if [[ "$ENVIRONMENT" != "production" &&
   "$COMPATIBLE_REVISION_SUPPLIED" -eq 0 ]]; then
@@ -591,4 +617,4 @@ if [[ -n "$DEPLOYMENT_LOCK_FD" ]]; then
   retention_arguments+=(--deployment-lock-fd "$DEPLOYMENT_LOCK_FD")
 fi
 "$SCRIPT_DIR/backup-retention.sh" "${retention_arguments[@]}" ||
-  fail "retention"
+  fail "retention" "$RESET90_BACKUP_RESULT_RETENTION"

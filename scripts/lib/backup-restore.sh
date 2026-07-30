@@ -1,11 +1,15 @@
 #!/usr/bin/env bash
 
 RESET90_BACKUP_METADATA_VERSION=2
+RESET90_COMPATIBILITY_RECORD_VERSION=1
 RESET90_POSTGRES_MAJOR=16
 RESET90_BACKUP_ROOT_MARKER=".reset90-backup-root"
 RESET90_BACKUP_ROOT_MARKER_VALUE="reset90-backup-root-v1"
 RESET90_BACKUP_NAME_REGEX='^reset90_([0-9]{8}T[0-9]{6}Z)_([a-z][a-z0-9-]{0,31})_([0-9a-f]{40}|unknown-revision)\.sql\.gz$'
 RESET90_SAFE_DATABASE_REGEX='^[A-Za-z_][A-Za-z0-9_]{0,62}$'
+RESET90_BACKUP_RESULT_DATABASE_UNAVAILABLE=20
+RESET90_BACKUP_RESULT_INFRASTRUCTURE=30
+RESET90_BACKUP_RESULT_RETENTION=40
 
 backup_root_is_expected() {
   local root="${1:-}"
@@ -67,23 +71,38 @@ backup_metadata_value() {
 
 migration_contract_from_rows() {
   local migration_rows="${1:-}"
-  local migration_name migration_state sorted_names
-  declare -A successful=()
-  declare -A rolled_back=()
+  local migration_name migration_state started_at finished_at rolled_back_at
+  local migration_id sorted_names
+  declare -A completed_started_at=()
+  declare -A latest_rolled_back_at=()
+  declare -A seen_ids=()
 
-  while IFS=$'\t' read -r migration_name migration_state; do
-    [[ -n "$migration_name" || -n "$migration_state" ]] || continue
+  while IFS=$'\t' read -r migration_name migration_state started_at \
+    finished_at rolled_back_at migration_id; do
+    [[ -n "$migration_name" || -n "$migration_state" ||
+      -n "$started_at" || -n "$migration_id" ]] || continue
     [[ "$migration_name" =~ ^[0-9][0-9A-Za-z_]*$ ]] || return 1
+    [[ "$started_at" =~ ^[0-9]{20}$ ]] || return 1
+    [[ "$migration_id" =~ ^[0-9A-Za-z_-]{1,128}$ ]] || return 1
+    [[ -z "${seen_ids[$migration_id]+present}" ]] || return 1
+    seen_ids["$migration_id"]=1
     case "$migration_state" in
       completed)
-        successful["$migration_name"]=$((
-          ${successful["$migration_name"]:-0} + 1
-        ))
+        [[ "$finished_at" =~ ^[0-9]{20}$ &&
+          "$rolled_back_at" == "none" ]] || return 1
+        [[ -z "${completed_started_at[$migration_name]+present}" ]] ||
+          return 1
+        completed_started_at["$migration_name"]="$started_at"
         ;;
       rolled-back)
-        rolled_back["$migration_name"]=$((
-          ${rolled_back["$migration_name"]:-0} + 1
-        ))
+        [[ "$finished_at" == "none" &&
+          "$rolled_back_at" =~ ^[0-9]{20}$ ]] || return 1
+        [[ "$started_at" < "$rolled_back_at" ||
+          "$started_at" == "$rolled_back_at" ]] || return 1
+        if [[ -z "${latest_rolled_back_at[$migration_name]+present}" ||
+          "$rolled_back_at" > "${latest_rolled_back_at[$migration_name]}" ]]; then
+          latest_rolled_back_at["$migration_name"]="$rolled_back_at"
+        fi
         ;;
       unfinished | failed | inconsistent)
         return 1
@@ -94,23 +113,74 @@ migration_contract_from_rows() {
     esac
   done <<< "$migration_rows"
 
-  [[ "${#successful[@]}" -gt 0 ]] || return 1
-  for migration_name in "${!successful[@]}"; do
-    [[ "${successful[$migration_name]}" -eq 1 ]] || return 1
-  done
-  for migration_name in "${!rolled_back[@]}"; do
-    [[ "${rolled_back[$migration_name]}" -eq 1 ]] || return 1
-    [[ "${successful[$migration_name]:-0}" -eq 1 ]] || return 1
+  [[ "${#completed_started_at[@]}" -gt 0 ]] || return 1
+  for migration_name in "${!latest_rolled_back_at[@]}"; do
+    [[ -n "${completed_started_at[$migration_name]+present}" ]] || return 1
+    [[ "${completed_started_at[$migration_name]}" > "${latest_rolled_back_at[$migration_name]}" ]] ||
+      return 1
   done
 
   sorted_names="$(
-    printf '%s\n' "${!successful[@]}" | sort
+    printf '%s\n' "${!completed_started_at[@]}" | sort
   )" || return 1
-  MIGRATION_CONTRACT_COUNT="${#successful[@]}"
+  MIGRATION_CONTRACT_COUNT="${#completed_started_at[@]}"
   MIGRATION_CONTRACT_SHA256="$(
     printf '%s\n' "$sorted_names" | sha256sum | awk '{ print $1 }'
   )" || return 1
   [[ "$MIGRATION_CONTRACT_SHA256" =~ ^[0-9a-f]{64}$ ]]
+}
+
+capture_prisma_migration_contract() {
+  local service="${1:?database service is required}"
+  local database_user="${2:?database user is required}"
+  local database_name="${3:?database name is required}"
+  local table_state migration_rows
+
+  table_state="$(
+    compose exec -T "$service" psql -X -A -t \
+      -U "$database_user" \
+      -d "$database_name" \
+      -c "SELECT CASE
+        WHEN to_regclass('public._prisma_migrations') IS NULL
+          THEN 'missing'
+        ELSE 'present'
+      END;"
+  )" || return 1
+  [[ "$table_state" == "present" ]] || return 2
+
+  migration_rows="$(
+    compose exec -T "$service" psql -X -A -t -F $'\t' \
+      -U "$database_user" \
+      -d "$database_name" \
+      -c "SELECT migration_name, CASE
+        WHEN finished_at IS NOT NULL AND rolled_back_at IS NULL
+          AND COALESCE(logs, '') = ''
+          THEN 'completed'
+        WHEN finished_at IS NULL AND rolled_back_at IS NULL
+          AND COALESCE(logs, '') = ''
+          THEN 'unfinished'
+        WHEN finished_at IS NULL AND rolled_back_at IS NULL
+          THEN 'failed'
+        WHEN finished_at IS NULL AND rolled_back_at IS NOT NULL
+          AND COALESCE(logs, '') <> ''
+          THEN 'rolled-back'
+        ELSE 'inconsistent'
+      END,
+      to_char(started_at AT TIME ZONE 'UTC', 'YYYYMMDDHH24MISSUS'),
+      COALESCE(
+        to_char(finished_at AT TIME ZONE 'UTC', 'YYYYMMDDHH24MISSUS'),
+        'none'
+      ),
+      COALESCE(
+        to_char(rolled_back_at AT TIME ZONE 'UTC', 'YYYYMMDDHH24MISSUS'),
+        'none'
+      ),
+      id
+      FROM \"_prisma_migrations\"
+      ORDER BY migration_name, started_at, id;"
+  )" || return 1
+
+  migration_contract_from_rows "$migration_rows" || return 2
 }
 
 checkout_migration_contract() {
@@ -161,15 +231,103 @@ validate_inherited_production_lock() {
   exec {probe_fd}>&-
 }
 
-verified_database_compatible_revision() {
+load_database_compatibility_record() {
   local state_file="${1:?database-compatible state file is required}"
-  local revision
+  local version revision migration_count migration_sha256
 
   [[ -f "$state_file" && ! -L "$state_file" ]] || return 1
-  revision="$(<"$state_file")"
+  [[ "$(awk 'END { print NR }' "$state_file")" -eq 4 ]] || return 1
+  version="$(backup_metadata_value "$state_file" compatibility_version)" ||
+    return 1
+  revision="$(backup_metadata_value "$state_file" application_revision)" ||
+    return 1
+  migration_count="$(
+    backup_metadata_value "$state_file" migration_count
+  )" || return 1
+  migration_sha256="$(
+    backup_metadata_value "$state_file" migration_names_sha256
+  )" || return 1
+  [[ "$version" == "$RESET90_COMPATIBILITY_RECORD_VERSION" ]] || return 1
   [[ "$revision" =~ ^[0-9a-f]{40}$ ]] || return 1
-  docker image inspect "reset90:$revision" >/dev/null 2>&1 || return 1
-  printf '%s' "$revision"
+  [[ "$migration_count" =~ ^[1-9][0-9]*$ ]] || return 1
+  [[ "$migration_sha256" =~ ^[0-9a-f]{64}$ ]] || return 1
+
+  DATABASE_COMPATIBILITY_REVISION="$revision"
+  DATABASE_COMPATIBILITY_MIGRATION_COUNT="$migration_count"
+  DATABASE_COMPATIBILITY_MIGRATION_SHA256="$migration_sha256"
+}
+
+verified_database_compatibility_record() {
+  local state_file="${1:?database-compatible state file is required}"
+
+  load_database_compatibility_record "$state_file" || return 1
+  docker image inspect \
+    "reset90:$DATABASE_COMPATIBILITY_REVISION" >/dev/null 2>&1 || return 1
+}
+
+publish_database_compatibility_record() {
+  local state_file="${1:?database-compatible state file is required}"
+  local revision="${2:?application revision is required}"
+  local migration_count="${3:?migration count is required}"
+  local migration_sha256="${4:?migration digest is required}"
+  local state_dir state_name state_temp=""
+
+  [[ "$revision" =~ ^[0-9a-f]{40}$ ]] || return 1
+  [[ "$migration_count" =~ ^[1-9][0-9]*$ ]] || return 1
+  [[ "$migration_sha256" =~ ^[0-9a-f]{64}$ ]] || return 1
+  state_dir="$(dirname -- "$state_file")" || return 1
+  state_name="${state_file##*/}"
+  mkdir -p -- "$state_dir" || return 1
+  state_temp="$(mktemp "$state_dir/.$state_name.XXXXXX")" || return 1
+  chmod 600 -- "$state_temp" || {
+    rm -f -- "$state_temp"
+    return 1
+  }
+  printf '%s\n' \
+    "compatibility_version=$RESET90_COMPATIBILITY_RECORD_VERSION" \
+    "application_revision=$revision" \
+    "migration_count=$migration_count" \
+    "migration_names_sha256=$migration_sha256" > "$state_temp" || {
+    rm -f -- "$state_temp"
+    return 1
+  }
+  mv -- "$state_temp" "$state_file" || {
+    rm -f -- "$state_temp"
+    return 1
+  }
+}
+
+invalidate_database_compatibility_record() {
+  local state_file="${1:?database-compatible state file is required}"
+  local reason="${2:?invalidation reason is required}"
+  local state_dir state_name state_temp=""
+
+  [[ "$reason" =~ ^[a-z0-9-]+$ ]] || return 1
+  state_dir="$(dirname -- "$state_file")" || return 1
+  state_name="${state_file##*/}"
+  if ! mkdir -p -- "$state_dir"; then
+    rm -f -- "$state_file" || true
+    return 1
+  fi
+  if ! state_temp="$(mktemp "$state_dir/.$state_name.XXXXXX")"; then
+    rm -f -- "$state_file" || true
+    return 1
+  fi
+  chmod 600 -- "$state_temp" || {
+    rm -f -- "$state_temp" "$state_file"
+    return 1
+  }
+  printf '%s\n' \
+    "compatibility_version=$RESET90_COMPATIBILITY_RECORD_VERSION" \
+    "status=invalid" \
+    "reason=$reason" > "$state_temp" || {
+    rm -f -- "$state_temp" "$state_file"
+    return 1
+  }
+  mv -- "$state_temp" "$state_file" || {
+    rm -f -- "$state_temp" "$state_file"
+    return 1
+  }
 }
 
 validate_backup_artifact() {

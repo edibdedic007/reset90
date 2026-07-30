@@ -17,10 +17,16 @@ DEGRADED_RECOVERY=0
 STATE_DIR="${DEPLOY_STATE_DIR:-$REPO_ROOT/.runtime/production-deploy}"
 DATABASE_COMPATIBLE_FILE="$STATE_DIR/database-compatible.sha"
 VALIDATION_TEMP=""
-COMPATIBLE_STATE_TEMP=""
 PRE_RESTORE_LOG=""
 STAGING_DATABASE=""
 OLD_DATABASE=""
+STAGING_DATABASE_OID=""
+ORIGINAL_DATABASE_OID=""
+ORIGINAL_COMPATIBILITY_VALID=0
+ORIGINAL_COMPATIBILITY_REVISION=""
+ORIGINAL_COMPATIBILITY_MIGRATION_COUNT=""
+ORIGINAL_COMPATIBILITY_MIGRATION_SHA256=""
+DATABASE_RENAME_STARTED=0
 
 source "$SCRIPT_DIR/lib/backup-restore.sh"
 source "$SCRIPT_DIR/lib/production-env.sh"
@@ -50,7 +56,7 @@ compose() {
   fi
 }
 
-database_presence() {
+database_identity() {
   local database_name="$1"
   local database_user="$2"
   local result
@@ -62,19 +68,24 @@ database_presence() {
       -v database_name="$database_name" \
       -c "SELECT CASE WHEN EXISTS (
         SELECT 1 FROM pg_database WHERE datname = :'database_name'
-      ) THEN 'yes' ELSE 'no' END;"
+      ) THEN 'exists' ELSE 'missing' END || E'\t' ||
+      COALESCE((
+        SELECT oid::text
+        FROM pg_database
+        WHERE datname = :'database_name'
+      ), 'none');"
   )" || return 1
-  case "$result" in
-    yes)
-      printf 'exists'
-      ;;
-    no)
-      printf 'missing'
-      ;;
-    *)
-      return 1
-      ;;
-  esac
+  [[ "$result" =~ ^exists$'\t'[1-9][0-9]*$ ||
+    "$result" == $'missing\tnone' ]] || return 1
+  printf '%s' "$result"
+}
+
+database_presence() {
+  local identity state oid
+
+  identity="$(database_identity "$1" "$2")" || return 1
+  IFS=$'\t' read -r state oid <<< "$identity"
+  printf '%s' "$state"
 }
 
 release_lock() {
@@ -84,42 +95,42 @@ release_lock() {
   fi
 }
 
-cleanup_production_databases() {
-  local target_state old_state staging_state
+cleanup_disposable_staging_before_promotion() {
+  local target_identity old_identity staging_identity
+  local cleanup_target_state cleanup_target_oid
+  local cleanup_old_state cleanup_old_oid
+  local cleanup_staging_state cleanup_staging_oid
 
-  [[ -n "${TARGET_DATABASE:-}" && -n "${TARGET_USER:-}" ]] || return 0
-  [[ -n "$STAGING_DATABASE" && -n "$OLD_DATABASE" ]] || return 0
-
-  target_state="$(database_presence "$TARGET_DATABASE" "$TARGET_USER")" ||
-    target_state="unknown"
-  old_state="$(database_presence "$OLD_DATABASE" "$TARGET_USER")" ||
-    old_state="unknown"
-  staging_state="$(database_presence "$STAGING_DATABASE" "$TARGET_USER")" ||
-    staging_state="unknown"
-
-  if [[ "$target_state" == "missing" && "$old_state" == "exists" ]]; then
-    compose exec -T "$SERVICE" psql -X -v ON_ERROR_STOP=1 \
-      -U "$TARGET_USER" \
-      -d postgres \
-      -c "ALTER DATABASE \"$OLD_DATABASE\" RENAME TO \"$TARGET_DATABASE\";" \
-      >/dev/null 2>&1 || return 0
-    target_state="$(database_presence "$TARGET_DATABASE" "$TARGET_USER")" ||
-      target_state="unknown"
-    old_state="$(database_presence "$OLD_DATABASE" "$TARGET_USER")" ||
-      old_state="unknown"
+  [[ "$ENVIRONMENT" == "production" &&
+    "$LOCK_HELD" -eq 1 &&
+    "$DATABASE_RENAME_STARTED" -eq 0 &&
+    -n "$STAGING_DATABASE" &&
+    -n "$STAGING_DATABASE_OID" &&
+    -n "$OLD_DATABASE" ]] || return 0
+  target_identity="$(database_identity "$TARGET_DATABASE" "$TARGET_USER")" ||
+    return 0
+  old_identity="$(database_identity "$OLD_DATABASE" "$TARGET_USER")" ||
+    return 0
+  staging_identity="$(database_identity "$STAGING_DATABASE" "$TARGET_USER")" ||
+    return 0
+  IFS=$'\t' read -r cleanup_target_state cleanup_target_oid \
+    <<< "$target_identity"
+  IFS=$'\t' read -r cleanup_old_state cleanup_old_oid <<< "$old_identity"
+  IFS=$'\t' read -r cleanup_staging_state cleanup_staging_oid \
+    <<< "$staging_identity"
+  [[ "$cleanup_old_state" == "missing" &&
+    "$cleanup_staging_state" == "exists" &&
+    "$cleanup_staging_oid" == "$STAGING_DATABASE_OID" ]] || return 0
+  if [[ -n "$ORIGINAL_DATABASE_OID" ]]; then
+    [[ "$cleanup_target_state" == "exists" &&
+      "$cleanup_target_oid" == "$ORIGINAL_DATABASE_OID" ]] || return 0
+  else
+    [[ "$cleanup_target_state" == "missing" ]] || return 0
   fi
-
-  if [[ "$target_state" == "exists" &&
-    "$old_state" == "missing" &&
-    "$staging_state" == "exists" ]]; then
-    compose exec -T "$SERVICE" dropdb -U "$TARGET_USER" --force \
-      "$STAGING_DATABASE" >/dev/null 2>&1 || true
-  elif [[ "$target_state" == "missing" &&
-    "$old_state" == "missing" &&
-    "$staging_state" == "exists" ]]; then
-    compose exec -T "$SERVICE" dropdb -U "$TARGET_USER" --force \
-      "$STAGING_DATABASE" >/dev/null 2>&1 || true
-  fi
+  compose exec -T "$SERVICE" dropdb \
+    -U "$TARGET_USER" \
+    --force \
+    "$STAGING_DATABASE" >/dev/null 2>&1 || true
 }
 
 cleanup() {
@@ -127,12 +138,8 @@ cleanup() {
 
   set +e
   [[ -z "${VALIDATION_TEMP:-}" ]] || rm -f -- "$VALIDATION_TEMP"
-  [[ -z "${COMPATIBLE_STATE_TEMP:-}" ]] ||
-    rm -f -- "$COMPATIBLE_STATE_TEMP"
   [[ -z "${PRE_RESTORE_LOG:-}" ]] || rm -f -- "$PRE_RESTORE_LOG"
-  if [[ "$ENVIRONMENT" == "production" && "$LOCK_HELD" -eq 1 ]]; then
-    cleanup_production_databases
-  fi
+  cleanup_disposable_staging_before_promotion
   release_lock
   return "$exit_status"
 }
@@ -150,46 +157,23 @@ verify_prisma_migration_state() {
   local database_user="$2"
   local expected_count="$3"
   local expected_sha256="$4"
-  local table_state migration_rows
+  local contract_status
 
   [[ "$expected_count" =~ ^[1-9][0-9]*$ ]] || return 1
   [[ "$expected_sha256" =~ ^[0-9a-f]{64}$ ]] || return 1
 
-  table_state="$(
-    compose exec -T "$SERVICE" psql -X -A -t \
-      -U "$database_user" \
-      -d "$database_name" \
-      -c "SELECT CASE
-        WHEN to_regclass('public._prisma_migrations') IS NULL
-          THEN 'missing'
-        ELSE 'present'
-      END;"
-  )" || return 1
-  [[ "$table_state" == "present" ]] || return 1
-
-  migration_rows="$(
-    compose exec -T "$SERVICE" psql -X -A -t -F $'\t' \
-      -U "$database_user" \
-      -d "$database_name" \
-      -c 'SELECT migration_name, CASE
-        WHEN finished_at IS NOT NULL AND rolled_back_at IS NULL
-          THEN '"'completed'"'
-        WHEN finished_at IS NULL AND rolled_back_at IS NULL
-          AND COALESCE(logs, '"''"') = '"''"'
-          THEN '"'unfinished'"'
-        WHEN finished_at IS NULL AND rolled_back_at IS NULL
-          THEN '"'failed'"'
-        WHEN finished_at IS NULL AND rolled_back_at IS NOT NULL
-          THEN '"'rolled-back'"'
-        ELSE '"'inconsistent'"'
-      END
-      FROM "_prisma_migrations"
-      ORDER BY migration_name, started_at, id;'
-  )" || return 1
-
-  migration_contract_from_rows "$migration_rows" || return 1
-  [[ "$MIGRATION_CONTRACT_COUNT" == "$expected_count" ]] || return 1
-  [[ "$MIGRATION_CONTRACT_SHA256" == "$expected_sha256" ]]
+  if capture_prisma_migration_contract \
+    "$SERVICE" \
+    "$database_user" \
+    "$database_name"; then
+    :
+  else
+    contract_status=$?
+    [[ "$contract_status" -eq 2 ]] && return 2
+    return 1
+  fi
+  [[ "$MIGRATION_CONTRACT_COUNT" == "$expected_count" &&
+    "$MIGRATION_CONTRACT_SHA256" == "$expected_sha256" ]] || return 2
 }
 
 verify_restored_database() {
@@ -210,34 +194,33 @@ verify_restored_database() {
     "$expected_migration_sha256"
 }
 
-persist_database_compatible_revision() {
+persist_database_compatibility_record() {
   local revision="$1"
+  local migration_count="$2"
+  local migration_sha256="$3"
 
-  [[ "$revision" =~ ^[0-9a-f]{40}$ ]] || return 1
-  mkdir -p -- "$STATE_DIR" || return 1
-  COMPATIBLE_STATE_TEMP="$(
-    mktemp "$STATE_DIR/.database-compatible.sha.XXXXXX"
-  )" || return 1
-  chmod 600 -- "$COMPATIBLE_STATE_TEMP" || return 1
-  printf '%s\n' "$revision" > "$COMPATIBLE_STATE_TEMP" || return 1
-  mv -- "$COMPATIBLE_STATE_TEMP" "$DATABASE_COMPATIBLE_FILE" || return 1
-  COMPATIBLE_STATE_TEMP=""
+  publish_database_compatibility_record \
+    "$DATABASE_COMPATIBLE_FILE" \
+    "$revision" \
+    "$migration_count" \
+    "$migration_sha256"
 }
 
 fail_compatibility_state_persistence() {
   printf '%s\n' \
     "restore:database-restored compatibility-state=operator-repair-required" \
-    "restore:operator-repair file=$DATABASE_COMPATIBLE_FILE revision=$BACKUP_COMPATIBLE_REVISION" \
+    "restore:operator-repair file=$DATABASE_COMPATIBLE_FILE revision=$BACKUP_COMPATIBLE_REVISION migration_count=$BACKUP_MIGRATION_COUNT migration_names_sha256=$BACKUP_MIGRATION_SHA256" \
     "restore:failed:compatible-state-persistence" >&2
   exit 1
 }
 
 attempt_pre_restore_backup() {
-  local status failure_line failure_reason line
+  local status line
 
   PRE_RESTORE_LOG="$(mktemp /tmp/reset90-pre-restore-backup.XXXXXX.log)" ||
-    return 1
-  chmod 600 -- "$PRE_RESTORE_LOG" || return 1
+    return "$RESET90_BACKUP_RESULT_INFRASTRUCTURE"
+  chmod 600 -- "$PRE_RESTORE_LOG" ||
+    return "$RESET90_BACKUP_RESULT_INFRASTRUCTURE"
   if "$SCRIPT_DIR/backup-db.sh" "$@" > "$PRE_RESTORE_LOG" 2>&1; then
     status=0
   else
@@ -246,42 +229,253 @@ attempt_pre_restore_backup() {
   while IFS= read -r line; do
     printf '%s\n' "$line"
   done < "$PRE_RESTORE_LOG"
-
-  if [[ "$status" -eq 0 ]]; then
-    rm -f -- "$PRE_RESTORE_LOG"
-    PRE_RESTORE_LOG=""
-    return 0
-  fi
-  if grep -Fq "backup:verified filename=" "$PRE_RESTORE_LOG"; then
-    printf '%s\n' \
-      "restore:pre-restore-backup-retention=failed bundle=preserved" >&2
-    rm -f -- "$PRE_RESTORE_LOG"
-    PRE_RESTORE_LOG=""
-    return 0
-  fi
-
-  failure_line="$(
-    awk '/^backup:failed:/ { value = $0 } END { print value }' \
-      "$PRE_RESTORE_LOG"
-  )"
-  failure_reason="${failure_line#backup:failed:}"
   rm -f -- "$PRE_RESTORE_LOG"
   PRE_RESTORE_LOG=""
-  case "$failure_reason" in
-    postgres-service-missing | postgres-service-unhealthy | \
-      postgres-tooling-missing | postgres-major-version-unsupported | \
-      migration-contract-unavailable | migration-contract-invalid | \
-      creation-or-validation | pg-dump | zero-byte-dump | compression | \
-      zero-byte-compressed-output | gzip-integrity | checksum | metadata | \
-      permissions | publish-backup | publish-checksum | publish-metadata | \
-      final-publication-validation | published-artifact-invalid | \
-      filename-collision)
-      return 2
+  case "$status" in
+    0)
+      return 0
+      ;;
+    "$RESET90_BACKUP_RESULT_DATABASE_UNAVAILABLE")
+      return "$RESET90_BACKUP_RESULT_DATABASE_UNAVAILABLE"
+      ;;
+    "$RESET90_BACKUP_RESULT_RETENTION")
+      return "$RESET90_BACKUP_RESULT_RETENTION"
       ;;
     *)
-      return 1
+      return "$RESET90_BACKUP_RESULT_INFRASTRUCTURE"
       ;;
   esac
+}
+
+load_reconciliation_state() {
+  local target_identity old_identity staging_identity
+
+  target_identity="$(database_identity "$TARGET_DATABASE" "$TARGET_USER")" ||
+    return 1
+  old_identity="$(database_identity "$OLD_DATABASE" "$TARGET_USER")" ||
+    return 1
+  staging_identity="$(database_identity "$STAGING_DATABASE" "$TARGET_USER")" ||
+    return 1
+  IFS=$'\t' read -r RECONCILE_TARGET_STATE RECONCILE_TARGET_OID \
+    <<< "$target_identity"
+  IFS=$'\t' read -r RECONCILE_OLD_STATE RECONCILE_OLD_OID \
+    <<< "$old_identity"
+  IFS=$'\t' read -r RECONCILE_STAGING_STATE RECONCILE_STAGING_OID \
+    <<< "$staging_identity"
+}
+
+invalidate_reconciled_compatibility() {
+  local reason="$1"
+
+  if invalidate_database_compatibility_record \
+    "$DATABASE_COMPATIBLE_FILE" \
+    "$reason"; then
+    printf 'restore:compatibility-state=invalid reason=%s file=%s\n' \
+      "$reason" "$DATABASE_COMPATIBLE_FILE" >&2
+    return 0
+  fi
+  printf 'restore:compatibility-state=invalidation-failed file=%s\n' \
+    "$DATABASE_COMPATIBLE_FILE" >&2
+  return 1
+}
+
+report_operator_recovery() {
+  local reason="$1"
+
+  printf '%s\n' \
+    "restore:operator-recovery reason=$reason" \
+    "restore:operator-recovery target=$TARGET_DATABASE state=${RECONCILE_TARGET_STATE:-unknown} oid=${RECONCILE_TARGET_OID:-unknown}" \
+    "restore:operator-recovery staging=$STAGING_DATABASE state=${RECONCILE_STAGING_STATE:-unknown} oid=${RECONCILE_STAGING_OID:-unknown}" \
+    "restore:operator-recovery old=$OLD_DATABASE state=${RECONCILE_OLD_STATE:-unknown} oid=${RECONCILE_OLD_OID:-unknown}" \
+    "restore:operator-recovery compatibility_file=$DATABASE_COMPATIBLE_FILE expected_revision=$BACKUP_COMPATIBLE_REVISION expected_migration_count=$BACKUP_MIGRATION_COUNT expected_migration_names_sha256=$BACKUP_MIGRATION_SHA256" \
+    "restore:operator-recovery application=stopped action=inspect-preserved-databases-before-manual-cleanup" >&2
+}
+
+reconcile_unpromoted_target() {
+  local rename_status=0
+
+  if ! load_reconciliation_state; then
+    RECONCILE_TARGET_STATE=unknown
+    RECONCILE_TARGET_OID=unknown
+    RECONCILE_OLD_STATE=unknown
+    RECONCILE_OLD_OID=unknown
+    RECONCILE_STAGING_STATE=unknown
+    RECONCILE_STAGING_OID=unknown
+    invalidate_reconciled_compatibility ambiguous-production-target || true
+    report_operator_recovery target-state-unavailable
+    return 1
+  fi
+
+  if [[ -n "$ORIGINAL_DATABASE_OID" &&
+    "$RECONCILE_TARGET_STATE" == "exists" &&
+    "$RECONCILE_TARGET_OID" == "$ORIGINAL_DATABASE_OID" &&
+    "$RECONCILE_OLD_STATE" == "missing" &&
+    "$RECONCILE_STAGING_STATE" == "exists" &&
+    "$RECONCILE_STAGING_OID" == "$STAGING_DATABASE_OID" &&
+    "$ORIGINAL_COMPATIBILITY_VALID" -eq 1 ]] &&
+    verify_restored_database \
+      "$TARGET_DATABASE" \
+      "$TARGET_USER" \
+      "$ORIGINAL_COMPATIBILITY_MIGRATION_COUNT" \
+      "$ORIGINAL_COMPATIBILITY_MIGRATION_SHA256" &&
+    persist_database_compatibility_record \
+      "$ORIGINAL_COMPATIBILITY_REVISION" \
+      "$ORIGINAL_COMPATIBILITY_MIGRATION_COUNT" \
+      "$ORIGINAL_COMPATIBILITY_MIGRATION_SHA256"; then
+    printf 'restore:promotion=not-started original=unchanged staging=retained\n' \
+      >&2
+    report_operator_recovery promotion-not-started
+    return 1
+  elif [[ -n "$ORIGINAL_DATABASE_OID" &&
+    "$RECONCILE_TARGET_STATE" == "missing" &&
+    "$RECONCILE_OLD_STATE" == "exists" &&
+    "$RECONCILE_OLD_OID" == "$ORIGINAL_DATABASE_OID" &&
+    "$RECONCILE_STAGING_STATE" == "exists" &&
+    "$RECONCILE_STAGING_OID" == "$STAGING_DATABASE_OID" ]]; then
+    compose exec -T "$SERVICE" psql -X -v ON_ERROR_STOP=1 \
+      -U "$TARGET_USER" \
+      -d postgres \
+      -c "ALTER DATABASE \"$OLD_DATABASE\" RENAME TO \"$TARGET_DATABASE\";" \
+      >/dev/null || rename_status=$?
+    load_reconciliation_state || {
+      RECONCILE_TARGET_STATE=unknown
+      RECONCILE_TARGET_OID=unknown
+      RECONCILE_OLD_STATE=unknown
+      RECONCILE_OLD_OID=unknown
+      RECONCILE_STAGING_STATE=unknown
+      RECONCILE_STAGING_OID=unknown
+    }
+    if [[ "$RECONCILE_TARGET_STATE" == "exists" &&
+      "$RECONCILE_TARGET_OID" == "$ORIGINAL_DATABASE_OID" &&
+      "$RECONCILE_OLD_STATE" == "missing" &&
+      "$RECONCILE_STAGING_STATE" == "exists" &&
+      "$RECONCILE_STAGING_OID" == "$STAGING_DATABASE_OID" &&
+      "$ORIGINAL_COMPATIBILITY_VALID" -eq 1 ]] &&
+      verify_restored_database \
+        "$TARGET_DATABASE" \
+        "$TARGET_USER" \
+        "$ORIGINAL_COMPATIBILITY_MIGRATION_COUNT" \
+        "$ORIGINAL_COMPATIBILITY_MIGRATION_SHA256" &&
+      persist_database_compatibility_record \
+        "$ORIGINAL_COMPATIBILITY_REVISION" \
+        "$ORIGINAL_COMPATIBILITY_MIGRATION_COUNT" \
+        "$ORIGINAL_COMPATIBILITY_MIGRATION_SHA256"; then
+      printf 'restore:promotion=not-completed original=restored staging=retained rename_status=%s\n' \
+        "$rename_status" >&2
+      report_operator_recovery promotion-not-completed
+      return 1
+    fi
+  elif [[ -z "$ORIGINAL_DATABASE_OID" &&
+    "$RECONCILE_TARGET_STATE" == "missing" &&
+    "$RECONCILE_OLD_STATE" == "missing" &&
+    "$RECONCILE_STAGING_STATE" == "exists" &&
+    "$RECONCILE_STAGING_OID" == "$STAGING_DATABASE_OID" ]]; then
+    invalidate_reconciled_compatibility promotion-not-completed || true
+    report_operator_recovery promotion-not-completed
+    return 1
+  fi
+
+  invalidate_reconciled_compatibility ambiguous-production-target || true
+  report_operator_recovery ambiguous-production-target
+  return 1
+}
+
+reconcile_promoted_target() {
+  local cleanup_status=0 verification_status
+
+  if ! load_reconciliation_state; then
+    RECONCILE_TARGET_STATE=unknown
+    RECONCILE_TARGET_OID=unknown
+    RECONCILE_OLD_STATE=unknown
+    RECONCILE_OLD_OID=unknown
+    RECONCILE_STAGING_STATE=unknown
+    RECONCILE_STAGING_OID=unknown
+    invalidate_reconciled_compatibility ambiguous-production-target || true
+    report_operator_recovery target-state-unavailable
+    return 1
+  fi
+
+  if [[ "$RECONCILE_TARGET_STATE" != "exists" ||
+    "$RECONCILE_TARGET_OID" != "$STAGING_DATABASE_OID" ||
+    "$RECONCILE_STAGING_STATE" != "missing" ]]; then
+    reconcile_unpromoted_target
+    return $?
+  fi
+
+  if verify_restored_database \
+    "$TARGET_DATABASE" \
+    "$TARGET_USER" \
+    "$BACKUP_MIGRATION_COUNT" \
+    "$BACKUP_MIGRATION_SHA256"; then
+    :
+  else
+    verification_status=$?
+    invalidate_reconciled_compatibility promoted-contract-mismatch || true
+    if [[ "$verification_status" -eq 1 ]]; then
+      report_operator_recovery promoted-contract-unavailable
+    else
+      report_operator_recovery promoted-contract-mismatch
+    fi
+    return 1
+  fi
+
+  persist_database_compatibility_record \
+    "$BACKUP_COMPATIBLE_REVISION" \
+    "$BACKUP_MIGRATION_COUNT" \
+    "$BACKUP_MIGRATION_SHA256" ||
+    fail_compatibility_state_persistence
+  printf 'restore:compatibility-state=published revision=%s migration_count=%s migration_names_sha256=%s\n' \
+    "$BACKUP_COMPATIBLE_REVISION" \
+    "$BACKUP_MIGRATION_COUNT" \
+    "$BACKUP_MIGRATION_SHA256"
+
+  if [[ "$RECONCILE_OLD_STATE" == "exists" ]]; then
+    compose exec -T "$SERVICE" dropdb \
+      -U "$TARGET_USER" \
+      --force \
+      "$OLD_DATABASE" >/dev/null || cleanup_status=$?
+  fi
+
+  if ! load_reconciliation_state; then
+    RECONCILE_TARGET_STATE=unknown
+    RECONCILE_TARGET_OID=unknown
+    RECONCILE_OLD_STATE=unknown
+    RECONCILE_OLD_OID=unknown
+    RECONCILE_STAGING_STATE=unknown
+    RECONCILE_STAGING_OID=unknown
+    invalidate_reconciled_compatibility ambiguous-production-target || true
+    report_operator_recovery target-state-unavailable-after-old-cleanup
+    return 1
+  fi
+  if [[ "$RECONCILE_TARGET_STATE" != "exists" ||
+    "$RECONCILE_TARGET_OID" != "$STAGING_DATABASE_OID" ||
+    "$RECONCILE_STAGING_STATE" != "missing" ]]; then
+    invalidate_reconciled_compatibility ambiguous-production-target || true
+    report_operator_recovery target-changed-after-old-cleanup
+    return 1
+  fi
+  verify_restored_database \
+    "$TARGET_DATABASE" \
+    "$TARGET_USER" \
+    "$BACKUP_MIGRATION_COUNT" \
+    "$BACKUP_MIGRATION_SHA256" || {
+    invalidate_reconciled_compatibility promoted-contract-mismatch || true
+    report_operator_recovery promoted-contract-unavailable-after-old-cleanup
+    return 1
+  }
+  persist_database_compatibility_record \
+    "$BACKUP_COMPATIBLE_REVISION" \
+    "$BACKUP_MIGRATION_COUNT" \
+    "$BACKUP_MIGRATION_SHA256" ||
+    fail_compatibility_state_persistence
+
+  if [[ "$RECONCILE_OLD_STATE" == "exists" ]]; then
+    printf 'restore:old-database=retained name=%s cleanup_status=%s action=operator-cleanup\n' \
+      "$OLD_DATABASE" "$cleanup_status"
+  else
+    printf 'restore:old-database=removed name=%s cleanup_status=%s\n' \
+      "$OLD_DATABASE" "$cleanup_status"
+  fi
 }
 
 validate_production_backup() {
@@ -527,6 +721,19 @@ if [[ "$ENVIRONMENT" == "test" ]]; then
   [[ "$target_major" == "$VALIDATED_BACKUP_POSTGRES_MAJOR" ]] ||
     fail "postgres-major-version-mismatch"
 
+  extension_state="$(
+    compose exec -T "$SERVICE" psql -X -A -t \
+      -U "$TARGET_USER" \
+      -d "$TARGET_DATABASE" \
+      -c "SELECT CASE WHEN EXISTS (
+        SELECT 1
+        FROM pg_catalog.pg_extension
+        WHERE extname NOT IN ('plpgsql')
+      ) THEN 'unapproved' ELSE 'approved' END;"
+  )" || fail "target-extension-check"
+  [[ "$extension_state" == "approved" ]] ||
+    fail "target-database-extension-not-approved"
+
   target_state="$(
     compose exec -T "$SERVICE" psql -X -A -t \
       -U "$TARGET_USER" \
@@ -695,14 +902,21 @@ INITIAL_SOURCE_DATABASE="$SOURCE_DATABASE"
 
 [[ -z "$(compose ps --status running -q app)" ]] ||
   fail "application-writes-not-stopped"
-target_presence="$(database_presence "$TARGET_DATABASE" "$TARGET_USER")" ||
+target_identity="$(database_identity "$TARGET_DATABASE" "$TARGET_USER")" ||
   fail "target-database-state-unavailable"
-if CURRENT_COMPATIBLE_REVISION="$(
-  verified_database_compatible_revision "$DATABASE_COMPATIBLE_FILE"
-)"; then
+IFS=$'\t' read -r target_presence target_oid <<< "$target_identity"
+if [[ "$target_presence" == "exists" ]]; then
+  ORIGINAL_DATABASE_OID="$target_oid"
+fi
+if verified_database_compatibility_record "$DATABASE_COMPATIBLE_FILE"; then
+  CURRENT_COMPATIBLE_REVISION="$DATABASE_COMPATIBILITY_REVISION"
+  ORIGINAL_COMPATIBILITY_VALID=1
+  ORIGINAL_COMPATIBILITY_REVISION="$DATABASE_COMPATIBILITY_REVISION"
+  ORIGINAL_COMPATIBILITY_MIGRATION_COUNT="$DATABASE_COMPATIBILITY_MIGRATION_COUNT"
+  ORIGINAL_COMPATIBILITY_MIGRATION_SHA256="$DATABASE_COMPATIBILITY_MIGRATION_SHA256"
   :
 elif [[ "$DEGRADED_RECOVERY" -eq 0 ]]; then
-  fail "production-compatible-revision-unavailable"
+  fail "production-compatible-record-unavailable"
 else
   CURRENT_COMPATIBLE_REVISION=""
 fi
@@ -710,7 +924,7 @@ fi
 if [[ "$target_presence" == "missing" ]]; then
   [[ "$DEGRADED_RECOVERY" -eq 1 ]] || fail "target-database-missing"
   printf '%s\n' \
-    "restore:pre-restore-backup=skipped reason=database-missing"
+    "restore:pre-restore-backup=skipped reason=target-database-missing"
 else
   pre_restore_backup_arguments=(
     --environment production
@@ -721,29 +935,46 @@ else
     --retention-protect-file "$BACKUP_FILE"
     --deployment-lock-fd "$LOCK_FD"
   )
-  if [[ -n "$CURRENT_COMPATIBLE_REVISION" ]]; then
-    pre_restore_backup_arguments+=(
-      --compatible-app-revision "$CURRENT_COMPATIBLE_REVISION"
-    )
-  else
+  if [[ "$DEGRADED_RECOVERY" -eq 1 ]]; then
     pre_restore_backup_arguments+=(
       --compatible-app-revision unknown-revision
       --degraded-recovery
     )
+  elif [[ -n "$CURRENT_COMPATIBLE_REVISION" ]]; then
+    pre_restore_backup_arguments+=(
+      --compatible-app-revision "$CURRENT_COMPATIBLE_REVISION"
+    )
+  else
+    fail "production-compatible-record-unavailable"
   fi
 
   if attempt_pre_restore_backup "${pre_restore_backup_arguments[@]}"; then
-    printf 'restore:pre-restore-backup=completed\n'
+    pre_restore_backup_status=0
   else
     pre_restore_backup_status=$?
-    if [[ "$DEGRADED_RECOVERY" -eq 1 &&
-      "$pre_restore_backup_status" -eq 2 ]]; then
-      printf '%s\n' \
-        "restore:pre-restore-backup=skipped reason=database-unavailable"
-    else
-      fail "pre-restore-backup"
-    fi
   fi
+  case "$pre_restore_backup_status" in
+    0)
+      printf 'restore:pre-restore-backup=completed-and-verified\n'
+      ;;
+    "$RESET90_BACKUP_RESULT_RETENTION")
+      printf '%s\n' \
+        "restore:pre-restore-backup=completed-and-verified retention=failed bundle=preserved" >&2
+      ;;
+    "$RESET90_BACKUP_RESULT_DATABASE_UNAVAILABLE")
+      if [[ "$DEGRADED_RECOVERY" -eq 1 ]]; then
+        printf '%s\n' \
+          "restore:pre-restore-backup=skipped reason=target-database-positively-unreadable"
+      else
+        fail "pre-restore-backup-database-unavailable"
+      fi
+      ;;
+    *)
+      printf '%s\n' \
+        "restore:pre-restore-backup=blocked reason=backup-infrastructure-or-publication-failure" >&2
+      fail "pre-restore-backup"
+      ;;
+  esac
 fi
 
 timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
@@ -767,6 +998,12 @@ old_presence="$(database_presence "$OLD_DATABASE" "$TARGET_USER")" ||
 compose exec -T "$SERVICE" createdb -U "$TARGET_USER" -T template0 \
   "$STAGING_DATABASE" ||
   fail "staging-database-create"
+staging_identity="$(database_identity "$STAGING_DATABASE" "$TARGET_USER")" ||
+  fail "staging-database-state-unavailable"
+IFS=$'\t' read -r staging_state STAGING_DATABASE_OID <<< "$staging_identity"
+[[ "$staging_state" == "exists" &&
+  "$STAGING_DATABASE_OID" =~ ^[1-9][0-9]*$ ]] ||
+  fail "staging-database-state-unavailable"
 validate_production_backup || fail "backup-artifact-invalid"
 [[ "$BACKUP_FINGERPRINT" == "$INITIAL_BACKUP_FINGERPRINT" ]] ||
   fail "backup-artifact-changed"
@@ -808,29 +1045,33 @@ if [[ "$target_presence" == "exists" ]]; then
         WHERE datname = :'target_database' AND pid <> pg_backend_pid();" \
     >/dev/null ||
     fail "target-connection-stop"
+  DATABASE_RENAME_STARTED=1
   compose exec -T "$SERVICE" psql -X -v ON_ERROR_STOP=1 \
     -U "$TARGET_USER" \
     -d postgres \
     -c "ALTER DATABASE \"$TARGET_DATABASE\" RENAME TO \"$OLD_DATABASE\";" ||
-    fail "target-rename"
+    {
+      reconcile_unpromoted_target || true
+      fail "target-rename"
+    }
 fi
+DATABASE_RENAME_STARTED=1
+invalidate_database_compatibility_record \
+  "$DATABASE_COMPATIBLE_FILE" \
+  restore-promotion-in-progress ||
+  fail "compatible-state-invalidation"
+promotion_status=0
 compose exec -T "$SERVICE" psql -X -v ON_ERROR_STOP=1 \
   -U "$TARGET_USER" \
   -d postgres \
   -c "ALTER DATABASE \"$STAGING_DATABASE\" RENAME TO \"$TARGET_DATABASE\";" ||
-  fail "staging-promote"
-verify_restored_database \
-  "$TARGET_DATABASE" \
-  "$TARGET_USER" \
-  "$BACKUP_MIGRATION_COUNT" \
-  "$BACKUP_MIGRATION_SHA256" ||
-  fail "final-database-verification"
-if [[ "$target_presence" == "exists" ]]; then
-  compose exec -T "$SERVICE" dropdb -U "$TARGET_USER" --force "$OLD_DATABASE" ||
-    fail "old-database-remove"
+  promotion_status=$?
+if ! reconcile_promoted_target; then
+  fail "post-promotion-reconciliation"
 fi
-persist_database_compatible_revision "$BACKUP_COMPATIBLE_REVISION" ||
-  fail_compatibility_state_persistence
+if [[ "$promotion_status" -ne 0 ]]; then
+  printf 'restore:promotion-command=reported-failure actual-state=reconciled\n' >&2
+fi
 
 printf 'restore:complete mode=production target=%s backup=%s\n' \
   "$TARGET_DATABASE" "$BACKUP_BASENAME"

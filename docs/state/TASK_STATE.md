@@ -1,6 +1,6 @@
 # Task State
 
-Last updated: 2026-07-30
+Last updated: 2026-07-31
 
 ## Current phase
 
@@ -22,16 +22,19 @@ db-backup` remains the canonical Make target. Metadata version 2 separates
 backup-compatible application revision, incoming deployment target revision,
 and purpose; captures source database, final byte size/SHA-256, and exact
 completed-migration count/name digest; and removes ambiguous `git_sha`.
-Production derives database/user from validated environment and compatible
-revision from verified `database-compatible.sha` plus immutable image. Every
-production backup now owns or validates inherited ownership of the exact shared
-non-blocking lock before reading compatibility, migration, database, or backup
-state; retention reuses same descriptor. Local/disposable backups remain
-lock-independent and use checkout `HEAD` only when checkout/database migration
-contracts match exactly, otherwise explicit valid revision or
-`unknown-revision`. Bundle components remain cleanup-owned through final
-validation, with metadata published last, so signals/failures leave no accepted
-final bundle.
+Production derives database/user from validated environment. Versioned
+`database-compatible.sha` content binds immutable application revision to
+effective migration count/name digest; legacy revision-only content is
+rejected. Normal production backup requires record revision, live migration
+contract, and immutable image to agree before publication. Explicit degraded
+backup remains forensic `unknown-revision`. Every production backup owns or
+validates inherited ownership of exact shared non-blocking lock before reading
+compatibility, migration, database, or backup state; retention reuses same
+descriptor. Local/disposable backups remain lock-independent and use checkout
+`HEAD` only when checkout/database migration contracts match exactly, otherwise
+explicit valid revision or `unknown-revision`. Bundle components remain
+cleanup-owned through final validation, with metadata published last, so
+signals/failures leave no accepted final bundle.
 
 `scripts/backup-retention.sh` selects only verified final bundles under a marked
 absolute Reset90 backup root. It keeps 30 days and at least the newest seven,
@@ -48,13 +51,16 @@ reports malformed calendar timestamps as invalid.
 `DATABASE_URL`, non-loopback or non-test targets, populated or source-equal
 targets, unsafe paths/symlinks, unsupported filenames/metadata/PostgreSQL
 majors, malformed gzip/SQL markers, size/digest disagreement, and migration
-state inconsistent with backup metadata. Exact captured migration contract
-allows a complete older N−1 backup when checkout contains N while still
-rejecting missing, unfinished, unresolved failed, duplicate, unexpected, or
-contract-mismatched records. Disposable empty-target proof now covers
+state inconsistent with backup metadata. Migration validation preserves Prisma
+start/finish/rollback timestamps and IDs. A rolled-back failed attempt is
+resolved only by a distinct later completed attempt; later rollback,
+indeterminate order, duplicate unresolved attempt, unfinished attempt, and
+unresolved failure are rejected. Effective completed names still determine
+count/digest, so a complete older N−1 backup remains restorable. Disposable
+empty-target proof first permits only base `plpgsql` extension, then covers
 relations, routines/procedures, schemas, domains/enums, and operators while
-excluding system/extension-owned objects. Test restore uses one transaction and
-reports backup-compatible revision.
+excluding objects owned by that approved extension. Test restore uses one
+transaction and reports backup-compatible revision.
 
 Production restore requires explicit production mode/environment, a selected
 verified backup inside `/backups` with full compatible SHA, interactive
@@ -62,18 +68,31 @@ terminal, and exact confirmation. Normal recovery keeps verified pre-restore
 backup mandatory. Explicit `--degraded-recovery` uses distinct typed
 confirmation and permits only selected bundle's verified full compatible SHA
 and migration contract when current compatibility is unavailable. It attempts
-current backup, records completed/missing/unavailable result, and skips only a
-proven missing or unbackupable target. Gzip fully stages to a private temporary
-file before transactional `psql`, so partial/truncated decompression cannot
-promote. After staging, promotion, and final target verification, restore
-atomically updates `database-compatible.sha` to selected revision while leaving
-`successful.sha` unchanged and application stopped. State-persistence failure
-preserves restored database, returns non-zero, and requires operator repair.
+current backup through explicit result codes. It skips only a proven missing
+target or target-specific unreadability with PostgreSQL control access still
+working. Unknown/database-connection, backup-root/trust, storage, collision,
+temporary-file, compression, checksum, metadata/publication/validation, lock,
+configuration, and tooling failures stop restore. Verified bundle plus later
+retention failure preserves bundle and continues. Gzip fully stages to a
+private temporary file before transactional `psql`, so partial/truncated
+decompression cannot promote.
 
-Deployment pre-migration backup records verified previous database-compatible
-revision and separate incoming target. Deployment marks compatible state
-`unknown` immediately before migration and records target only after migration
-succeeds. Missing, malformed, or unverified compatible state stops safely.
+Promotion reconciliation queries actual database names and OIDs after command
+success or failure. Only target with verified staging OID and selected backup
+migration contract is accepted. Selected revision/count/digest publish
+atomically before old cleanup; `successful.sha` remains unchanged and
+application stopped. Old cleanup ambiguity is reconciled from actual state.
+Unknown target state or contract mismatch invalidates compatibility, preserves
+recoverable old/staging databases, emits exact operator recovery data, and
+returns non-zero. Reconciliation/publication are idempotent; lock releases while
+shared lock file remains.
+
+Deployment pre-migration backup records verified previous
+database-compatible revision/contract and separate incoming target. Deployment
+atomically invalidates compatibility immediately before migration, captures
+live contract after migration succeeds, then publishes target
+revision/count/digest together. Missing, malformed, unverified, or
+contract-mismatched state stops safely.
 
 `scripts/restore-drill.sh` creates one unique disposable Compose project with
 separate source and target databases, applies all migrations, inserts
@@ -103,12 +122,14 @@ integration was changed.
 
 ## Verification evidence
 
-- Focused backup/restore/retention/drill plus production-deployment coverage
-  passes 2 files with 155 tests. It covers degraded/missing/malformed state,
-  missing/fresh/unbackupable production targets, mandatory normal pre-backup,
-  state publication/failure timing, decompression/psql failure, shared-lock
-  ownership/signals/concurrency, BusyBox parser contract, object-only disposable
-  targets, local migration-contract labeling, and drill cleanup failure.
+- Focused backup/restore/retention/migration-contract plus
+  production-deployment coverage passes 2 files with 177 tests. It covers
+  chronological rollback resolution, versioned compatibility records and
+  live-contract mismatch, narrow degraded backup result classes, extension-only
+  disposable targets, OID-based promotion reconciliation,
+  compatibility-before-cleanup ordering, ambiguous-state
+  preservation/invalidation, `successful.sha` isolation, and shared-lock
+  release/file retention.
 - Declared `postgres:16-alpine` runtime accepted valid explicit BusyBox UTC
   timestamp parsing/round-trip and rejected or de-normalized invalid calendar
   timestamp.
@@ -118,25 +139,28 @@ integration was changed.
   verification and cleanup both reported passed.
 - Canonical PostgreSQL integration suite passed 2 files/12 tests after applying
   all 9 migrations to fresh disposable database.
-- Final `make check` passed with 27 unit/component files and 605 tests, 2
-  PostgreSQL files and 12 tests after all 9 migrations, production build,
-  shell syntax, format/lint/type/schema/payload/environment checks, sensitive
-  tracked-file hygiene, and repository whitespace/inventory checks.
+- Final `make check` passed after all edits, including unit/component tests,
+  PostgreSQL integration after all 9 migrations, production build, shell
+  syntax, format/lint/type/schema/payload/environment checks, sensitive tracked
+  file hygiene, and repository whitespace/inventory checks.
 
 ## Migration, deployment, rollback, and risk
 
 - No `prisma/schema.prisma`, checked-in migration, seed, or normalized data
   behavior changed. The drill used only disposable PostgreSQL resources.
 - No live deployment or production data operation occurred.
-- Deployment stops before migration when compatible revision, canonical backup,
-  or retention is unverified. Migration failure leaves compatibility unknown and
-  requires explicit degraded operator recovery from fully verified pre-deploy
-  bundle; restore is never automatic.
+- Deployment stops before migration when compatibility record/live contract,
+  canonical backup, or retention is unverified. Migration failure leaves
+  compatibility explicitly invalid and requires degraded operator recovery from
+  fully verified pre-deploy bundle; restore is never automatic.
 - Script rollback is reverting this correction diff, but metadata v2 bundles and
-  `database-compatible.sha` must remain paired with corrected scripts. Future
-  production restore remains manual, destructive, lock-protected, writes
-  compatible state only after final database verification, and requires
-  independent off-host bundle plus explicit compatible immutable image choice.
+  versioned `database-compatible.sha` records must remain paired with corrected
+  scripts. Revision-only legacy state is intentionally rejected. Reverting
+  scripts requires explicit operator reconstruction of previous state format;
+  never copy one record format into the other. Future production restore remains
+  manual, destructive, lock-protected, writes compatibility only after promoted
+  OID/contract verification, and requires independent off-host bundle plus
+  explicit compatible immutable image choice.
 - Production backup/restore mutation paths are covered with command stubs, not
   live production data. Real production readiness remains unconfirmed until an
   authorised operator makes and transfers a verified production backup and
@@ -144,6 +168,14 @@ integration was changed.
 
 ## Latest handoff
 
+- 2026-07-30T23:03:32Z — `feature/backup-restore` — bounded Phase 22 correction
+  binds compatible revision to migration contract, validates rolled-back
+  migrations chronologically, rejects unapproved extension-only disposable
+  targets, classifies degraded pre-restore backup failures explicitly, and
+  reconciles ambiguous promotion/deletion results from PostgreSQL names/OIDs;
+  focused 2 files/177 tests, real 9-migration restore drill, and PostgreSQL 2
+  files/12 tests and final `make check` passed; no live production,
+  schema/migration/seed, dependency, UI, or Phase 23 change
 - 2026-07-30T22:16:40Z — `feature/backup-restore` — bounded Phase 22 correction
   adds guarded degraded recovery, post-restore compatible-state publication,
   standalone backup locking, non-pipelined production restore, Alpine retention

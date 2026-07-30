@@ -33,12 +33,49 @@ const checkedInMigrations = readdirSync(join(repository, "prisma/migrations"), {
   .filter((entry) => entry.isDirectory())
   .map((entry) => entry.name)
   .sort();
+function migrationEventRow(
+  name: string,
+  state: "completed" | "failed" | "inconsistent" | "rolled-back" | "unfinished",
+  startedAt: string,
+  finishedAt: string,
+  rolledBackAt: string,
+  id: string,
+) {
+  return [name, state, startedAt, finishedAt, rolledBackAt, id].join("\t");
+}
+
+function completedMigrationRow(name: string, index: number) {
+  const sequence = String(index + 1).padStart(6, "0");
+  return migrationEventRow(
+    name,
+    "completed",
+    `20260701000000${sequence}`,
+    `20260701000100${sequence}`,
+    "none",
+    `completed-${index + 1}`,
+  );
+}
+
 const completedMigrationRows = checkedInMigrations
-  .map((name) => `${name}\tcompleted`)
+  .map(completedMigrationRow)
   .join("\n");
 const completedMigrationDigest = createHash("sha256")
   .update(`${checkedInMigrations.join("\n")}\n`)
   .digest("hex");
+
+function compatibilityRecord(
+  applicationRevision: string,
+  migrationCount = checkedInMigrations.length,
+  migrationDigest = completedMigrationDigest,
+) {
+  return [
+    "compatibility_version=1",
+    `application_revision=${applicationRevision}`,
+    `migration_count=${migrationCount}`,
+    `migration_names_sha256=${migrationDigest}`,
+    "",
+  ].join("\n");
+}
 
 function temporaryDirectory(prefix: string) {
   const directory = mkdtempSync(join(tmpdir(), prefix));
@@ -127,11 +164,13 @@ function shellHarness() {
   const artifactValidationCountFile = join(root, "artifact-validations");
   const databaseVerificationCountFile = join(root, "database-verifications");
   const migrationQueryCountFile = join(root, "migration-queries");
+  const databaseStateQueryCountFile = join(root, "database-state-queries");
   mkdirSync(binaries, { recursive: true });
-  writeFileSync(databaseStateFile, "postgres\nreset90\n");
+  writeFileSync(databaseStateFile, "postgres\t1\nreset90\t100\n");
   writeFileSync(artifactValidationCountFile, "0\n");
   writeFileSync(databaseVerificationCountFile, "0\n");
   writeFileSync(migrationQueryCountFile, "0\n");
+  writeFileSync(databaseStateQueryCountFile, "0\n");
   writeFileSync(environmentFile, "TEST_DATABASE_PORT=55432\n");
   writeFileSync(
     composeFile,
@@ -144,13 +183,19 @@ function shellHarness() {
     'printf "docker %s\\n" "$*" >> "$FAKE_COMMAND_LOG"',
     'joined="$*"',
     "state_contains() {",
-    '  /usr/bin/grep -Fxq -- "$1" "$FAKE_DATABASE_STATE_FILE"',
+    '  /usr/bin/awk -F "\\t" -v target="$1" \'$1 == target { found = 1 } END { exit(found ? 0 : 1) }\' "$FAKE_DATABASE_STATE_FILE"',
+    "}",
+    "state_oid() {",
+    '  /usr/bin/awk -F "\\t" -v target="$1" \'$1 == target { print $2; found = 1 } END { exit(found ? 0 : 1) }\' "$FAKE_DATABASE_STATE_FILE"',
     "}",
     "state_add() {",
-    '  state_contains "$1" || printf "%s\\n" "$1" >> "$FAKE_DATABASE_STATE_FILE"',
+    '  if ! state_contains "$1"; then',
+    '    next_oid="$(/usr/bin/awk -F "\\t" \'BEGIN { max = 100 } $2 > max { max = $2 } END { print max + 1 }\' "$FAKE_DATABASE_STATE_FILE")"',
+    '    printf "%s\\t%s\\n" "$1" "$next_oid" >> "$FAKE_DATABASE_STATE_FILE"',
+    "  fi",
     "}",
     "state_remove() {",
-    '  /usr/bin/grep -Fxv -- "$1" "$FAKE_DATABASE_STATE_FILE" > "$FAKE_DATABASE_STATE_FILE.tmp" || true',
+    '  /usr/bin/awk -F "\\t" -v target="$1" \'$1 != target\' "$FAKE_DATABASE_STATE_FILE" > "$FAKE_DATABASE_STATE_FILE.tmp"',
     '  /bin/mv "$FAKE_DATABASE_STATE_FILE.tmp" "$FAKE_DATABASE_STATE_FILE"',
     "}",
     "finish_injected_command() {",
@@ -166,6 +211,12 @@ function shellHarness() {
     'if [[ -n "${FAKE_DOCKER_BLOCK_MATCH:-}" && "$joined" == *"$FAKE_DOCKER_BLOCK_MATCH"* ]]; then',
     '  : > "$FAKE_DOCKER_BLOCKED_FILE"',
     '  while [[ ! -f "$FAKE_DOCKER_RELEASE_FILE" ]]; do /bin/sleep 0.01; done',
+    "fi",
+    'if [[ "${FAKE_RETENTION_FAIL:-0}" == "1" && "$joined" == *\'find "$root" -maxdepth 1\'* ]]; then',
+    "  exit 1",
+    "fi",
+    'if [[ -n "${FAKE_PRODUCTION_BACKUP_FAIL_MATCH:-}" && "$joined" == *"pg_dump --no-owner"* && "$joined" == *"$FAKE_PRODUCTION_BACKUP_FAIL_MATCH"* ]]; then',
+    "  exit 1",
     "fi",
     'if [[ -n "${FAKE_DOCKER_FAIL_MATCH:-}" && "$joined" == *"$FAKE_DOCKER_FAIL_MATCH"* ]]; then',
     "  exit 1",
@@ -210,6 +261,22 @@ function shellHarness() {
     '  printf "%s\\n" "${FAKE_SERVER_VERSION:-160009}"',
     "  exit 0",
     "fi",
+    'if [[ "$joined" == *"SELECT current_database();"* ]]; then',
+    '  selected_database=""',
+    '  previous_argument=""',
+    '  for argument in "$@"; do',
+    '    if [[ "$previous_argument" == "-d" ]]; then selected_database="$argument"; fi',
+    '    previous_argument="$argument"',
+    "  done",
+    '  if [[ "${FAKE_DATABASE_CONNECTION_UNKNOWN:-0}" == "1" ]]; then exit 1; fi',
+    '  if [[ "${FAKE_TARGET_DATABASE_UNREADABLE:-0}" == "1" && "$selected_database" != "postgres" ]]; then exit 1; fi',
+    '  printf "%s\\n" "$selected_database"',
+    "  exit 0",
+    "fi",
+    'if [[ "$joined" == *"pg_catalog.pg_extension"* ]]; then',
+    '  printf "%s\\n" "${FAKE_EXTENSION_STATE:-approved}"',
+    "  exit 0",
+    "fi",
     'if [[ "$joined" == *"AS existing_objects"* ]]; then',
     '  if [[ -n "${FAKE_TARGET_STATE:-}" ]]; then printf "%s\\n" "$FAKE_TARGET_STATE"; exit 0; fi',
     '  target_object="${FAKE_TARGET_OBJECT:-empty}"',
@@ -238,7 +305,10 @@ function shellHarness() {
     "  exit 0",
     "fi",
     'if [[ "$joined" == *"SELECT migration_name, CASE"* ]]; then',
-    '  if [[ "$joined" == *"-d reset90 -c"* && -n "${FAKE_SOURCE_MIGRATION_ROWS:-}" ]]; then',
+    '  migration_query_count="$(/bin/cat "$FAKE_MIGRATION_QUERY_COUNT_FILE")"',
+    '  if [[ -n "${FAKE_MIGRATION_ROWS_AFTER_COUNT:-}" && "$migration_query_count" -gt "$FAKE_MIGRATION_ROWS_AFTER_COUNT" ]]; then',
+    '    printf "%s\\n" "$FAKE_MIGRATION_ROWS_AFTER_COUNT_VALUE"',
+    '  elif [[ "$joined" == *"-d reset90 -c"* && -n "${FAKE_SOURCE_MIGRATION_ROWS:-}" ]]; then',
     '    printf "%s\\n" "$FAKE_SOURCE_MIGRATION_ROWS"',
     "  else",
     '    printf "%s\\n" "$FAKE_MIGRATION_ROWS"',
@@ -254,12 +324,20 @@ function shellHarness() {
     "  exit 0",
     "fi",
     'if [[ "$joined" == *"FROM pg_database WHERE datname"* ]]; then',
+    '  database_state_query_count="$(/bin/cat "$FAKE_DATABASE_STATE_QUERY_COUNT_FILE")"',
+    "  database_state_query_count=$((database_state_query_count + 1))",
+    '  printf "%s\\n" "$database_state_query_count" > "$FAKE_DATABASE_STATE_QUERY_COUNT_FILE"',
+    '  if [[ -n "${FAKE_DATABASE_STATE_FAILURE_AFTER:-}" && "$database_state_query_count" -gt "$FAKE_DATABASE_STATE_FAILURE_AFTER" ]]; then exit 1; fi',
     '  database_name=""',
     '  for argument in "$@"; do',
     '    if [[ "$argument" == database_name=* ]]; then database_name="${argument#database_name=}"; fi',
     "  done",
     '  [[ -n "$database_name" ]] || exit 1',
-    '  if state_contains "$database_name"; then printf "yes\\n"; else printf "no\\n"; fi',
+    '  if [[ "$joined" == *"oid::text"* ]]; then',
+    '    if state_contains "$database_name"; then printf "exists\\t%s\\n" "$(state_oid "$database_name")"; else printf "missing\\tnone\\n"; fi',
+    "  else",
+    '    if state_contains "$database_name"; then printf "exists\\n"; else printf "missing\\n"; fi',
+    "  fi",
     "  exit 0",
     "fi",
     'if [[ "$joined" == *"source_database"* && "$joined" == *"PostgreSQL database dump"* ]]; then',
@@ -287,8 +365,9 @@ function shellHarness() {
     '  new_name="${BASH_REMATCH[2]}"',
     '  state_contains "$old_name" || exit 1',
     '  state_contains "$new_name" && exit 1',
+    '  database_oid="$(state_oid "$old_name")"',
     '  state_remove "$old_name"',
-    '  state_add "$new_name"',
+    '  printf "%s\\t%s\\n" "$new_name" "$database_oid" >> "$FAKE_DATABASE_STATE_FILE"',
     "  finish_injected_command",
     "  exit 0",
     "fi",
@@ -348,6 +427,7 @@ function shellHarness() {
   writeExecutable(join(binaries, "mv"), [
     "#!/usr/bin/env bash",
     "set -euo pipefail",
+    'printf "mv %s\\n" "$*" >> "$FAKE_COMMAND_LOG"',
     'destination="${!#}"',
     'if [[ -n "${FAKE_MV_FAIL_SUFFIX:-}" && "$destination" == *"$FAKE_MV_FAIL_SUFFIX" ]]; then exit 1; fi',
     'if [[ -n "${FAKE_MV_BLOCK_SUFFIX:-}" && "$destination" == *"$FAKE_MV_BLOCK_SUFFIX" ]]; then',
@@ -397,6 +477,7 @@ function shellHarness() {
     FAKE_ARTIFACT_VALIDATION_COUNT_FILE: artifactValidationCountFile,
     FAKE_COMMAND_LOG: commandLog,
     FAKE_DATABASE_STATE_FILE: databaseStateFile,
+    FAKE_DATABASE_STATE_QUERY_COUNT_FILE: databaseStateQueryCountFile,
     FAKE_DATABASE_VERIFICATION_COUNT_FILE: databaseVerificationCountFile,
     FAKE_MIGRATION_ROWS: completedMigrationRows,
     FAKE_MIGRATION_QUERY_COUNT_FILE: migrationQueryCountFile,
@@ -445,6 +526,7 @@ function shellHarness() {
     commandLog,
     composeFile,
     databaseStateFile,
+    databaseStateQueryCountFile,
     databaseVerificationCountFile,
     environment,
     environmentFile,
@@ -594,16 +676,17 @@ function productionRestoreInvocation(
   mkdirSync(stateDirectory, { recursive: true });
   writeFileSync(
     join(stateDirectory, "database-compatible.sha"),
-    `${currentCompatibleRevision}\n`,
+    compatibilityRecord(currentCompatibleRevision),
   );
   writeFileSync(
     join(stateDirectory, "successful.sha"),
     `${databaseCompatibleRevision}\n`,
   );
-  writeFileSync(harness.databaseStateFile, "postgres\nreset90\n");
+  writeFileSync(harness.databaseStateFile, "postgres\t1\nreset90\t100\n");
   writeFileSync(harness.artifactValidationCountFile, "0\n");
   writeFileSync(harness.databaseVerificationCountFile, "0\n");
   writeFileSync(harness.migrationQueryCountFile, "0\n");
+  writeFileSync(harness.databaseStateQueryCountFile, "0\n");
   const restoreArguments = [
     "  --environment production \\",
     `  --env-file ${shellQuote(productionEnv)} \\`,
@@ -718,6 +801,7 @@ function databaseNames(harness: ReturnType<typeof shellHarness>) {
     .trim()
     .split("\n")
     .filter(Boolean)
+    .map((row) => row.split("\t")[0])
     .sort();
 }
 
@@ -755,6 +839,7 @@ function restoreDrillHarness() {
     'if [[ "$joined" == *"pg_dump --version"* ]]; then printf "pg_dump (PostgreSQL) 16.9\\n"; exit 0; fi',
     'if [[ "$joined" == *"psql --version"* ]]; then printf "psql (PostgreSQL) 16.9\\n"; exit 0; fi',
     'if [[ "$joined" == *"SHOW server_version_num"* ]]; then printf "160009\\n"; exit 0; fi',
+    'if [[ "$joined" == *"pg_catalog.pg_extension"* ]]; then printf "approved\\n"; exit 0; fi',
     'if [[ "$joined" == *"AS existing_objects"* ]]; then printf "empty\\n"; exit 0; fi',
     'if [[ "$joined" == *"to_regclass"* ]]; then printf "present\\n"; exit 0; fi',
     'if [[ "$joined" == *"SELECT migration_name, CASE"* ]]; then',
@@ -1007,7 +1092,7 @@ describe("canonical database backup", () => {
     args.splice(revisionIndex, 2);
     const olderRows = checkedInMigrations
       .slice(0, -1)
-      .map((name) => `${name}\tcompleted`)
+      .map(completedMigrationRow)
       .join("\n");
     const result = run("scripts/backup-db.sh", args, {
       env: {
@@ -1024,7 +1109,7 @@ describe("canonical database backup", () => {
     const harness = shellHarness();
     const olderRows = checkedInMigrations
       .slice(0, -1)
-      .map((name) => `${name}\tcompleted`)
+      .map(completedMigrationRow)
       .join("\n");
     const result = run("scripts/backup-db.sh", harness.backupArgs, {
       env: {
@@ -1196,6 +1281,69 @@ describe("canonical database backup", () => {
       expect(result.stderr).toContain(`backup:failed:${failure}`);
       expect(commandLog).not.toContain("pg_dump");
       expect(commandLog).not.toContain("ps -q db");
+    },
+  );
+
+  it.each([
+    [
+      "stale revision with mismatched migration contract",
+      compatibilityRecord(
+        previousRevision,
+        checkedInMigrations.length,
+        "d".repeat(64),
+      ),
+      "production-compatible-migration-contract-mismatch",
+    ],
+    [
+      "matching revision with mismatched migration digest",
+      compatibilityRecord(revision, checkedInMigrations.length, "d".repeat(64)),
+      "production-compatible-migration-contract-mismatch",
+    ],
+    [
+      "matching digest with mismatched migration count",
+      compatibilityRecord(
+        revision,
+        checkedInMigrations.length - 1,
+        completedMigrationDigest,
+      ),
+      "production-compatible-migration-contract-mismatch",
+    ],
+    [
+      "malformed compatibility record",
+      "compatibility_version=1\napplication_revision=bad\n",
+      "production-compatible-record-unavailable",
+    ],
+    [
+      "legacy revision-only compatibility state",
+      `${revision}\n`,
+      "production-compatible-record-unavailable",
+    ],
+  ])(
+    "refuses production backup for %s",
+    (_name, compatibilityState, failure) => {
+      const harness = shellHarness();
+      const invocation = productionRestoreInvocation(harness);
+      writeFileSync(
+        join(invocation.stateDirectory, "database-compatible.sha"),
+        compatibilityState,
+      );
+      const result = run(
+        "scripts/backup-db.sh",
+        productionBackupArgs(invocation),
+        {
+          env: {
+            ...harness.environment,
+            DEPLOY_LOCK_FILE: invocation.lockFile,
+            DEPLOY_STATE_DIR: invocation.stateDirectory,
+          },
+        },
+      );
+
+      expect(result.status).not.toBe(0);
+      expect(result.stderr).toContain(`backup:failed:${failure}`);
+      expect(readFileSync(harness.commandLog, "utf8")).not.toContain(
+        "pg_dump --no-owner",
+      );
     },
   );
 
@@ -1931,52 +2079,187 @@ describe("guarded database restore", () => {
     expect(result.stdout).toContain("restore:complete mode=test");
   });
 
+  const firstMigration = checkedInMigrations[0];
+  const remainingCompletedRows = checkedInMigrations
+    .slice(1)
+    .map((name, index) => completedMigrationRow(name, index + 1))
+    .join("\n");
+  const rowsWithFirstAttempts = (...firstRows: string[]) =>
+    [...firstRows, remainingCompletedRows].filter(Boolean).join("\n");
+
   it.each([
     ["missing migration table", "missing", completedMigrationRows, false],
     [
-      "unfinished migration",
+      "rolled-back failed attempt followed by later completed attempt",
       "present",
-      completedMigrationRows.replace(
-        `${checkedInMigrations[0]}\tcompleted`,
-        `${checkedInMigrations[0]}\tunfinished`,
+      rowsWithFirstAttempts(
+        migrationEventRow(
+          firstMigration,
+          "rolled-back",
+          "20260701000000000001",
+          "none",
+          "20260701000100000001",
+          "failed-1",
+        ),
+        migrationEventRow(
+          firstMigration,
+          "completed",
+          "20260701000200000001",
+          "20260701000300000001",
+          "none",
+          "completed-later",
+        ),
       ),
-      false,
-    ],
-    [
-      "unresolved failed migration",
-      "present",
-      completedMigrationRows.replace(
-        `${checkedInMigrations[0]}\tcompleted`,
-        `${checkedInMigrations[0]}\tfailed`,
-      ),
-      false,
-    ],
-    [
-      "resolved historical rolled-back migration",
-      "present",
-      `${completedMigrationRows}\n${checkedInMigrations[0]}\trolled-back`,
       true,
     ],
     [
-      "inconsistent expected migration history",
+      "completed attempt followed by later rollback",
       "present",
-      completedMigrationRows.split("\n").slice(1).join("\n"),
+      rowsWithFirstAttempts(
+        migrationEventRow(
+          firstMigration,
+          "completed",
+          "20260701000000000001",
+          "20260701000100000001",
+          "none",
+          "completed-early",
+        ),
+        migrationEventRow(
+          firstMigration,
+          "rolled-back",
+          "20260701000200000001",
+          "none",
+          "20260701000300000001",
+          "failed-later",
+        ),
+      ),
       false,
     ],
     [
-      "duplicate completed migration",
+      "multiple failed and rolled-back attempts followed by completion",
       "present",
-      `${completedMigrationRows}\n${checkedInMigrations[0]}\tcompleted`,
+      rowsWithFirstAttempts(
+        migrationEventRow(
+          firstMigration,
+          "rolled-back",
+          "20260701000000000001",
+          "none",
+          "20260701000100000001",
+          "failed-1",
+        ),
+        migrationEventRow(
+          firstMigration,
+          "rolled-back",
+          "20260701000200000001",
+          "none",
+          "20260701000300000001",
+          "failed-2",
+        ),
+        migrationEventRow(
+          firstMigration,
+          "completed",
+          "20260701000400000001",
+          "20260701000500000001",
+          "none",
+          "completed-final",
+        ),
+      ),
+      true,
+    ],
+    [
+      "rolled-back attempt with no later completion",
+      "present",
+      rowsWithFirstAttempts(
+        migrationEventRow(
+          firstMigration,
+          "rolled-back",
+          "20260701000000000001",
+          "none",
+          "20260701000100000001",
+          "failed-only",
+        ),
+      ),
       false,
     ],
     [
-      "unexpected migration",
+      "unfinished later attempt",
       "present",
-      `${completedMigrationRows}\n99999999999999_unexpected\tcompleted`,
+      rowsWithFirstAttempts(
+        completedMigrationRow(firstMigration, 0),
+        migrationEventRow(
+          firstMigration,
+          "unfinished",
+          "20260701000200000001",
+          "none",
+          "none",
+          "unfinished-later",
+        ),
+      ),
       false,
     ],
     [
-      "normal completed migration history",
+      "duplicate unresolved attempts",
+      "present",
+      rowsWithFirstAttempts(
+        migrationEventRow(
+          firstMigration,
+          "failed",
+          "20260701000000000001",
+          "none",
+          "none",
+          "failed-1",
+        ),
+        migrationEventRow(
+          firstMigration,
+          "failed",
+          "20260701000100000001",
+          "none",
+          "none",
+          "failed-2",
+        ),
+      ),
+      false,
+    ],
+    [
+      "single unresolved failed attempt",
+      "present",
+      rowsWithFirstAttempts(
+        migrationEventRow(
+          firstMigration,
+          "failed",
+          "20260701000000000001",
+          "none",
+          "none",
+          "failed-only",
+        ),
+      ),
+      false,
+    ],
+    [
+      "rollback and completion whose order cannot establish later success",
+      "present",
+      rowsWithFirstAttempts(
+        migrationEventRow(
+          firstMigration,
+          "rolled-back",
+          "20260701000000000001",
+          "none",
+          "20260701000100000001",
+          "failed-ambiguous",
+        ),
+        migrationEventRow(
+          firstMigration,
+          "completed",
+          "20260701000100000001",
+          "20260701000200000001",
+          "none",
+          "completed-ambiguous",
+        ),
+      ),
+      false,
+    ],
+    [
+      "normal completed migration history with expected count and digest",
       "present",
       completedMigrationRows,
       true,
@@ -2011,12 +2294,29 @@ describe("guarded database restore", () => {
     },
   );
 
+  it("derives count and digest from one normal completed migration", () => {
+    const harness = shellHarness();
+    const migrationName = checkedInMigrations[0];
+    const artifact = createArtifact(harness.backupRoot, {
+      migrationNames: [migrationName],
+    });
+    const result = run("scripts/restore-db.sh", harness.restoreArgs(artifact), {
+      env: {
+        ...harness.environment,
+        DATABASE_URL: undefined,
+        FAKE_MIGRATION_ROWS: completedMigrationRow(migrationName, 0),
+        TEST_DATABASE_URL: testDatabaseUrl,
+      },
+    });
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain("restore:complete mode=test");
+  });
+
   it("accepts a complete N-1 migration contract and reports its compatible revision", () => {
     const harness = shellHarness();
     const olderMigrations = checkedInMigrations.slice(0, -1);
-    const olderRows = olderMigrations
-      .map((name) => `${name}\tcompleted`)
-      .join("\n");
+    const olderRows = olderMigrations.map(completedMigrationRow).join("\n");
     const artifact = createArtifact(harness.backupRoot, {
       migrationNames: olderMigrations,
       revision: previousRevision,
@@ -2277,6 +2577,55 @@ describe("guarded database restore", () => {
     },
   );
 
+  it.each([
+    ["only an unapproved extension", "empty"],
+    ["an unapproved extension plus a user-created object", "function"],
+  ])(
+    "rejects a disposable target containing %s before restore input",
+    (_name, targetObject) => {
+      const harness = shellHarness();
+      const artifact = createArtifact(harness.backupRoot);
+      const result = run(
+        "scripts/restore-db.sh",
+        harness.restoreArgs(artifact),
+        {
+          env: {
+            ...harness.environment,
+            DATABASE_URL: undefined,
+            FAKE_EXTENSION_STATE: "unapproved",
+            FAKE_TARGET_OBJECT: targetObject,
+            TEST_DATABASE_URL: testDatabaseUrl,
+          },
+        },
+      );
+
+      expect(result.status).not.toBe(0);
+      expect(result.stderr).toContain(
+        "restore:failed:target-database-extension-not-approved",
+      );
+      expect(readFileSync(harness.commandLog, "utf8")).not.toContain(
+        "--single-transaction",
+      );
+    },
+  );
+
+  it("accepts base required extension in otherwise empty disposable target", () => {
+    const harness = shellHarness();
+    const artifact = createArtifact(harness.backupRoot);
+    const result = run("scripts/restore-db.sh", harness.restoreArgs(artifact), {
+      env: {
+        ...harness.environment,
+        DATABASE_URL: undefined,
+        FAKE_EXTENSION_STATE: "approved",
+        FAKE_TARGET_OBJECT: "empty",
+        TEST_DATABASE_URL: testDatabaseUrl,
+      },
+    });
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain("restore:complete mode=test");
+  });
+
   it("rolls back a header-valid dump when PostgreSQL rejects its SQL", () => {
     const harness = shellHarness();
     const artifact = createArtifact(harness.backupRoot, {
@@ -2436,13 +2785,15 @@ describe("guarded database restore", () => {
       const combined = `${result.stdout}${result.stderr}`;
 
       expect(result.status).toBe(0);
-      expect(combined).toContain("restore:pre-restore-backup=completed");
+      expect(combined).toContain(
+        "restore:pre-restore-backup=completed-and-verified",
+      );
       expect(combined).toContain(
         `restore:application-remains-stopped select-revision=${previousRevision}`,
       );
       expect(combined).not.toContain(`select-revision=${revision}`);
       expect(readFileSync(compatibleState, "utf8")).toBe(
-        `${previousRevision}\n`,
+        compatibilityRecord(previousRevision),
       );
       expect(
         readFileSync(join(invocation.stateDirectory, "successful.sha"), "utf8"),
@@ -2453,6 +2804,27 @@ describe("guarded database restore", () => {
     },
   );
 
+  it("labels explicit degraded pre-restore backup as forensic unknown revision", () => {
+    const harness = shellHarness();
+    const invocation = productionRestoreInvocation(
+      harness,
+      previousRevision,
+      revision,
+      true,
+    );
+    const backupName = basename(invocation.backupFile);
+    const result = runPreparedInteractiveProductionRestore(
+      harness,
+      invocation,
+      `DEGRADED RESTORE reset90 FROM ${backupName}`,
+    );
+    const commandLog = readFileSync(harness.commandLog, "utf8");
+
+    expect(result.status).toBe(0);
+    expect(commandLog).toContain("_prerestore_unknown-revision.sql.gz");
+    expect(commandLog).not.toContain(`_prerestore_${revision}.sql.gz`);
+  });
+
   it("restores a missing production database only through degraded recovery", () => {
     const harness = shellHarness();
     const invocation = productionRestoreInvocation(
@@ -2461,7 +2833,7 @@ describe("guarded database restore", () => {
       revision,
       true,
     );
-    writeFileSync(harness.databaseStateFile, "postgres\n");
+    writeFileSync(harness.databaseStateFile, "postgres\t1\n");
     rmSync(join(invocation.stateDirectory, "database-compatible.sha"));
     const backupName = basename(invocation.backupFile);
     const result = runPreparedInteractiveProductionRestore(
@@ -2473,7 +2845,7 @@ describe("guarded database restore", () => {
 
     expect(result.status).toBe(0);
     expect(combined).toContain(
-      "restore:pre-restore-backup=skipped reason=database-missing",
+      "restore:pre-restore-backup=skipped reason=target-database-missing",
     );
     expect(databaseNames(harness)).toEqual(["postgres", "reset90"]);
     expect(
@@ -2481,20 +2853,50 @@ describe("guarded database restore", () => {
         join(invocation.stateDirectory, "database-compatible.sha"),
         "utf8",
       ),
-    ).toBe(`${previousRevision}\n`);
+    ).toBe(compatibilityRecord(previousRevision));
+  });
+
+  it("continues degraded recovery only after target is positively unreadable", () => {
+    const harness = shellHarness();
+    const invocation = productionRestoreInvocation(
+      harness,
+      previousRevision,
+      revision,
+      true,
+    );
+    writeFileSync(
+      join(invocation.stateDirectory, "database-compatible.sha"),
+      "unknown\n",
+    );
+    const backupName = basename(invocation.backupFile);
+    const result = runPreparedInteractiveProductionRestore(
+      harness,
+      invocation,
+      `DEGRADED RESTORE reset90 FROM ${backupName}`,
+      { FAKE_TARGET_DATABASE_UNREADABLE: "1" },
+    );
+    const combined = `${result.stdout}${result.stderr}`;
+
+    expect(result.status).toBe(0);
+    expect(combined).toContain(
+      "restore:pre-restore-backup=skipped reason=target-database-positively-unreadable",
+    );
+    expect(combined).toContain("restore:complete mode=production");
+    expect(databaseNames(harness)).toEqual(["postgres", "reset90"]);
   });
 
   it.each([
     [
-      "fresh empty target with no migration contract",
+      "unknown database connection failure",
+      { FAKE_DATABASE_CONNECTION_UNKNOWN: "1" },
+    ],
+    ["backup tooling failure", { FAKE_DOCKER_FAIL_MATCH: "pg_dump --version" }],
+    [
+      "invalid current migration contract",
       { FAKE_FIRST_MIGRATION_TABLE_STATE_MISSING: "1" },
     ],
-    [
-      "existing target whose backup tooling is unavailable",
-      { FAKE_DOCKER_FAIL_MATCH: "pg_dump --version" },
-    ],
   ])(
-    "reports skipped unavailable pre-restore backup for %s",
+    "blocks degraded restore after %s",
     (_name, environment: EnvironmentOverrides) => {
       const harness = shellHarness();
       const invocation = productionRestoreInvocation(
@@ -2514,16 +2916,82 @@ describe("guarded database restore", () => {
         `DEGRADED RESTORE reset90 FROM ${backupName}`,
         environment,
       );
-      const combined = `${result.stdout}${result.stderr}`;
 
-      expect(result.status).toBe(0);
-      expect(combined).toContain(
-        "restore:pre-restore-backup=skipped reason=database-unavailable",
+      expect(result.status).not.toBe(0);
+      expect(`${result.stdout}${result.stderr}`).toContain(
+        "restore:pre-restore-backup=blocked reason=backup-infrastructure-or-publication-failure",
       );
-      expect(combined).toContain("restore:complete mode=production");
-      expect(databaseNames(harness)).toEqual(["postgres", "reset90"]);
+      expect(readFileSync(harness.commandLog, "utf8")).not.toContain(
+        'ALTER DATABASE "reset90"',
+      );
     },
   );
+
+  it.each([
+    ["backup filename collision", "final_metadata"],
+    ["backup-root permission failure", "chmod 700"],
+    ["missing backup-root trust marker", "marker_value"],
+    ["insufficient backup storage", "pg_dump --no-owner"],
+    ["temporary-file creation failure", 'raw="$root/'],
+    ["compression failure", "gzip -c"],
+    ["checksum generation failure", "sha256sum"],
+    ["metadata publication failure", 'mv -- "$metadata"'],
+    ["final bundle-validation failure", "sha256sum -c"],
+    ["unsupported backup tooling", "command -v gzip"],
+  ])("blocks degraded restore after %s", (_name, failureMatch) => {
+    const harness = shellHarness();
+    const invocation = productionRestoreInvocation(
+      harness,
+      previousRevision,
+      revision,
+      true,
+    );
+    writeFileSync(
+      join(invocation.stateDirectory, "database-compatible.sha"),
+      "unknown\n",
+    );
+    const backupName = basename(invocation.backupFile);
+    const result = runPreparedInteractiveProductionRestore(
+      harness,
+      invocation,
+      `DEGRADED RESTORE reset90 FROM ${backupName}`,
+      { FAKE_PRODUCTION_BACKUP_FAIL_MATCH: failureMatch },
+    );
+    const commandLog = readFileSync(harness.commandLog, "utf8");
+
+    expect(result.status).not.toBe(0);
+    expect(`${result.stdout}${result.stderr}`).toContain(
+      "restore:pre-restore-backup=blocked reason=backup-infrastructure-or-publication-failure",
+    );
+    expect(commandLog).not.toContain('ALTER DATABASE "reset90"');
+  });
+
+  it("continues after verified pre-restore backup retention failure", () => {
+    const harness = shellHarness();
+    const invocation = productionRestoreInvocation(
+      harness,
+      previousRevision,
+      revision,
+      true,
+    );
+    writeFileSync(
+      join(invocation.stateDirectory, "database-compatible.sha"),
+      "unknown\n",
+    );
+    const backupName = basename(invocation.backupFile);
+    const result = runPreparedInteractiveProductionRestore(
+      harness,
+      invocation,
+      `DEGRADED RESTORE reset90 FROM ${backupName}`,
+      { FAKE_RETENTION_FAIL: "1" },
+    );
+
+    expect(result.status).toBe(0);
+    expect(`${result.stdout}${result.stderr}`).toContain(
+      "restore:pre-restore-backup=completed-and-verified retention=failed bundle=preserved",
+    );
+    expect(databaseNames(harness)).toEqual(["postgres", "reset90"]);
+  });
 
   it.each(["missing", "malformed", "unknown"])(
     "normal production recovery fails when compatible state is %s",
@@ -2551,7 +3019,7 @@ describe("guarded database restore", () => {
 
       expect(result.status).not.toBe(0);
       expect(`${result.stdout}${result.stderr}`).toContain(
-        "restore:failed:production-compatible-revision-unavailable",
+        "restore:failed:production-compatible-record-unavailable",
       );
       expect(readFileSync(harness.commandLog, "utf8")).not.toContain(
         "createdb",
@@ -2562,7 +3030,7 @@ describe("guarded database restore", () => {
   it("normal production recovery refuses a missing target database", () => {
     const harness = shellHarness();
     const invocation = productionRestoreInvocation(harness);
-    writeFileSync(harness.databaseStateFile, "postgres\n");
+    writeFileSync(harness.databaseStateFile, "postgres\t1\n");
     const backupName = basename(invocation.backupFile);
     const result = runPreparedInteractiveProductionRestore(
       harness,
@@ -2595,7 +3063,7 @@ describe("guarded database restore", () => {
     expect(second.result.status).toBe(0);
     expect(first.result.stdout).toContain("restore:production-lock-acquired");
     expect(first.result.stdout).toContain(
-      "restore:pre-restore-backup=completed",
+      "restore:pre-restore-backup=completed-and-verified",
     );
     expect(first.result.stdout).toContain(
       `restore:complete mode=production target=reset90 backup=${backupName}`,
@@ -2622,7 +3090,7 @@ describe("guarded database restore", () => {
         join(first.stateDirectory, "database-compatible.sha"),
         "utf8",
       ),
-    ).toBe(`${previousRevision}\n`);
+    ).toBe(compatibilityRecord(previousRevision));
     expect(
       readFileSync(join(first.stateDirectory, "successful.sha"), "utf8"),
     ).toBe(`${databaseCompatibleRevision}\n`);
@@ -2690,7 +3158,7 @@ describe("guarded database restore", () => {
           join(attempt.stateDirectory, "database-compatible.sha"),
           "utf8",
         ),
-      ).toBe(`${revision}\n`);
+      ).toBe(compatibilityRecord(revision));
     },
   );
 
@@ -2788,82 +3256,174 @@ describe("guarded database restore", () => {
           join(attempt.stateDirectory, "database-compatible.sha"),
           "utf8",
         ),
-      ).toBe(`${revision}\n`);
+      ).toBe(compatibilityRecord(revision));
     },
   );
 
-  it.each([
-    [
-      "target rename failure",
-      { FAKE_DOCKER_FAIL_MATCH: 'ALTER DATABASE "reset90" RENAME' },
-      false,
-    ],
-    [
-      "failure after original database rename",
-      { FAKE_DOCKER_FAIL_AFTER_MATCH: 'ALTER DATABASE "reset90" RENAME' },
-      false,
-    ],
-    [
-      "staging promotion failure",
-      {
-        FAKE_DOCKER_FAIL_MATCH: 'ALTER DATABASE "reset90_restore_test_',
-      },
-      false,
-    ],
-    [
-      "failure after staging promotion",
+  it("reconciles promotion success reported as failure with an original target", () => {
+    const harness = shellHarness();
+    const backupName = `reset90_${fixedTimestamp}_manual_${previousRevision}.sql.gz`;
+    const attempt = runInteractiveProductionRestore(
+      harness,
+      `RESTORE reset90 FROM ${backupName}`,
       {
         FAKE_DOCKER_FAIL_AFTER_MATCH: 'ALTER DATABASE "reset90_restore_test_',
       },
-      true,
-    ],
-    [
-      "interruption between rename completion and shell-state assignment",
-      { FAKE_DOCKER_SIGNAL_AFTER_MATCH: 'ALTER DATABASE "reset90" RENAME' },
-      false,
-    ],
-    [
-      "failure while removing old database",
-      { FAKE_DOCKER_FAIL_MATCH: " dropdb " },
-      true,
-    ],
-    [
-      "signal interruption during staging restore",
-      { FAKE_DOCKER_SIGNAL_AFTER_MATCH: "single-transaction" },
-      false,
-    ],
-  ])(
-    "reconciles actual database names after %s",
-    (_name, environment, preservesOldDatabase) => {
-      const harness = shellHarness();
-      const backupName = `reset90_${fixedTimestamp}_manual_${previousRevision}.sql.gz`;
-      const attempt = runInteractiveProductionRestore(
-        harness,
-        `RESTORE reset90 FROM ${backupName}`,
-        environment,
-      );
-      const names = databaseNames(harness);
+    );
+    const combined = `${attempt.result.stdout}${attempt.result.stderr}`;
 
-      expect(attempt.result.status).not.toBe(0);
-      expect(names).toContain("reset90");
-      expect(names.some((name) => name.includes("_restore_test_"))).toBe(false);
-      expect(names.some((name) => name.includes("_prerestore_"))).toBe(
-        preservesOldDatabase,
-      );
-      expect(existsSync(attempt.lockFile)).toBe(true);
-      expect(
-        run("/usr/bin/flock", ["-n", attempt.lockFile, "-c", "true"]).status,
-      ).toBe(0);
-      expect(
-        readFileSync(
-          join(attempt.stateDirectory, "database-compatible.sha"),
-          "utf8",
-        ),
-      ).toBe(`${revision}\n`);
-    },
-  );
+    expect(attempt.result.status).toBe(0);
+    expect(combined).toContain(
+      "restore:promotion-command=reported-failure actual-state=reconciled",
+    );
+    expect(databaseNames(harness)).toEqual(["postgres", "reset90"]);
+    expect(
+      readFileSync(
+        join(attempt.stateDirectory, "database-compatible.sha"),
+        "utf8",
+      ),
+    ).toBe(compatibilityRecord(previousRevision));
+    expect(
+      readFileSync(join(attempt.stateDirectory, "successful.sha"), "utf8"),
+    ).toBe(`${databaseCompatibleRevision}\n`);
+  });
 
-  it("keeps compatibility state unchanged after failed final database verification", () => {
+  it("reconciles promotion success reported as failure without an original target", () => {
+    const harness = shellHarness();
+    const invocation = productionRestoreInvocation(
+      harness,
+      previousRevision,
+      revision,
+      true,
+    );
+    writeFileSync(harness.databaseStateFile, "postgres\t1\n");
+    rmSync(join(invocation.stateDirectory, "database-compatible.sha"));
+    const backupName = basename(invocation.backupFile);
+    const result = runPreparedInteractiveProductionRestore(
+      harness,
+      invocation,
+      `DEGRADED RESTORE reset90 FROM ${backupName}`,
+      {
+        FAKE_DOCKER_FAIL_AFTER_MATCH: 'ALTER DATABASE "reset90_restore_test_',
+      },
+    );
+
+    expect(result.status).toBe(0);
+    expect(`${result.stdout}${result.stderr}`).toContain(
+      "restore:promotion-command=reported-failure actual-state=reconciled",
+    );
+    expect(databaseNames(harness)).toEqual(["postgres", "reset90"]);
+    expect(
+      readFileSync(
+        join(invocation.stateDirectory, "database-compatible.sha"),
+        "utf8",
+      ),
+    ).toBe(compatibilityRecord(previousRevision));
+  });
+
+  it("invalidates compatibility when promoted target contract mismatches backup", () => {
+    const harness = shellHarness();
+    const mismatchedRows = checkedInMigrations
+      .slice(0, -1)
+      .map(completedMigrationRow)
+      .join("\n");
+    const backupName = `reset90_${fixedTimestamp}_manual_${previousRevision}.sql.gz`;
+    const attempt = runInteractiveProductionRestore(
+      harness,
+      `RESTORE reset90 FROM ${backupName}`,
+      {
+        FAKE_MIGRATION_ROWS_AFTER_COUNT: "2",
+        FAKE_MIGRATION_ROWS_AFTER_COUNT_VALUE: mismatchedRows,
+      },
+    );
+    const compatibleState = readFileSync(
+      join(attempt.stateDirectory, "database-compatible.sha"),
+      "utf8",
+    );
+
+    expect(attempt.result.status).not.toBe(0);
+    expect(`${attempt.result.stdout}${attempt.result.stderr}`).toContain(
+      "restore:operator-recovery reason=promoted-contract-mismatch",
+    );
+    expect(compatibleState).toContain("status=invalid");
+    expect(compatibleState).not.toContain("application_revision=");
+    expect(
+      databaseNames(harness).some((name) => name.includes("_prerestore_")),
+    ).toBe(true);
+    expect(
+      readFileSync(join(attempt.stateDirectory, "successful.sha"), "utf8"),
+    ).toBe(`${databaseCompatibleRevision}\n`);
+  });
+
+  it("publishes compatibility before old cleanup and reconciles deletion reported as failure", () => {
+    const harness = shellHarness();
+    const backupName = `reset90_${fixedTimestamp}_manual_${previousRevision}.sql.gz`;
+    const attempt = runInteractiveProductionRestore(
+      harness,
+      `RESTORE reset90 FROM ${backupName}`,
+      { FAKE_DOCKER_FAIL_AFTER_MATCH: " dropdb " },
+    );
+    const commandLines = readFileSync(harness.commandLog, "utf8").split("\n");
+    const promotionIndex = commandLines.findIndex((line) =>
+      line.includes('ALTER DATABASE "reset90_restore_test_'),
+    );
+    const compatibilityPublishIndex = commandLines.findIndex(
+      (line, index) =>
+        index > promotionIndex &&
+        line.startsWith("mv ") &&
+        line.endsWith("database-compatible.sha"),
+    );
+    const oldCleanupIndex = commandLines.findIndex(
+      (line, index) => index > promotionIndex && line.includes(" dropdb "),
+    );
+
+    expect(attempt.result.status).toBe(0);
+    expect(compatibilityPublishIndex).toBeGreaterThan(promotionIndex);
+    expect(oldCleanupIndex).toBeGreaterThan(compatibilityPublishIndex);
+    expect(databaseNames(harness)).toEqual(["postgres", "reset90"]);
+    expect(
+      readFileSync(
+        join(attempt.stateDirectory, "database-compatible.sha"),
+        "utf8",
+      ),
+    ).toBe(compatibilityRecord(previousRevision));
+    expect(
+      readFileSync(join(attempt.stateDirectory, "successful.sha"), "utf8"),
+    ).toBe(`${databaseCompatibleRevision}\n`);
+  });
+
+  it("invalidates compatibility and preserves old plus staging when target state is ambiguous", () => {
+    const harness = shellHarness();
+    const backupName = `reset90_${fixedTimestamp}_manual_${previousRevision}.sql.gz`;
+    const attempt = runInteractiveProductionRestore(
+      harness,
+      `RESTORE reset90 FROM ${backupName}`,
+      {
+        FAKE_DATABASE_STATE_FAILURE_AFTER: "5",
+        FAKE_DOCKER_FAIL_MATCH: 'ALTER DATABASE "reset90_restore_test_',
+      },
+    );
+    const names = databaseNames(harness);
+    const compatibleState = readFileSync(
+      join(attempt.stateDirectory, "database-compatible.sha"),
+      "utf8",
+    );
+
+    expect(attempt.result.status).not.toBe(0);
+    expect(`${attempt.result.stdout}${attempt.result.stderr}`).toContain(
+      "restore:operator-recovery reason=target-state-unavailable",
+    );
+    expect(names.some((name) => name.includes("_prerestore_"))).toBe(true);
+    expect(names.some((name) => name.includes("_restore_test_"))).toBe(true);
+    expect(compatibleState).toContain("status=invalid");
+    expect(compatibleState).not.toContain("application_revision=");
+    expect(existsSync(attempt.lockFile)).toBe(true);
+    expect(
+      run("/usr/bin/flock", ["-n", attempt.lockFile, "-c", "true"]).status,
+    ).toBe(0);
+  });
+
+  it("invalidates compatibility when promoted target verification is unavailable", () => {
     const harness = shellHarness();
     const backupName = `reset90_${fixedTimestamp}_manual_${previousRevision}.sql.gz`;
     const attempt = runInteractiveProductionRestore(
@@ -2871,48 +3431,17 @@ describe("guarded database restore", () => {
       `RESTORE reset90 FROM ${backupName}`,
       { FAKE_FINAL_VERIFY_FAIL: "1" },
     );
-    const names = databaseNames(harness);
+    const compatibleState = readFileSync(
+      join(attempt.stateDirectory, "database-compatible.sha"),
+      "utf8",
+    );
 
     expect(attempt.result.status).not.toBe(0);
-    expect(`${attempt.result.stdout}${attempt.result.stderr}`).toContain(
-      "restore:failed:final-database-verification",
-    );
+    expect(compatibleState).toContain("status=invalid");
+    expect(compatibleState).not.toContain("application_revision=");
     expect(
-      readFileSync(
-        join(attempt.stateDirectory, "database-compatible.sha"),
-        "utf8",
-      ),
-    ).toBe(`${revision}\n`);
-    expect(names).toContain("reset90");
-    expect(names.some((name) => name.includes("_prerestore_"))).toBe(true);
-  });
-
-  it("fails after preserving restored database when compatible-state publication fails", () => {
-    const harness = shellHarness();
-    const backupName = `reset90_${fixedTimestamp}_manual_${previousRevision}.sql.gz`;
-    const attempt = runInteractiveProductionRestore(
-      harness,
-      `RESTORE reset90 FROM ${backupName}`,
-      { FAKE_MV_FAIL_SUFFIX: "database-compatible.sha" },
-    );
-    const combined = `${attempt.result.stdout}${attempt.result.stderr}`;
-
-    expect(attempt.result.status).not.toBe(0);
-    expect(combined).toContain(
-      "restore:database-restored compatibility-state=operator-repair-required",
-    );
-    expect(combined).toContain("restore:failed:compatible-state-persistence");
-    expect(databaseNames(harness)).toEqual(["postgres", "reset90"]);
-    expect(
-      readFileSync(
-        join(attempt.stateDirectory, "database-compatible.sha"),
-        "utf8",
-      ),
-    ).toBe(`${revision}\n`);
-    expect(
-      readFileSync(join(attempt.stateDirectory, "successful.sha"), "utf8"),
-    ).toBe(`${databaseCompatibleRevision}\n`);
-    expect(combined).not.toContain("restore:complete mode=production");
+      databaseNames(harness).some((name) => name.includes("_prerestore_")),
+    ).toBe(true);
   });
 
   it.each([
@@ -2954,7 +3483,7 @@ describe("guarded database restore", () => {
         join(attempt.stateDirectory, "database-compatible.sha"),
         "utf8",
       ),
-    ).toBe(`${revision}\n`);
+    ).toBe(compatibilityRecord(revision));
   });
 });
 
